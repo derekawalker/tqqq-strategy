@@ -1,6 +1,8 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from "react";
+import type { FilledOrder, WorkingOrder } from "@/lib/schwab/parse";
+export type { FilledOrder, WorkingOrder };
 
 export interface AccountSettings {
   startingCash: number | null;
@@ -8,6 +10,8 @@ export interface AccountSettings {
   initialLotPrice: number | null;
   sellPercentage: number | null;
   reductionFactor: number | null;
+  orderWarnBelow: number | null;
+  orderBuffer: number | null;
 }
 
 export interface Account {
@@ -23,6 +27,8 @@ const DEFAULT_SETTINGS: AccountSettings = {
   initialLotPrice: null,
   sellPercentage: null,
   reductionFactor: null,
+  orderWarnBelow: 3,
+  orderBuffer: 5,
 };
 
 export interface Quote {
@@ -32,7 +38,7 @@ export interface Quote {
 }
 
 export interface Alerts {
-  gridMatch: boolean | null;
+  levelMatch: boolean | null;
   workingOrders: boolean | null;
   duplicateOrders: number | null;
   expiringOptions: number | null;
@@ -55,15 +61,22 @@ interface AppContextValue {
   refreshTick: number;
   tickRefresh: () => void;
   alerts: Alerts;
-  setAlerts: (alerts: Alerts) => void;
+  setAlerts: React.Dispatch<React.SetStateAction<Alerts>>;
+  schwabConnected: boolean | null; // null = loading
+  checkSchwabAuth: () => Promise<void>;
+  filledOrders: FilledOrder[];
+  workingOrders: WorkingOrder[];
+  tqqqShares: number; // TQQQ shares held in active account per Schwab positions
+  snapshotLoading: boolean;
 }
 
 const STORAGE_KEY = "tqqq-accounts";
+const ACTIVE_ACCOUNT_KEY = "tqqq-active-account";
 
 const DEFAULT_ACCOUNTS: Account[] = [
-  { accountNumber: "111111111", accountName: "Roth IRA", color: "blue", settings: { ...DEFAULT_SETTINGS } },
-  { accountNumber: "222222222", accountName: "Brokerage", color: "teal", settings: { ...DEFAULT_SETTINGS } },
-  { accountNumber: "333333333", accountName: "Rollover IRA", color: "violet", settings: { ...DEFAULT_SETTINGS } },
+  { accountNumber: "111111111", accountName: "...", color: "gray", settings: { ...DEFAULT_SETTINGS } },
+  { accountNumber: "222222222", accountName: "...", color: "gray", settings: { ...DEFAULT_SETTINGS } },
+  { accountNumber: "333333333", accountName: "...", color: "gray", settings: { ...DEFAULT_SETTINGS } },
 ];
 
 function loadAccounts(): Account[] {
@@ -86,26 +99,141 @@ function loadAccounts(): Account[] {
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  // Start with defaults (matches SSR), load localStorage after mount
   const [accounts, setAccounts] = useState<Account[]>(DEFAULT_ACCOUNTS);
-  const [activeAccount, setActiveAccount] = useState<Account | null>(DEFAULT_ACCOUNTS[0]);
+  const [activeAccount, setActiveAccount] = useState<Account | null>(DEFAULT_ACCOUNTS[0] ?? null);
+  // initialized becomes true after the first localStorage load — persists only fire after this
+  const [initialized, setInitialized] = useState(false);
 
-  // Load from localStorage once on mount
   useEffect(() => {
-    const saved = loadAccounts();
-    setAccounts(saved);
-    setActiveAccount(saved[0]);
+    const savedAccounts = loadAccounts();
+    const savedNumber = localStorage.getItem(ACTIVE_ACCOUNT_KEY);
+    const saved = savedNumber ? savedAccounts.find((a) => a.accountNumber === savedNumber) : null;
+    setAccounts(savedAccounts);
+    setActiveAccount(saved ?? savedAccounts[0] ?? null);
+    setInitialized(true);
   }, []);
 
-  // Persist whenever accounts change
+  // Persist accounts — React batches the load effect's setState calls, so when initialized
+  // flips to true, accounts already holds the loaded value in the same render.
   useEffect(() => {
+    if (!initialized) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
-  }, [accounts]);
+  }, [initialized, accounts]);
+
+  // Persist active account selection
+  useEffect(() => {
+    if (!initialized) return;
+    if (activeAccount) localStorage.setItem(ACTIVE_ACCOUNT_KEY, activeAccount.accountNumber);
+  }, [initialized, activeAccount]);
+
   const [privacyMode, setPrivacyMode] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [schwabConnected, setSchwabConnected] = useState<boolean | null>(null);
+
+  const syncAccountsFromSchwab = async () => {
+    try {
+      const res = await fetch("/api/schwab/accounts");
+      const schwabAccounts = await res.json();
+      if (!Array.isArray(schwabAccounts)) return;
+
+      setAccounts((prev) => {
+        const colors = ["blue", "teal", "violet", "orange", "pink", "grape"];
+        const merged = schwabAccounts.map((sa: { accountNumber: string; nickName: string }, i: number) => {
+          const existing = prev.find((a) => a.accountNumber === sa.accountNumber);
+          return existing
+            ? { ...existing, accountName: sa.nickName }
+            : {
+                accountNumber: sa.accountNumber,
+                accountName: sa.nickName,
+                color: colors[i % colors.length],
+                settings: { ...DEFAULT_SETTINGS },
+              };
+        });
+        setActiveAccount((active) => {
+          const savedNumber = localStorage.getItem(ACTIVE_ACCOUNT_KEY);
+          const preferred = savedNumber ?? active?.accountNumber;
+          return merged.find((a) => a.accountNumber === preferred) ?? merged[0] ?? null;
+        });
+        return merged;
+      });
+    } catch {
+      // silently ignore — accounts remain as-is
+    }
+  };
+
+  const checkSchwabAuth = async () => {
+    try {
+      const res = await fetch("/api/auth/status");
+      const data = await res.json();
+      const connected = data.authenticated === true;
+      setSchwabConnected(connected);
+      if (connected) await syncAccountsFromSchwab();
+    } catch {
+      setSchwabConnected(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    async function init() {
+      try {
+        const res = await fetch("/api/auth/status");
+        const data = await res.json();
+        if (cancelled) return;
+        const connected = data.authenticated === true;
+        setSchwabConnected(connected);
+        if (connected) await syncAccountsFromSchwab();
+      } catch {
+        if (!cancelled) setSchwabConnected(false);
+      }
+    }
+    init();
+    return () => { cancelled = true; };
+  }, []);
   const [quote, setQuote] = useState<Quote>({ price: 0, changePercent: 0, loading: true });
   const [refreshTick, setRefreshTick] = useState(0);
+  const [allFilledOrders, setAllFilledOrders] = useState<FilledOrder[]>([]);
+  const [allWorkingOrders, setAllWorkingOrders] = useState<WorkingOrder[]>([]);
+  const [allTqqqShares, setAllTqqqShares] = useState<Record<string, number>>({});
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setSnapshotLoading(true);
+      try {
+        const res = await fetch("/api/schwab/snapshot");
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.filledOrders) setAllFilledOrders(data.filledOrders);
+        if (data.workingOrders) setAllWorkingOrders(data.workingOrders);
+        if (data.tqqqShares) setAllTqqqShares(data.tqqqShares);
+      } catch {
+        // ignore
+      } finally {
+        if (!cancelled) setSnapshotLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [refreshTick]);
+
+  const accountNumber = activeAccount?.accountNumber ?? null;
+  const filledOrders = useMemo(
+    () => accountNumber ? allFilledOrders.filter((o) => o.accountNumber === accountNumber) : [],
+    [allFilledOrders, accountNumber]
+  );
+  const workingOrders = useMemo(
+    () => accountNumber ? allWorkingOrders.filter((o) => o.accountNumber === accountNumber) : [],
+    [allWorkingOrders, accountNumber]
+  );
+  const tqqqShares = useMemo(
+    () => accountNumber ? (allTqqqShares[accountNumber] ?? 0) : 0,
+    [allTqqqShares, accountNumber]
+  );
   const [alerts, setAlerts] = useState<Alerts>({
-    gridMatch: null,
+    levelMatch: null,
     workingOrders: null,
     duplicateOrders: null,
     expiringOptions: null,
@@ -136,7 +264,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     );
   };
 
-  const togglePrivacy = () => setPrivacyMode((p) => !p);
+const togglePrivacy = () => setPrivacyMode((p) => !p);
   const tickRefresh = () => {
     setQuote((q) => ({ ...q, loading: true }));
     setRefreshTick((t) => t + 1);
@@ -161,6 +289,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         tickRefresh,
         alerts,
         setAlerts,
+        schwabConnected,
+        checkSchwabAuth,
+        filledOrders,
+        workingOrders,
+        tqqqShares,
+        snapshotLoading,
       }}
     >
       {children}

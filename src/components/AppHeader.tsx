@@ -21,8 +21,11 @@ import {
   IconRefresh,
   IconSun,
   IconMoon,
+  IconPlugConnected,
+  IconPlugConnectedX,
 } from "@tabler/icons-react";
 import { useApp } from "@/lib/context/AppContext";
+import { useRouter } from "next/navigation";
 
 interface AppHeaderProps {
   onRefresh: () => void;
@@ -30,10 +33,11 @@ interface AppHeaderProps {
 }
 
 export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps) {
-  const { accounts, activeAccount, setActiveAccount, privacyMode, togglePrivacy, quote } = useApp();
+  const { accounts, activeAccount, setActiveAccount, privacyMode, togglePrivacy, quote, schwabConnected, checkSchwabAuth } = useApp();
   const { setColorScheme } = useMantineColorScheme();
   const computedColorScheme = useComputedColorScheme("light");
   const isMobile = useMediaQuery("(max-width: 768px)");
+  const router = useRouter();
 
   const toggleTheme = () =>
     setColorScheme(computedColorScheme === "light" ? "dark" : "light");
@@ -68,8 +72,34 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
     size: "input-xs",
   };
 
+  const schwabLabel = schwabConnected === null
+    ? "Checking Schwab connection…"
+    : schwabConnected
+      ? "Schwab connected — click to disconnect"
+      : "Schwab disconnected — click to connect";
+
+  const handleSchwabClick = async () => {
+    if (schwabConnected) {
+      await fetch("/api/auth/logout", { method: "POST" });
+      await checkSchwabAuth();
+    } else {
+      router.push("/api/auth/login");
+    }
+  };
+
   const actionIcons = (
     <Group gap={4} wrap="nowrap">
+      <Tooltip label={schwabLabel}>
+        <ActionIcon
+          {...aiProps}
+          color={schwabConnected ? "teal" : schwabConnected === null ? "gray.5" : "red.6"}
+          onClick={handleSchwabClick}
+        >
+          {schwabConnected
+            ? <IconPlugConnected size={14} />
+            : <IconPlugConnectedX size={14} />}
+        </ActionIcon>
+      </Tooltip>
       <Tooltip label="Settings">
         <ActionIcon {...aiProps} onClick={onSettingsOpen}>
           <IconSettings size={14} />

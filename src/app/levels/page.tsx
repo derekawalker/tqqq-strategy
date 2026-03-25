@@ -1,8 +1,8 @@
 "use client";
 
 import { Fragment } from "react";
-import { Table, ScrollArea, Text, Center, ThemeIcon } from "@mantine/core";
-import { IconCheck } from "@tabler/icons-react";
+import { Table, ScrollArea, Text, Center, ThemeIcon, Alert } from "@mantine/core";
+import { IconCheck, IconAlertTriangle } from "@tabler/icons-react";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
@@ -36,7 +36,7 @@ function ProgressRow({ progress, color, paddingTop, paddingBottom, cols }: {
 
 export default function LevelsPage() {
   const isMobile = useMediaQuery("(max-width: 768px)");
-  const { activeAccount, privacyMode, quote } = useApp();
+  const { activeAccount, privacyMode, quote, alerts, tqqqShares } = useApp();
   const summary = useLevels();
   const accountColor = activeAccount?.color ?? "blue";
 
@@ -58,8 +58,20 @@ export default function LevelsPage() {
   const mask = (val: string) => (privacyMode ? "••••" : val);
 
   return (
+    <>
+    {alerts.levelMatch === false && (
+      <Alert
+        icon={<IconAlertTriangle size={16} />}
+        color="orange"
+        variant="light"
+        mb="md"
+        title="Share count mismatch"
+      >
+        Your account holds {fmt(tqqqShares, 0)} shares of TQQQ, but your levels total {fmt(totalShares, 0)} shares.
+      </Alert>
+    )}
     <ScrollArea>
-      <Table striped stripedColor="dark.7" highlightOnHover stickyHeader>
+      <Table stickyHeader>
         <Table.Thead>
           <Table.Tr style={{ verticalAlign: "top" }}>
             <Table.Th w={40} />
@@ -127,5 +139,6 @@ export default function LevelsPage() {
         </Table.Tbody>
       </Table>
     </ScrollArea>
+    </>
   );
 }

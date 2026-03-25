@@ -19,7 +19,7 @@ export function computeLevels(
   return Array.from({ length: 88 }, (_, n) => {
     const buyPrice = initialLotPrice * (1 - 0.01 * n);
     const allocated = startingCash * K * Math.pow(R, n);
-    const shares = Math.floor(allocated / buyPrice);
+    const shares = Math.round(allocated / buyPrice);
     const cost = shares * buyPrice;
     const sellPrice = buyPrice * (1 + sellPercentage / 100);
     return { n, buyPrice, sellPrice, shares, cost, purchased: false };

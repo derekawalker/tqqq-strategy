@@ -1,1 +1,249 @@
-export default function Page() { return <div /> }
+"use client";
+
+import { useMemo } from "react";
+import { Table, ScrollArea, Text, Center, Skeleton, Stack, Badge, NumberInput, Group, Tooltip } from "@mantine/core";
+import { IconAlertTriangle, IconCopy } from "@tabler/icons-react";
+import { useApp } from "@/lib/context/AppContext";
+import { useLevels } from "@/lib/hooks/useLevels";
+
+const fmt = (n: number, decimals = 2) =>
+  n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+
+interface LevelRow {
+  levelIndex: number;
+  shares: number;
+  buyPrice: number | null;
+  sellPrice: number | null;
+  buys: number;
+  sells: number;
+}
+
+export default function WorkingOrdersPage() {
+  const { workingOrders, snapshotLoading, privacyMode, activeAccount, updateAccountSettings } = useApp();
+  const levelsSummary = useLevels();
+
+  const warnBelow = activeAccount?.settings.orderWarnBelow ?? 3;
+  const buffer = activeAccount?.settings.orderBuffer ?? 5;
+  const threshold = warnBelow ?? 0;
+  const bufferSize = buffer ?? 0;
+
+  const setWarnBelow = (v: number | string) =>
+    updateAccountSettings(activeAccount!.accountNumber, { orderWarnBelow: typeof v === "number" ? v : null });
+  const setBuffer = (v: number | string) =>
+    updateAccountSettings(activeAccount!.accountNumber, { orderBuffer: typeof v === "number" ? v : null });
+
+  const rows = useMemo<LevelRow[]>(() => {
+    const counts = new Map<number, { buys: number; sells: number }>();
+    for (const o of workingOrders) {
+      const c = counts.get(o.shares) ?? { buys: 0, sells: 0 };
+      if (o.side === "BUY") c.buys++; else c.sells++;
+      counts.set(o.shares, c);
+    }
+
+    if (!levelsSummary) {
+      // No settings — show orders without level matching
+      const rows: LevelRow[] = Array.from(counts.entries()).map(([shares, c]) => ({
+        levelIndex: -1, shares, buyPrice: null, sellPrice: null, ...c,
+      }));
+      rows.sort((a, b) => a.shares - b.shares);
+      return rows;
+    }
+
+    let maxOrderLevel = -1;
+    for (const [shares] of counts) {
+      const idx = levelsSummary.levels.findIndex((l) => l.shares === shares);
+      if (idx > maxOrderLevel) maxOrderLevel = idx;
+    }
+
+    const maxLevel = Math.max(
+      levelsSummary.currentLevel + bufferSize,
+      maxOrderLevel,
+      levelsSummary.currentLevel,
+    );
+    const visibleLevels = levelsSummary.levels.slice(0, maxLevel + 1);
+
+    const rows: LevelRow[] = visibleLevels.map((level, i) => {
+      const c = counts.get(level.shares) ?? { buys: 0, sells: 0 };
+      return {
+        levelIndex: i,
+        shares: level.shares,
+        buyPrice: level.buyPrice,
+        sellPrice: level.sellPrice,
+        buys: c.buys,
+        sells: c.sells,
+      };
+    });
+
+    for (const [shares, c] of counts) {
+      const matched = levelsSummary.levels.some((l) => l.shares === shares);
+      if (!matched) {
+        rows.push({ levelIndex: -1, shares, buyPrice: null, sellPrice: null, ...c });
+      }
+    }
+
+    rows.sort((a, b) => a.shares - b.shares);
+    return rows;
+  }, [workingOrders, levelsSummary, bufferSize]);
+
+  const mask = (val: string) => (privacyMode ? "••••" : val);
+
+  const duplicateShares = useMemo(() => {
+    const workingOnly = workingOrders.filter((o) => o.status === "WORKING");
+    const counts = new Map<string, number>();
+    for (const o of workingOnly) {
+      const key = `${o.side}-${o.shares}`;
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const dupes = new Set<number>();
+    for (const [key, n] of counts) {
+      if (n > 1) dupes.add(Number(key.split("-")[1]));
+    }
+    return dupes;
+  }, [workingOrders]);
+
+  const ownedLevelIndices = useMemo(() => {
+    if (!levelsSummary) return new Set<number>();
+    return new Set(
+      levelsSummary.ownedLevels.map((l) => levelsSummary.levels.findIndex((ll) => ll.shares === l.shares && ll.buyPrice === l.buyPrice))
+    );
+  }, [levelsSummary]);
+
+  const pendingBuyCost = useMemo(() =>
+    rows.reduce((s, r) => {
+      if (r.buys === 0 || r.buyPrice == null) return s;
+      if (r.levelIndex >= 0 && ownedLevelIndices.has(r.levelIndex)) return s;
+      return s + r.shares * r.buyPrice;
+    }, 0),
+  [rows, ownedLevelIndices]);
+
+  if (snapshotLoading) {
+    return (
+      <Stack>
+        <Skeleton height={36} width={160} radius="md" />
+        <Skeleton height={300} radius="md" />
+      </Stack>
+    );
+  }
+
+  if (rows.length === 0) {
+    return (
+      <Center h={200}>
+        <Text c="dimmed" size="sm">No working orders.</Text>
+      </Center>
+    );
+  }
+
+  return (
+    <Stack>
+      <Group justify="space-between">
+        <Group>
+        <NumberInput
+          key={`warn-${activeAccount?.accountNumber}`}
+          label="Warn when order qty drops below"
+          value={warnBelow ?? ""}
+          onChange={setWarnBelow}
+          min={0}
+          max={99}
+          w={200}
+          size="xs"
+        />
+        <NumberInput
+          key={`buffer-${activeAccount?.accountNumber}`}
+          label="Buffer levels"
+          value={buffer ?? ""}
+          onChange={setBuffer}
+          min={0}
+          max={50}
+          w={200}
+          size="xs"
+        />
+        </Group>
+        <Stack gap={2} align="flex-end">
+          <Text size="xs"  fw={500}>Pending Buys</Text>
+          <Text size="xl" fw={700} c={activeAccount?.color ?? "teal"}>
+            {mask(`$${fmt(pendingBuyCost)}`)}
+          </Text>
+        </Stack>
+      </Group>
+
+      <ScrollArea>
+        <Table>
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th ta="center">Level</Table.Th>
+              <Table.Th ta="center">Qty</Table.Th>
+              <Table.Th ta="center">Buys</Table.Th>
+              <Table.Th ta="center">Sells</Table.Th>
+              <Table.Th ta="center">Buy Price</Table.Th>
+              <Table.Th ta="center">Sell Price</Table.Th>
+              <Table.Th ta="center">Cost</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {rows.map((row) => {
+              const hasOrders = row.buys > 0 || row.sells > 0;
+              const cost = row.buyPrice != null ? row.shares * row.buyPrice : null;
+              const currentLevel = levelsSummary?.currentLevel ?? -1;
+              const inBuffer = bufferSize > 0 && row.levelIndex >= 0
+                && row.levelIndex !== currentLevel
+                && Math.abs(row.levelIndex - currentLevel) <= bufferSize;
+              const bufferMissing = inBuffer && (row.buys === 0 || row.sells === 0);
+              const buyWarn = hasOrders && threshold > 0 && row.buys < threshold;
+              const sellWarn = hasOrders && threshold > 0 && row.sells < threshold;
+              const isCurrent = row.levelIndex === currentLevel && currentLevel >= 0;
+              const hasDuplicate = duplicateShares.has(row.shares);
+
+              return (
+                <Table.Tr
+                key={row.shares}
+                bg={hasDuplicate ? "rgba(250,82,82,0.1)" : isCurrent ? "rgba(255,255,255,0.12)" : bufferMissing ? "rgba(251,146,60,0.1)" : undefined}
+                style={{ opacity: !hasOrders && !bufferMissing ? 0.35 : 1, ...(hasDuplicate ? { borderLeft: "5px solid rgba(250,82,82,0.8)" } : bufferMissing ? { borderLeft: "5px solid rgba(251,146,60,0.8)" } : {}) }}
+              >
+                  <Table.Td ta="center">
+                    <Group justify="center" gap={4} wrap="nowrap">
+                      {hasDuplicate && (
+                        <Tooltip label="Duplicate WORKING orders detected on this level" withArrow>
+                          <IconCopy size={14} color="rgba(250,82,82,0.9)" style={{ cursor: "default" }} />
+                        </Tooltip>
+                      )}
+                      {bufferMissing && (
+                        <Tooltip label="Buffer zone — orders should be open on this level" withArrow>
+                          <IconAlertTriangle size={14} color="var(--mantine-color-orange-5)" style={{ cursor: "default" }} />
+                        </Tooltip>
+                      )}
+                      <Text size="sm" fw={500}>{row.levelIndex >= 0 ? row.levelIndex : "—"}</Text>
+                    </Group>
+                  </Table.Td>
+                  <Table.Td ta="center"><Text size="sm">{fmt(row.shares, 0)}</Text></Table.Td>
+                  <Table.Td ta="center">
+                    {buyWarn
+                      ? <Badge variant="filled" size="md" fw={700} style={{ background: "rgba(251,146,60,0.9)", color: "#fff" }}>{row.buys}</Badge>
+                      : row.buys > 0
+                        ? <Text size="sm" c="teal">{row.buys}</Text>
+                        : <Text size="sm" c="dimmed">—</Text>}
+                  </Table.Td>
+                  <Table.Td ta="center">
+                    {sellWarn
+                      ? <Badge variant="filled" size="md" fw={700} style={{ background: "rgba(251,146,60,0.9)", color: "#fff" }}>{row.sells}</Badge>
+                      : row.sells > 0
+                        ? <Text size="sm" c="red">{row.sells}</Text>
+                        : <Text size="sm" c="dimmed">—</Text>}
+                  </Table.Td>
+                  <Table.Td ta="center">
+                    <Text size="sm" c="dimmed">{hasOrders && row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text>
+                  </Table.Td>
+                  <Table.Td ta="center">
+                    <Text size="sm" c="dimmed">{hasOrders && row.sellPrice != null ? mask(`$${fmt(row.sellPrice)}`) : "—"}</Text>
+                  </Table.Td>
+                  <Table.Td ta="center">
+                    <Text size="sm" c="dimmed">{hasOrders && cost != null ? mask(`$${fmt(cost)}`) : "—"}</Text>
+                  </Table.Td>
+                </Table.Tr>
+              );
+            })}
+          </Table.Tbody>
+        </Table>
+      </ScrollArea>
+    </Stack>
+  );
+}

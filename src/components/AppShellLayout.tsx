@@ -8,14 +8,65 @@ import AlertBar from "@/components/AlertBar";
 import SettingsModal from "@/components/SettingsModal";
 import { SideNav, BottomNav } from "@/components/AppNav";
 import { useApp } from "@/lib/context/AppContext";
+import { useLevels } from "@/lib/hooks/useLevels";
 
 const NAVBAR_WIDTH = 180;
 
 export default function AppShellLayout({ children }: { children: ReactNode }) {
-  const { activeAccount, setQuote, refreshTick, tickRefresh } = useApp();
+  const { activeAccount, setQuote, refreshTick, tickRefresh, tqqqShares, setAlerts, workingOrders } = useApp();
+  const levelsSummary = useLevels();
   const computedColorScheme = useComputedColorScheme("dark");
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    const s = activeAccount?.settings;
+    const threshold = s?.orderWarnBelow ?? 0;
+    const bufferSize = s?.orderBuffer ?? 0;
+    const currentLevel = levelsSummary?.currentLevel ?? -1;
+
+    const counts = new Map<number, { buys: number; sells: number }>();
+    for (const o of workingOrders) {
+      const c = counts.get(o.shares) ?? { buys: 0, sells: 0 };
+      if (o.side === "BUY") c.buys++; else c.sells++;
+      counts.set(o.shares, c);
+    }
+
+    let hasWarning = false;
+    if (levelsSummary) {
+      for (let i = 0; i < levelsSummary.levels.length; i++) {
+        const level = levelsSummary.levels[i];
+        const c = counts.get(level.shares) ?? { buys: 0, sells: 0 };
+        const inBuffer = bufferSize > 0 && i !== currentLevel && Math.abs(i - currentLevel) <= bufferSize;
+        if (inBuffer && (c.buys === 0 || c.sells === 0)) { hasWarning = true; break; }
+        if ((c.buys > 0 || c.sells > 0) && threshold > 0 && (c.buys < threshold || c.sells < threshold)) { hasWarning = true; break; }
+      }
+    }
+    // Duplicate detection: count WORKING-status orders with same side + shares
+    const workingOnly = workingOrders.filter((o) => o.status === "WORKING");
+    const workingCounts = new Map<string, number>();
+    for (const o of workingOnly) {
+      const key = `${o.side}-${o.shares}`;
+      workingCounts.set(key, (workingCounts.get(key) ?? 0) + 1);
+    }
+    const duplicateCount = [...workingCounts.values()].filter((n) => n > 1).length;
+
+    setAlerts((prev) => ({ ...prev, workingOrders: workingOrders.length > 0 ? !hasWarning : null, duplicateOrders: duplicateCount }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workingOrders, levelsSummary, activeAccount?.settings.orderWarnBelow, activeAccount?.settings.orderBuffer]);
+
+  useEffect(() => {
+    if (!levelsSummary) {
+      setAlerts((prev) => ({ ...prev, levelMatch: null }));
+      return;
+    }
+    const totalLevelShares = levelsSummary.ownedLevels.reduce((sum, l) => sum + l.shares, 0);
+    const match = tqqqShares > 0 && totalLevelShares > 0
+      ? tqqqShares === totalLevelShares
+      : null;
+    setAlerts((prev) => ({ ...prev, levelMatch: match }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [levelsSummary, tqqqShares]);
 
   useEffect(() => {
     let cancelled = false;

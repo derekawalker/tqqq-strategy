@@ -1,5 +1,18 @@
 import type { Metadata } from "next";
-import { ColorSchemeScript, MantineProvider, mantineHtmlProps } from "@mantine/core";
+import { MantineProvider, createTheme, mantineHtmlProps } from "@mantine/core";
+
+const theme = createTheme({
+  components: {
+    Table: {
+      defaultProps: {
+        striped: true,
+        highlightOnHover: true,
+        stripedColor: "rgba(255,255,255,0.03)",
+        highlightOnHoverColor: "rgba(255,255,255,0.05)",
+      },
+    },
+  },
+});
 import { Notifications } from "@mantine/notifications";
 import { AppProvider } from "@/lib/context/AppContext";
 import AppShellLayout from "@/components/AppShellLayout";
@@ -21,11 +34,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" {...mantineHtmlProps}>
-      <head>
-        <ColorSchemeScript defaultColorScheme="dark" />
-      </head>
-      <body>
-        <MantineProvider defaultColorScheme="dark">
+<body>
+        <MantineProvider theme={theme} defaultColorScheme="dark">
           <AppProvider>
             <Notifications />
             <AppShellLayout>{children}</AppShellLayout>

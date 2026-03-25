@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { useApp } from "@/lib/context/AppContext";
 import {
   NavLink,
   Drawer,
@@ -41,19 +42,23 @@ const MORE_PAGES = ALL_PAGES.slice(5);
 // Desktop sidebar
 export function SideNav() {
   const pathname = usePathname();
+  const { alerts } = useApp();
 
   return (
     <Stack gap={4} p="xs">
-      {ALL_PAGES.map(({ href, label, icon: Icon }) => (
+      {ALL_PAGES.map(({ href, label, icon: Icon }) => {
+        const warn = href === "/working-orders" && alerts.workingOrders === false;
+        return (
         <NavLink
           key={href}
           component={Link}
           href={href}
           label={label}
-          leftSection={<Icon size={18} />}
+          leftSection={<Icon size={18} color={warn ? "rgba(251,146,60,0.9)" : undefined} />}
           active={pathname === href}
         />
-      ))}
+        );
+      })}
     </Stack>
   );
 }
@@ -62,6 +67,7 @@ export function SideNav() {
 export function BottomNav() {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
+  const { alerts } = useApp();
 
   return (
     <>
@@ -79,6 +85,7 @@ export function BottomNav() {
       >
         {TAB_PAGES.map(({ href, label, icon: Icon }) => {
           const active = pathname === href;
+          const warn = href === "/working-orders" && alerts.workingOrders === false;
           return (
             <UnstyledButton
               key={href}
@@ -87,8 +94,8 @@ export function BottomNav() {
               style={{ flex: 1, padding: "8px 0", textAlign: "center" }}
             >
               <Stack gap={2} align="center">
-                <Icon size={20} color={active ? "var(--mantine-color-blue-4)" : "var(--mantine-color-gray-5)"} />
-                <Text size="xs" c={active ? "blue.4" : "dimmed"}>{label}</Text>
+                <Icon size={20} color={warn ? "rgba(251,146,60,0.9)" : active ? "var(--mantine-color-blue-4)" : "var(--mantine-color-gray-5)"} />
+                <Text size="xs" c={warn ? "orange.4" : active ? "blue.4" : "dimmed"}>{label}</Text>
               </Stack>
             </UnstyledButton>
           );
