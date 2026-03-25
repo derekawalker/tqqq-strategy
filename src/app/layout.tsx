@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { ColorSchemeScript, MantineProvider, mantineHtmlProps } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
+import { AppProvider } from "@/lib/context/AppContext";
+import AppShellLayout from "@/components/AppShellLayout";
 import "@mantine/core/styles.css";
 import "@mantine/charts/styles.css";
 import "@mantine/dates/styles.css";
@@ -20,12 +22,14 @@ export default function RootLayout({
   return (
     <html lang="en" {...mantineHtmlProps}>
       <head>
-        <ColorSchemeScript />
+        <ColorSchemeScript defaultColorScheme="dark" />
       </head>
       <body>
-        <MantineProvider>
-          <Notifications />
-          {children}
+        <MantineProvider defaultColorScheme="dark">
+          <AppProvider>
+            <Notifications />
+            <AppShellLayout>{children}</AppShellLayout>
+          </AppProvider>
         </MantineProvider>
       </body>
     </html>

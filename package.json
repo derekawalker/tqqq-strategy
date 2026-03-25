@@ -16,11 +16,13 @@
     "@mantine/hooks": "^8.3.18",
     "@mantine/modals": "^8.3.18",
     "@mantine/notifications": "^8.3.18",
+    "@tabler/icons-react": "^3.40.0",
     "dayjs": "^1.11.20",
     "next": "16.2.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
-    "recharts": "^3.8.0"
+    "recharts": "^3.8.0",
+    "yahoo-finance2": "^3.13.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
