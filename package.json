@@ -16,6 +16,7 @@
     "@mantine/hooks": "^8.3.18",
     "@mantine/modals": "^8.3.18",
     "@mantine/notifications": "^8.3.18",
+    "@supabase/supabase-js": "^2.100.0",
     "@tabler/icons-react": "^3.40.0",
     "dayjs": "^1.11.20",
     "next": "16.2.1",

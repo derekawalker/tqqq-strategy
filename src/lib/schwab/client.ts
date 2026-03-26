@@ -35,7 +35,7 @@ export async function exchangeCode(code: string): Promise<TokenSet> {
     refreshToken: data.refresh_token,
     expiresAt: Date.now() + data.expires_in * 1000,
   };
-  writeTokens(tokens);
+  await writeTokens(tokens);
   return tokens;
 }
 
@@ -63,13 +63,13 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenSet
     refreshToken: data.refresh_token ?? refreshToken,
     expiresAt: Date.now() + data.expires_in * 1000,
   };
-  writeTokens(tokens);
+  await writeTokens(tokens);
   return tokens;
 }
 
 /** Get a valid access token, refreshing if needed. Throws if not authenticated. */
 export async function getAccessToken(): Promise<string> {
-  let tokens = readTokens();
+  let tokens = await readTokens();
   if (!tokens) throw new Error("Not authenticated");
 
   if (isExpired(tokens)) {

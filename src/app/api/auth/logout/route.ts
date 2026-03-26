@@ -1,6 +1,6 @@
 import { clearTokens } from "@/lib/schwab/tokens";
 
 export async function POST() {
-  clearTokens();
+  await clearTokens();
   return Response.json({ ok: true });
 }
