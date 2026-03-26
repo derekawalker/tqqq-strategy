@@ -182,6 +182,9 @@ function PositionCells({
     ? Math.max(1, Math.round((new Date(position.expiry + "T00:00:00").getTime() - new Date(position.openedAt).getTime()) / 86400000))
     : 45;
   const elapsedPct = Math.min(100, Math.max(0, ((totalDays - dte) / totalDays) * 100));
+  const dteColor = elapsedPct <= 50
+    ? `color-mix(in srgb, var(--mantine-color-yellow-5) ${elapsedPct * 2}%, var(--mantine-color-lime-5) ${100 - elapsedPct * 2}%)`
+    : `color-mix(in srgb, var(--mantine-color-red-5) ${(elapsedPct - 50) * 2}%, var(--mantine-color-yellow-5) ${100 - (elapsedPct - 50) * 2}%)`;
 
   return (
     <>
@@ -208,13 +211,13 @@ function PositionCells({
           <Group justify="space-between">
             <Text size="xs" c="dimmed">{totalDays}d</Text>
             <IconArrowRight size={10} style={{ color: "var(--mantine-color-dimmed)" }} />
-            <Text size="xs" c={dte < 7 ? "red" : dte <= 14 ? "orange" : "lime"}>{dte}d</Text>
+            <Text size="xs" style={{ color: dteColor }}>{dte}d</Text>
           </Group>
           <Box style={{ height: 4, borderRadius: 999, background: "var(--mantine-color-dark-4)", overflow: "hidden" }}>
             <Box style={{
               height: "100%", borderRadius: 999,
               width: `${elapsedPct}%`,
-              background: `var(--mantine-color-${dte < 7 ? "red" : dte <= 14 ? "orange" : "lime"}-5)`,
+              background: dteColor,
             }} />
           </Box>
           <Box style={{ height: 4, borderRadius: 999, background: "var(--mantine-color-dark-4)", overflow: "hidden" }}>
