@@ -168,7 +168,7 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
                 color: computedColorScheme === "dark" ? "var(--mantine-color-gray-3)" : "var(--mantine-color-gray-7)",
               },
             }}
-            w={130}
+            w={160}
           />
         </Stack>
 

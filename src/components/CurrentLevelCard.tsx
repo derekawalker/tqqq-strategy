@@ -6,7 +6,7 @@ import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
 import { useCardBg } from "@/lib/hooks/useCardBg";
 
-const WINDOW = 6; // levels to show on each side of current
+const WINDOW = 4; // levels to show on each side of current
 
 export function CurrentLevelCard() {
   const { activeAccount } = useApp();
@@ -17,7 +17,7 @@ export function CurrentLevelCard() {
 
   if (!levelsSummary || levelsSummary.currentLevel < 0) {
     return (
-      <Paper p="md" radius="md" withBorder onClick={() => router.push("/levels")} style={{ gridColumn: "span 3", background: bg, cursor: "pointer" }}>
+      <Paper p="md" radius="md" withBorder onClick={() => router.push("/levels")} style={{ background: bg, cursor: "pointer", height: "100%" }}>
         <Stack align="center" gap={8}>
           <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Current Level</Text>
           <Text size="sm" c="dimmed">—</Text>
@@ -32,10 +32,10 @@ export function CurrentLevelCard() {
   const visible = levels.slice(start, end + 1);
 
   return (
-    <Paper p="md" radius="md" withBorder onClick={() => router.push("/levels")} style={{ gridColumn: "span 3", background: bg, cursor: "pointer" }}>
+    <Paper p="md" radius="md" withBorder onClick={() => router.push("/levels")} style={{ background: bg, cursor: "pointer", height: "100%" }}>
       <Stack align="center" gap={12}>
         <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Current Level</Text>
-        <Group gap={6} wrap="nowrap" justify="center">
+        <Group gap={6} wrap="wrap" justify="center">
           {visible.map((_, i) => {
             const idx = start + i;
             const isCurrent = idx === currentLevel;
@@ -43,8 +43,8 @@ export function CurrentLevelCard() {
               <Box
                 key={idx}
                 style={{
-                  width: isCurrent ? 48 : 36,
-                  height: isCurrent ? 48 : 36,
+                  width: isCurrent ? 36 : 28,
+                  height: isCurrent ? 36 : 28,
                   borderRadius: "50%",
                   display: "flex",
                   alignItems: "center",

@@ -14,6 +14,7 @@ import {
   ActionIcon,
   Button,
   Box,
+  Divider,
 } from "@mantine/core";
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import {
@@ -27,6 +28,7 @@ import {
 import { useMantineTheme, useComputedColorScheme } from "@mantine/core";
 import { useApp } from "@/lib/context/AppContext";
 import type { FilledOrder } from "@/lib/schwab/parse";
+import { dateGroupHeaderCellLeft, dateGroupLastCellLeft, dateGroupLastCellRight, dateGroupHeaderBg } from "@/lib/tableStyles";
 
 const fmt = (n: number, decimals = 2) =>
   n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
@@ -46,9 +48,11 @@ function toDateKey(date: Date): string {
 }
 
 function fmtDateKey(key: string): string {
-  return new Date(key + "T12:00:00").toLocaleDateString("en-US", {
-    weekday: "short", month: "short", day: "numeric", year: "numeric",
-  });
+  const d = new Date(key + "T12:00:00");
+  const mm = d.getMonth() + 1;
+  const dd = d.getDate();
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${mm}/${dd}/${yy}`;
 }
 
 const DAYS_OPTIONS = ["30", "60", "90"].map((d) => ({ value: d, label: `Last ${d} days` }));
@@ -201,7 +205,7 @@ export default function FilledOrdersPage() {
   const color = activeAccount?.color ?? "blue";
 
   return (
-    <Stack gap="md" p="md">
+    <Stack gap="md">
       {/* Day chart */}
       {loading ? (
         <Skeleton height={160} radius="sm" />
@@ -213,7 +217,7 @@ export default function FilledOrdersPage() {
       <Group justify="space-between" align="center">
         <Button
           size="xs"
-          variant="subtle"
+          variant="light"
           color="gray"
           disabled={!canBack}
           onClick={() => setSelectedDate(availableDates[0])}
@@ -224,19 +228,19 @@ export default function FilledOrdersPage() {
         <Group gap={4} align="center">
           <ActionIcon
             size="sm"
-            variant="subtle"
+            variant="light"
             color="gray"
             disabled={!canBack}
             onClick={() => setSelectedDate(availableDates[currentIdx - 1])}
           >
             <IconChevronLeft size={14} />
           </ActionIcon>
-          <Text size="sm" w={180} ta="center">
+          <Text size="sm" w={60} ta="center">
             {effectiveDate ? fmtDateKey(effectiveDate) : "—"}
           </Text>
           <ActionIcon
             size="sm"
-            variant="subtle"
+            variant="light"
             color="gray"
             disabled={!canForward}
             onClick={() => setSelectedDate(availableDates[currentIdx + 1])}
@@ -247,7 +251,7 @@ export default function FilledOrdersPage() {
 
         <Button
           size="xs"
-          variant="subtle"
+          variant="light"
           color="gray"
           disabled={effectiveDate === availableDates[availableDates.length - 1]}
           onClick={() => setSelectedDate(availableDates[availableDates.length - 1])}
@@ -255,6 +259,8 @@ export default function FilledOrdersPage() {
           Latest
         </Button>
       </Group>
+
+      <Divider />
 
       {/* Table header */}
       <Group justify="space-between" align="center">
@@ -278,52 +284,75 @@ export default function FilledOrdersPage() {
       </Group>
 
       <ScrollArea>
-        <Table striped highlightOnHover verticalSpacing="xs" fz="sm">
+        <Table className="table-grouped">
           <Table.Thead>
             <Table.Tr>
-              <Table.Th>Date</Table.Th>
               <Table.Th>Time</Table.Th>
               <Table.Th>Side</Table.Th>
               <Table.Th style={{ textAlign: "right" }}>Shares</Table.Th>
               <Table.Th style={{ textAlign: "right" }}>Fill Price</Table.Th>
-              <Table.Th style={{ textAlign: "right" }}>Total</Table.Th>
+              <Table.Th style={{ textAlign: "right" }} className="hide-mobile">Total</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
             {loading ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <Table.Tr key={i}>
-                  {Array.from({ length: 6 }).map((_, j) => (
+                  {Array.from({ length: 5 }).map((_, j) => (
                     <Table.Td key={j}><Skeleton height={14} radius="sm" /></Table.Td>
                   ))}
                 </Table.Tr>
               ))
             ) : orders.length === 0 ? (
               <Table.Tr>
-                <Table.Td colSpan={6}>
+                <Table.Td colSpan={5}>
                   <Text c="dimmed" ta="center" py="xl" size="sm">No filled TQQQ orders in this period</Text>
                 </Table.Td>
               </Table.Tr>
-            ) : (
-              pageOrders.map((order) => (
-                <Table.Tr key={order.orderId}>
-                  <Table.Td>{fmtDate(order.time)}</Table.Td>
-                  <Table.Td c="dimmed">{fmtTime(order.time)}</Table.Td>
-                  <Table.Td>
-                    <Badge
-                      color={order.side === "BUY" ? "teal" : "red"}
-                      variant="light"
-                      size="sm"
-                    >
-                      {order.side}
-                    </Badge>
-                  </Table.Td>
-                  <Table.Td style={{ textAlign: "right" }}>{order.shares}</Table.Td>
-                  <Table.Td style={{ textAlign: "right" }}>${fmt(order.fillPrice)}</Table.Td>
-                  <Table.Td style={{ textAlign: "right" }}>${fmt(order.total)}</Table.Td>
-                </Table.Tr>
-              ))
-            )}
+            ) : (() => {
+              const grouped = new Map<string, typeof pageOrders>();
+              for (const o of pageOrders) {
+                const key = toDateKey(new Date(o.time));
+                if (!grouped.has(key)) grouped.set(key, []);
+                grouped.get(key)!.push(o);
+              }
+              return [...grouped.entries()].map(([dateKey, dateOrders], gi) => (
+                <>
+                  {gi > 0 && (
+                    <Table.Tr key={`spacer-${dateKey}`} style={{ height: 10, background: "transparent" }}>
+                      <Table.Td colSpan={5} style={{ padding: 0, border: "none" }} />
+                    </Table.Tr>
+                  )}
+                  <Table.Tr key={`date-${dateKey}`} bg={dateGroupHeaderBg}>
+                    <Table.Td colSpan={5} style={dateGroupHeaderCellLeft}>
+                      <Text size="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5}>
+                        {fmtDateKey(dateKey)}
+                      </Text>
+                    </Table.Td>
+                  </Table.Tr>
+                  {dateOrders.map((order, oi) => {
+                    const isLast = oi === dateOrders.length - 1;
+                    return (
+                    <Table.Tr key={order.orderId}>
+                      <Table.Td c="dimmed" style={isLast ? dateGroupLastCellLeft : undefined}>{fmtTime(order.time)}</Table.Td>
+                      <Table.Td>
+                        <Badge
+                          color={order.side === "BUY" ? "teal" : "red"}
+                          variant="light"
+                          size="sm"
+                        >
+                          {order.side}
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td style={{ textAlign: "right" }}>{order.shares}</Table.Td>
+                      <Table.Td style={{ textAlign: "right", ...(isLast ? dateGroupLastCellRight : {}) }}>${fmt(order.fillPrice)}</Table.Td>
+                      <Table.Td style={{ textAlign: "right", ...(isLast ? dateGroupLastCellRight : {}) }} className="hide-mobile">${fmt(order.total)}</Table.Td>
+                    </Table.Tr>
+                    );
+                  })}
+                </>
+              ));
+            })()}
           </Table.Tbody>
         </Table>
       </ScrollArea>
@@ -334,6 +363,7 @@ export default function FilledOrdersPage() {
           onChange={setPage}
           total={totalPages}
           size="sm"
+          color={color}
         />
       )}
     </Stack>

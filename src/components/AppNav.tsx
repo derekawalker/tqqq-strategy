@@ -42,7 +42,8 @@ const MORE_PAGES = ALL_PAGES.slice(5);
 // Desktop sidebar
 export function SideNav() {
   const pathname = usePathname();
-  const { alerts } = useApp();
+  const { alerts, activeAccount } = useApp();
+  const color = activeAccount?.color ?? "blue";
 
   return (
     <Stack gap={4} p="xs">
@@ -56,6 +57,7 @@ export function SideNav() {
           label={label}
           leftSection={<Icon size={18} color={warn ? "rgba(251,146,60,0.9)" : undefined} />}
           active={pathname === href}
+          color={color}
         />
         );
       })}
@@ -67,7 +69,8 @@ export function SideNav() {
 export function BottomNav() {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
-  const { alerts } = useApp();
+  const { alerts, activeAccount } = useApp();
+  const color = activeAccount?.color ?? "blue";
 
   return (
     <>
@@ -94,8 +97,8 @@ export function BottomNav() {
               style={{ flex: 1, padding: "8px 0", textAlign: "center" }}
             >
               <Stack gap={2} align="center">
-                <Icon size={20} color={warn ? "rgba(251,146,60,0.9)" : active ? "var(--mantine-color-blue-4)" : "var(--mantine-color-gray-5)"} />
-                <Text size="xs" c={warn ? "orange.4" : active ? "blue.4" : "dimmed"}>{label}</Text>
+                <Icon size={20} color={warn ? "rgba(251,146,60,0.9)" : active ? `var(--mantine-color-${color}-4)` : "var(--mantine-color-gray-5)"} />
+                <Text size="xs" c={active ? `${color}.4` : "dimmed"}>{label}</Text>
               </Stack>
             </UnstyledButton>
           );
@@ -129,6 +132,7 @@ export function BottomNav() {
               label={label}
               leftSection={<Icon size={18} />}
               active={pathname === href}
+              color={color}
               onClick={() => setMoreOpen(false)}
             />
           ))}

@@ -1,0 +1,48 @@
+/* Grouped table (date sections with rounded corners) */
+.table-grouped {
+  border-collapse: separate !important;
+  border-spacing: 0 !important;
+}
+
+/* Remove table row borders globally */
+tr[data-with-row-border] {
+  border-bottom: none !important;
+}
+
+/* Dashboard grid */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-auto-rows: minmax(120px, auto);
+  gap: var(--mantine-spacing-md);
+}
+
+.dash-account  { grid-column: span 2; grid-row: span 2; }
+.dash-gainloss { grid-column: span 3; }
+.dash-stats    { grid-column: span 3; display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--mantine-spacing-md); }
+.dash-stats > * { min-width: 0; }
+
+@media (min-width: 769px) {
+  .show-mobile { display: none; }
+}
+
+@media (max-width: 768px) {
+  .hide-mobile { display: none; }
+  .profit-tab { font-size: var(--mantine-font-size-xs) !important; padding: 6px 10px !important; }
+}
+.dash-chart    { grid-column: span 2; }
+.dash-level    { grid-column: span 3; }
+
+/* Mobile: stack in desired order */
+@media (max-width: 768px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+    grid-auto-rows: auto;
+  }
+
+  .dashboard-grid .dash-account  { grid-column: span 1; grid-row: span 1; order: 1; }
+  .dashboard-grid .dash-chart    { grid-column: span 1; order: 2; }
+  .dashboard-grid .dash-level    { grid-column: span 1; order: 3; }
+  .dashboard-grid .dash-stats    { grid-column: span 1; order: 4; }
+  .dashboard-grid .dash-gainloss { grid-column: span 1; order: 5; }
+}

@@ -115,7 +115,7 @@ export default function AppShellLayout({ children }: { children: ReactNode }) {
   return (
     <AppShell
       header={{ height: { base: 88, sm: 56 } }}
-      navbar={isMobile ? undefined : { width: NAVBAR_WIDTH, breakpoint: 0 }}
+      navbar={{ width: NAVBAR_WIDTH, breakpoint: "sm", collapsed: { mobile: true } }}
       padding="md"
     >
       <AppShell.Header>
@@ -125,11 +125,9 @@ export default function AppShellLayout({ children }: { children: ReactNode }) {
         />
       </AppShell.Header>
 
-      {!isMobile && (
-        <AppShell.Navbar>
-          <SideNav />
-        </AppShell.Navbar>
-      )}
+      <AppShell.Navbar>
+        <SideNav />
+      </AppShell.Navbar>
 
       <AppShell.Main style={{ background: mainBg, minHeight: "100vh", paddingBottom: isMobile ? 70 : undefined }}>
         <Box

@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Table, ScrollArea, Text, Center, Skeleton, Stack, Tabs, Group, Paper, SimpleGrid, Divider, Accordion } from "@mantine/core";
+import { Table, ScrollArea, Text, Center, Skeleton, Stack, Tabs, Group, Paper, SimpleGrid, Divider, Accordion, Box } from "@mantine/core";
+import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
+import { dateGroupHeaderCellLeft, dateGroupHeaderCellRight, dateGroupLastCellLeft, dateGroupLastCellRight, dateGroupHeaderBg } from "@/lib/tableStyles";
 
 const fmt = (n: number, decimals = 2) =>
   n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
@@ -239,6 +241,7 @@ function MonthCard({ month, privacyMode, color }: { month: MonthSummary; privacy
 
 export default function ProfitPage() {
   const { filledOrders, filledOptionOrders, transactions, snapshotLoading, privacyMode, activeAccount } = useApp();
+  const isMobile = useMediaQuery("(max-width: 768px)");
   const [period, setPeriod] = useState<string>(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("tqqq-profit-period") ?? "month";
@@ -443,17 +446,21 @@ export default function ProfitPage() {
       <Tabs value={period} onChange={handlePeriodChange} color={activeAccount?.color ?? "blue"}>
         <Tabs.List>
           {PERIODS.map((p) => (
-            <Tabs.Tab key={p.value} value={p.value}>{p.label}</Tabs.Tab>
+            <Tabs.Tab key={p.value} value={p.value} className="profit-tab">{p.label}</Tabs.Tab>
           ))}
         </Tabs.List>
       </Tabs>
 
       {period === "day" && (
-        <SimpleGrid cols={7} spacing="xs">
-          {last7Days.map((day) => (
-            <DayCard key={day.dateKey} day={day} privacyMode={privacyMode} color={activeAccount?.color ?? "blue"} />
-          ))}
-        </SimpleGrid>
+        <ScrollArea type="auto">
+          <Group gap="xs" wrap="nowrap" align="stretch">
+            {last7Days.map((day) => (
+              <Box key={day.dateKey} style={{ minWidth: 110, flex: "1 0 110px" }}>
+                <DayCard day={day} privacyMode={privacyMode} color={activeAccount?.color ?? "blue"} />
+              </Box>
+            ))}
+          </Group>
+        </ScrollArea>
       )}
 
       {period === "week" && (
@@ -505,8 +512,8 @@ export default function ProfitPage() {
                             <Table.Tr key={`eq-${row.orderId}`}>
                               <Table.Td><Text size="sm" c="dimmed">{fmtDate(row.time)}</Text></Table.Td>
                               <Table.Td ta="right"><Text size="sm">{fmt(row.shares, 0)}</Text></Table.Td>
-                              <Table.Td ta="right"><Text size="sm">{row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text></Table.Td>
-                              <Table.Td ta="right"><Text size="sm">{mask(`$${fmt(row.sellPrice)}`)}</Text></Table.Td>
+                              <Table.Td ta="right" className="hide-mobile"><Text size="sm">{row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text></Table.Td>
+                              <Table.Td ta="right" className="hide-mobile"><Text size="sm">{mask(`$${fmt(row.sellPrice)}`)}</Text></Table.Td>
                               <Table.Td ta="right">
                                 <Text size="sm" fw={600} c={row.profit != null ? (row.profit >= 0 ? activeAccount?.color ?? "blue" : "red") : "dimmed"}>
                                   {row.profit != null ? mask(`${row.profit >= 0 ? "+" : ""}$${fmt(row.profit)}`) : "—"}
@@ -521,7 +528,7 @@ export default function ProfitPage() {
                             <Table.Tr key={`opt-${o.orderId}`}>
                               <Table.Td><Text size="sm" c="dimmed">{fmtDate(o.time)}</Text></Table.Td>
                               <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}c</Text></Table.Td>
-                              <Table.Td colSpan={2}><Text size="sm" c="dimmed">{o.instruction === "SELL_TO_OPEN" ? "STO" : "BTC"}</Text></Table.Td>
+                              <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">{o.instruction === "SELL_TO_OPEN" ? "STO" : "BTC"}</Text></Table.Td>
                               <Table.Td ta="right">
                                 <Text size="sm" fw={600} c={o.total < 0 ? "red" : "orange"}>{mask(fmtMoney(o.total, true))}</Text>
                               </Table.Td>
@@ -533,7 +540,8 @@ export default function ProfitPage() {
                           el: (
                             <Table.Tr key={`txn-${t.activityId}`}>
                               <Table.Td><Text size="sm" c="dimmed">{fmtDate(t.time)}</Text></Table.Td>
-                              <Table.Td colSpan={3}><Text size="sm" c="dimmed">{t.description}</Text></Table.Td>
+                              <Table.Td />
+                              <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">{t.description}</Text></Table.Td>
                               <Table.Td ta="right">
                                 <Text size="sm" fw={600} c="lime">{mask(fmtMoney(t.amount, true))}</Text>
                               </Table.Td>
@@ -547,8 +555,8 @@ export default function ProfitPage() {
                             <Table.Tr>
                               <Table.Th>Date / Time</Table.Th>
                               <Table.Th ta="right">Qty</Table.Th>
-                              <Table.Th ta="right">Buy Price</Table.Th>
-                              <Table.Th ta="right">Sell Price</Table.Th>
+                              <Table.Th ta="right" className="hide-mobile">Buy Price</Table.Th>
+                              <Table.Th ta="right" className="hide-mobile">Sell Price</Table.Th>
                               <Table.Th ta="right">Profit</Table.Th>
                             </Table.Tr>
                           </Table.Thead>
@@ -608,8 +616,8 @@ export default function ProfitPage() {
                             <Table.Tr key={`eq-${row.orderId}`}>
                               <Table.Td><Text size="sm" c="dimmed">{fmtDate(row.time)}</Text></Table.Td>
                               <Table.Td ta="right"><Text size="sm">{fmt(row.shares, 0)}</Text></Table.Td>
-                              <Table.Td ta="right"><Text size="sm">{row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text></Table.Td>
-                              <Table.Td ta="right"><Text size="sm">{mask(`$${fmt(row.sellPrice)}`)}</Text></Table.Td>
+                              <Table.Td ta="right" className="hide-mobile"><Text size="sm">{row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text></Table.Td>
+                              <Table.Td ta="right" className="hide-mobile"><Text size="sm">{mask(`$${fmt(row.sellPrice)}`)}</Text></Table.Td>
                               <Table.Td ta="right">
                                 <Text size="sm" fw={600} c={row.profit != null ? (row.profit >= 0 ? activeAccount?.color ?? "blue" : "red") : "dimmed"}>
                                   {row.profit != null ? mask(`${row.profit >= 0 ? "+" : ""}$${fmt(row.profit)}`) : "—"}
@@ -624,7 +632,7 @@ export default function ProfitPage() {
                             <Table.Tr key={`opt-${o.orderId}`}>
                               <Table.Td><Text size="sm" c="dimmed">{fmtDate(o.time)}</Text></Table.Td>
                               <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}c</Text></Table.Td>
-                              <Table.Td colSpan={2}><Text size="sm" c="dimmed">{o.instruction === "SELL_TO_OPEN" ? "STO" : "BTC"}</Text></Table.Td>
+                              <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">{o.instruction === "SELL_TO_OPEN" ? "STO" : "BTC"}</Text></Table.Td>
                               <Table.Td ta="right">
                                 <Text size="sm" fw={600} c={o.total < 0 ? "red" : "orange"}>{mask(fmtMoney(o.total, true))}</Text>
                               </Table.Td>
@@ -636,7 +644,8 @@ export default function ProfitPage() {
                           el: (
                             <Table.Tr key={`txn-${t.activityId}`}>
                               <Table.Td><Text size="sm" c="dimmed">{fmtDate(t.time)}</Text></Table.Td>
-                              <Table.Td colSpan={3}><Text size="sm" c="dimmed">{t.description}</Text></Table.Td>
+                              <Table.Td />
+                              <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">{t.description}</Text></Table.Td>
                               <Table.Td ta="right">
                                 <Text size="sm" fw={600} c="lime">{mask(fmtMoney(t.amount, true))}</Text>
                               </Table.Td>
@@ -650,8 +659,8 @@ export default function ProfitPage() {
                             <Table.Tr>
                               <Table.Th>Date / Time</Table.Th>
                               <Table.Th ta="right">Qty</Table.Th>
-                              <Table.Th ta="right">Buy Price</Table.Th>
-                              <Table.Th ta="right">Sell Price</Table.Th>
+                              <Table.Th ta="right" className="hide-mobile">Buy Price</Table.Th>
+                              <Table.Th ta="right" className="hide-mobile">Sell Price</Table.Th>
                               <Table.Th ta="right">Profit</Table.Th>
                             </Table.Tr>
                           </Table.Thead>
@@ -693,9 +702,10 @@ export default function ProfitPage() {
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Month</Table.Th>
-                <Table.Th ta="right">Equity</Table.Th>
-                <Table.Th ta="right">Options</Table.Th>
-                <Table.Th ta="right">Int / Div</Table.Th>
+                <Table.Th ta="right" className="hide-mobile">Equity</Table.Th>
+                <Table.Th ta="right" className="hide-mobile">Options</Table.Th>
+                <Table.Th ta="right" className="hide-mobile">Int / Div</Table.Th>
+                <Table.Th ta="right" className="show-mobile">Profit</Table.Th>
                 <Table.Th ta="right">Total</Table.Th>
               </Table.Tr>
             </Table.Thead>
@@ -704,23 +714,32 @@ export default function ProfitPage() {
                 const total = m.equity + m.options + m.interest + m.dividends;
                 const hasActivity = m.equityTrades > 0 || m.options !== 0 || m.interest !== 0 || m.dividends !== 0;
                 const color = activeAccount?.color ?? "blue";
+                const intDiv = m.interest + m.dividends;
                 return (
                   <Table.Tr key={m.monthKey} style={{ opacity: hasActivity ? 1 : 0.4 }}>
                     <Table.Td><Text size="sm">{m.label}</Text></Table.Td>
-                    <Table.Td ta="right">
+                    <Table.Td ta="right" className="hide-mobile">
                       <Text size="sm" c={!hasActivity ? "dimmed" : m.equity >= 0 ? color : "red"}>
                         {m.equityTrades > 0 ? mask(fmtMoney(m.equity, true)) : "—"}
                       </Text>
                     </Table.Td>
-                    <Table.Td ta="right">
+                    <Table.Td ta="right" className="hide-mobile">
                       <Text size="sm" c={m.options === 0 ? "dimmed" : m.options < 0 ? "red" : "orange"}>
                         {m.options !== 0 ? mask(fmtMoney(m.options, true)) : "—"}
                       </Text>
                     </Table.Td>
-                    <Table.Td ta="right">
-                      <Text size="sm" c={(m.interest + m.dividends) === 0 ? "dimmed" : "lime"}>
-                        {(m.interest + m.dividends) !== 0 ? mask(fmtMoney(m.interest + m.dividends, true)) : "—"}
+                    <Table.Td ta="right" className="hide-mobile">
+                      <Text size="sm" c={intDiv === 0 ? "dimmed" : "lime"}>
+                        {intDiv !== 0 ? mask(fmtMoney(intDiv, true)) : "—"}
                       </Text>
+                    </Table.Td>
+                    <Table.Td ta="right" className="show-mobile">
+                      <Stack gap={2} align="flex-end">
+                        {m.equityTrades > 0 && <Text size="sm" c={m.equity >= 0 ? color : "red"}>{mask(fmtMoney(m.equity, true))}</Text>}
+                        {m.options !== 0 && <Text size="sm" c={m.options < 0 ? "red" : "orange"}>{mask(fmtMoney(m.options, true))}</Text>}
+                        {intDiv !== 0 && <Text size="sm" c="lime">{mask(fmtMoney(intDiv, true))}</Text>}
+                        {!hasActivity && <Text size="sm" c="dimmed">—</Text>}
+                      </Stack>
                     </Table.Td>
                     <Table.Td ta="right">
                       <Text size="sm" fw={600} c={!hasActivity ? "dimmed" : total >= 0 ? color : "red"}>
@@ -764,9 +783,10 @@ export default function ProfitPage() {
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>Year</Table.Th>
-                  <Table.Th ta="right">Equity</Table.Th>
-                  <Table.Th ta="right">Options</Table.Th>
-                  <Table.Th ta="right">Int / Div</Table.Th>
+                  <Table.Th ta="right" className="hide-mobile">Equity</Table.Th>
+                  <Table.Th ta="right" className="hide-mobile">Options</Table.Th>
+                  <Table.Th ta="right" className="hide-mobile">Int / Div</Table.Th>
+                  <Table.Th ta="right" className="show-mobile">Profit</Table.Th>
                   <Table.Th ta="right">Total</Table.Th>
                 </Table.Tr>
               </Table.Thead>
@@ -774,23 +794,31 @@ export default function ProfitPage() {
                 {allTimeData.years.map((y) => {
                   const total = y.equity + y.options + y.interest + y.dividends;
                   const color = activeAccount?.color ?? "blue";
+                  const intDiv = y.interest + y.dividends;
                   return (
                     <Table.Tr key={y.year}>
                       <Table.Td><Text size="sm">{y.year}</Text></Table.Td>
-                      <Table.Td ta="right">
+                      <Table.Td ta="right" className="hide-mobile">
                         <Text size="sm" c={y.equityTrades === 0 ? "dimmed" : y.equity >= 0 ? color : "red"}>
                           {y.equityTrades > 0 ? mask(fmtMoney(y.equity, true)) : "—"}
                         </Text>
                       </Table.Td>
-                      <Table.Td ta="right">
+                      <Table.Td ta="right" className="hide-mobile">
                         <Text size="sm" c={y.options === 0 ? "dimmed" : y.options < 0 ? "red" : "orange"}>
                           {y.options !== 0 ? mask(fmtMoney(y.options, true)) : "—"}
                         </Text>
                       </Table.Td>
-                      <Table.Td ta="right">
-                        <Text size="sm" c={(y.interest + y.dividends) === 0 ? "dimmed" : "lime"}>
-                          {(y.interest + y.dividends) !== 0 ? mask(fmtMoney(y.interest + y.dividends, true)) : "—"}
+                      <Table.Td ta="right" className="hide-mobile">
+                        <Text size="sm" c={intDiv === 0 ? "dimmed" : "lime"}>
+                          {intDiv !== 0 ? mask(fmtMoney(intDiv, true)) : "—"}
                         </Text>
+                      </Table.Td>
+                      <Table.Td ta="right" className="show-mobile">
+                        <Stack gap={2} align="flex-end">
+                          {y.equityTrades > 0 && <Text size="sm" c={y.equity >= 0 ? color : "red"}>{mask(fmtMoney(y.equity, true))}</Text>}
+                          {y.options !== 0 && <Text size="sm" c={y.options < 0 ? "red" : "orange"}>{mask(fmtMoney(y.options, true))}</Text>}
+                          {intDiv !== 0 && <Text size="sm" c="lime">{mask(fmtMoney(intDiv, true))}</Text>}
+                        </Stack>
                       </Table.Td>
                       <Table.Td ta="right">
                         <Text size="sm" fw={600} c={total >= 0 ? color : "red"}>
@@ -808,33 +836,33 @@ export default function ProfitPage() {
 
       {period === "day" && (
         <ScrollArea>
-          <Table>
+          <Table className="table-grouped">
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Time</Table.Th>
                 <Table.Th ta="right">Qty</Table.Th>
-                <Table.Th ta="right">Buy Price</Table.Th>
-                <Table.Th ta="right">Sell Price</Table.Th>
+                <Table.Th ta="right" className="hide-mobile">Buy Price</Table.Th>
+                <Table.Th ta="right" className="hide-mobile">Sell Price</Table.Th>
                 <Table.Th ta="right">Profit</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {last7Days.flatMap((day) => {
+              {last7Days.flatMap((day, di) => {
                 const dayRows = filteredRows.filter((r) => r.date === day.dateKey);
                 const dayOptRows = filledOptionOrders.filter((o) => new Date(o.time).toLocaleDateString("en-CA") === day.dateKey);
                 const dayTxnRows = transactions.filter((t) => new Date(t.time).toLocaleDateString("en-CA") === day.dateKey);
                 if (dayRows.length === 0 && dayOptRows.length === 0 && dayTxnRows.length === 0) return [];
                 const dayTotal = day.equity + day.options + day.interest + day.dividends;
-                const allDayRows: { time: string; el: React.ReactNode }[] = [
+                const allDayRows: { time: string; el: (isLast: boolean) => React.ReactNode }[] = [
                   ...dayRows.map((row) => ({
                     time: row.time,
-                    el: (
+                    el: (isLast: boolean) => (
                       <Table.Tr key={`eq-${row.orderId}`}>
-                        <Table.Td><Text size="sm" c="dimmed">{new Date(row.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</Text></Table.Td>
+                        <Table.Td style={isLast ? dateGroupLastCellLeft : undefined}><Text size="sm" c="dimmed">{new Date(row.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</Text></Table.Td>
                         <Table.Td ta="right"><Text size="sm">{fmt(row.shares, 0)}</Text></Table.Td>
-                        <Table.Td ta="right"><Text size="sm">{row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text></Table.Td>
-                        <Table.Td ta="right"><Text size="sm">{mask(`$${fmt(row.sellPrice)}`)}</Text></Table.Td>
-                        <Table.Td ta="right">
+                        <Table.Td ta="right" className="hide-mobile"><Text size="sm">{row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text></Table.Td>
+                        <Table.Td ta="right" className="hide-mobile"><Text size="sm">{mask(`$${fmt(row.sellPrice)}`)}</Text></Table.Td>
+                        <Table.Td ta="right" style={isLast ? dateGroupLastCellRight : undefined}>
                           <Text size="sm" fw={600} c={row.profit != null ? (row.profit >= 0 ? activeAccount?.color ?? "blue" : "red") : "dimmed"}>
                             {row.profit != null ? mask(`${row.profit >= 0 ? "+" : ""}$${fmt(row.profit)}`) : "—"}
                           </Text>
@@ -844,12 +872,12 @@ export default function ProfitPage() {
                   })),
                   ...dayOptRows.map((o) => ({
                     time: o.time,
-                    el: (
+                    el: (isLast: boolean) => (
                       <Table.Tr key={`opt-${o.orderId}`}>
-                        <Table.Td><Text size="sm" c="dimmed">{new Date(o.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</Text></Table.Td>
+                        <Table.Td style={isLast ? dateGroupLastCellLeft : undefined}><Text size="sm" c="dimmed">{new Date(o.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</Text></Table.Td>
                         <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}c</Text></Table.Td>
-                        <Table.Td colSpan={2}><Text size="sm" c="dimmed">{o.instruction === "SELL_TO_OPEN" ? "STO" : "BTC"}</Text></Table.Td>
-                        <Table.Td ta="right">
+                        <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">{o.instruction === "SELL_TO_OPEN" ? "STO" : "BTC"}</Text></Table.Td>
+                        <Table.Td ta="right" style={isLast ? dateGroupLastCellRight : undefined}>
                           <Text size="sm" fw={600} c={o.total < 0 ? "red" : "orange"}>{mask(fmtMoney(o.total, true))}</Text>
                         </Table.Td>
                       </Table.Tr>
@@ -857,11 +885,12 @@ export default function ProfitPage() {
                   })),
                   ...dayTxnRows.map((t) => ({
                     time: t.time,
-                    el: (
+                    el: (isLast: boolean) => (
                       <Table.Tr key={`txn-${t.activityId}`}>
-                        <Table.Td><Text size="sm" c="dimmed">{new Date(t.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</Text></Table.Td>
-                        <Table.Td colSpan={3}><Text size="sm" c="dimmed">{t.description}</Text></Table.Td>
-                        <Table.Td ta="right">
+                        <Table.Td style={isLast ? dateGroupLastCellLeft : undefined}><Text size="sm" c="dimmed">{new Date(t.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</Text></Table.Td>
+                        <Table.Td />
+                        <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">{t.description}</Text></Table.Td>
+                        <Table.Td ta="right" style={isLast ? dateGroupLastCellRight : undefined}>
                           <Text size="sm" fw={600} c="lime">{mask(fmtMoney(t.amount, true))}</Text>
                         </Table.Td>
                       </Table.Tr>
@@ -869,17 +898,22 @@ export default function ProfitPage() {
                   })),
                 ].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
                 return [
-                  <Table.Tr key={`hdr-${day.dateKey}`} style={{ background: "var(--mantine-color-dark-6)" }}>
-                    <Table.Td colSpan={4}>
-                      <Text size="sm" fw={700}>
-                        {new Date(day.dateKey + "T00:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
+                  ...(di > 0 ? [
+                    <Table.Tr key={`spacer-${day.dateKey}`} style={{ height: 10, background: "transparent" }}>
+                      <Table.Td colSpan={5} style={{ padding: 0, border: "none" }} />
+                    </Table.Tr>
+                  ] : []),
+                  <Table.Tr key={`hdr-${day.dateKey}`} bg={dateGroupHeaderBg}>
+                    <Table.Td colSpan={isMobile ? 2 : 4} style={dateGroupHeaderCellLeft}>
+                      <Text size="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5}>
+                        {new Date(day.dateKey + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric", year: "2-digit" })}
                       </Text>
                     </Table.Td>
-                    <Table.Td ta="right">
-                      <Text size="sm" fw={700} c="white">{mask(fmtMoney(dayTotal, true))}</Text>
+                    <Table.Td ta="right" style={dateGroupHeaderCellRight}>
+                      <Text size="xs" fw={700} c="dimmed">{mask(fmtMoney(dayTotal, true))}</Text>
                     </Table.Td>
                   </Table.Tr>,
-                  ...allDayRows.map((r) => r.el),
+                  ...allDayRows.map((r, i) => r.el(i === allDayRows.length - 1)),
                 ];
               })}
             </Table.Tbody>

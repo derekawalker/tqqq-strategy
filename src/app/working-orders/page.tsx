@@ -135,16 +135,16 @@ export default function WorkingOrdersPage() {
 
   return (
     <Stack>
-      <Group justify="space-between">
-        <Group>
+      <Group justify="space-between" wrap="nowrap" align="flex-end">
+        <Group wrap="nowrap" align="flex-end">
         <NumberInput
           key={`warn-${activeAccount?.accountNumber}`}
-          label="Warn when order qty drops below"
+          label="Warn below"
           value={warnBelow ?? ""}
           onChange={setWarnBelow}
           min={0}
           max={99}
-          w={200}
+          w={90}
           size="xs"
         />
         <NumberInput
@@ -154,7 +154,7 @@ export default function WorkingOrdersPage() {
           onChange={setBuffer}
           min={0}
           max={50}
-          w={200}
+          w={90}
           size="xs"
         />
         </Group>
@@ -176,7 +176,7 @@ export default function WorkingOrdersPage() {
               <Table.Th ta="center">Sells</Table.Th>
               <Table.Th ta="center">Buy Price</Table.Th>
               <Table.Th ta="center">Sell Price</Table.Th>
-              <Table.Th ta="center">Cost</Table.Th>
+              <Table.Th ta="center" className="hide-mobile">Cost</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -235,7 +235,7 @@ export default function WorkingOrdersPage() {
                   <Table.Td ta="center">
                     <Text size="sm" c="dimmed">{hasOrders && row.sellPrice != null ? mask(`$${fmt(row.sellPrice)}`) : "—"}</Text>
                   </Table.Td>
-                  <Table.Td ta="center">
+                  <Table.Td ta="center" className="hide-mobile">
                     <Text size="sm" c="dimmed">{hasOrders && cost != null ? mask(`$${fmt(cost)}`) : "—"}</Text>
                   </Table.Td>
                 </Table.Tr>

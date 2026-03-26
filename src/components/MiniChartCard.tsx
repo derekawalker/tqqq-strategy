@@ -51,7 +51,7 @@ export function MiniChartCard() {
 
   if (loading) {
     return (
-      <Paper p={0} radius="md" withBorder style={{ gridColumn: "span 2", overflow: "hidden", background: bg }}>
+      <Paper p={0} radius="md" withBorder style={{ overflow: "hidden", background: bg, height: "100%" }}>
         <Skeleton height={140} radius="md" />
       </Paper>
     );
@@ -80,7 +80,7 @@ export function MiniChartCard() {
       radius="md"
       withBorder
       onClick={() => router.push("/chart")}
-      style={{ gridColumn: "span 2", overflow: "hidden", background: bg, cursor: "pointer" }}
+      style={{ overflow: "hidden", background: bg, cursor: "pointer", height: "100%" }}
     >
       <ResponsiveContainer width="100%" height={140}>
         <AreaChart data={candles} margin={{ top: 8, right: 0, left: 0, bottom: 0 }}>

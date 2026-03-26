@@ -9,6 +9,8 @@ const theme = createTheme({
         highlightOnHover: true,
         stripedColor: "rgba(255,255,255,0.03)",
         highlightOnHoverColor: "rgba(255,255,255,0.05)",
+        verticalSpacing: "xs",
+        fz: "sm",
       },
     },
   },
@@ -25,6 +27,13 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "TQQQ Strategy",
   description: "Schwab account holdings tracker",
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({

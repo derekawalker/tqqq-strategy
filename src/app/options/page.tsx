@@ -246,7 +246,7 @@ function CallsTable({
       {rows.length === 0 ? (
         <Center h={80}><Text size="sm" c="dimmed">No levels configured.</Text></Center>
       ) : (
-        <Table verticalSpacing="xs">
+        <Table>
           <Table.Thead>
             <Table.Tr>
               <Table.Th>Level</Table.Th>
@@ -334,7 +334,7 @@ function PutsTable({
       {rows.length === 0 ? (
         <Center h={80}><Text size="sm" c="dimmed">No levels configured.</Text></Center>
       ) : (
-        <Table verticalSpacing="xs">
+        <Table>
           <Table.Thead>
             <Table.Tr>
               <Table.Th>Level</Table.Th>

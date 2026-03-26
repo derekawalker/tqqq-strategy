@@ -70,7 +70,7 @@ export function AccountValueCard() {
 
   if (loading && !balance) {
     return (
-      <Paper p="md" radius="md" withBorder style={{ gridColumn: "span 2", gridRow: "span 2", background: "var(--mantine-color-dark-8)" }}>
+      <Paper p="md" radius="md" withBorder style={{ background: "var(--mantine-color-dark-8)", height: "100%" }}>
         <Stack gap="sm">
           <Skeleton height={20} width={140} />
           <Skeleton height={12} radius="xl" />
@@ -90,7 +90,7 @@ export function AccountValueCard() {
   }));
 
   return (
-    <Paper p="md" radius="md" withBorder style={{ gridColumn: "span 2", gridRow: "span 2", background: bg }}>
+    <Paper p="md" radius="md" withBorder style={{ background: bg, height: "100%" }}>
       <Stack gap="md" h="100%">
         {/* Title + total */}
         <Group justify="space-between" align="flex-start">

@@ -23,21 +23,16 @@ export default function Home() {
 
 
   return (
-    <Box
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(5, 1fr)",
-        gridAutoRows: "minmax(120px, auto)",
-        gap: "var(--mantine-spacing-md)",
-      }}
-    >
-      <AccountValueCard />
-      <GainLossCard />
-      <StatCard color={color} label="Trades Today" value={tradesToday} href="/filled-orders" />
-      <StatCard color={color} label="Open Options" value={optionPositions.length} href="/options" />
-      <StatCard color={color} label="TQQQ Shares" value={tqqqShares.toLocaleString()} />
-      <MiniChartCard />
-      <CurrentLevelCard />
+    <Box className="dashboard-grid">
+      <div className="dash-account"><AccountValueCard /></div>
+      <div className="dash-gainloss"><GainLossCard /></div>
+      <div className="dash-stats">
+        <StatCard color={color} label="Trades Today" value={tradesToday} href="/filled-orders" />
+        <StatCard color={color} label="Open Options" value={optionPositions.length} href="/options" />
+        <StatCard color={color} label="TQQQ Shares" value={tqqqShares.toLocaleString()} />
+      </div>
+      <div className="dash-chart"><MiniChartCard /></div>
+      <div className="dash-level"><CurrentLevelCard /></div>
     </Box>
   );
 }

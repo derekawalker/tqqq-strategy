@@ -88,7 +88,7 @@ export default function InterestDividendsPage() {
           {accountTransactions.length === 0 ? (
             <Text size="sm" c="dimmed" p="md">No interest or dividend transactions found.</Text>
           ) : (
-            <Table verticalSpacing="xs" striped>
+            <Table>
               <Table.Thead>
                 <Table.Tr>
                   <Table.Th>Date</Table.Th>
