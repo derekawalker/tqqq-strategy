@@ -126,9 +126,9 @@ export default function ChartPage() {
   }
 
   const lineColor = "url(#tqqqLineGradient)";
-  const currentColor = `var(--mantine-color-${color}-4)`;
-  const currentLevelColor = "var(--mantine-color-green-5)";
-  const nextLevelColor = "var(--mantine-color-orange-4)";
+  const currentColor = "rgba(255,255,255,0.6)";
+  const currentLevelColor = "var(--mantine-color-lime-6)";
+  const nextLevelColor = "var(--mantine-color-indigo-5)";
 
   return (
     <Stack>

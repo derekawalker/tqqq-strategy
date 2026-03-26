@@ -137,7 +137,11 @@ export default function AppShellLayout({ children }: { children: ReactNode }) {
             position: "sticky",
             top: "var(--app-shell-header-height)",
             zIndex: 50,
-            background: computedColorScheme === "dark" ? "rgba(0, 0, 0, 0.2)" : "rgba(255, 255, 255, 0.6)",
+            background: computedColorScheme === "dark"
+              ? activeAccount
+                ? `color-mix(in srgb, var(--mantine-color-${activeAccount.color}-9) 8%, var(--mantine-color-dark-8))`
+                : "var(--mantine-color-dark-8)"
+              : "rgba(255, 255, 255, 0.95)",
             marginInline: "calc(var(--mantine-spacing-md) * -1)",
             marginTop: "calc(var(--mantine-spacing-md) * -1)",
             padding: "var(--mantine-spacing-xs) var(--mantine-spacing-md)",

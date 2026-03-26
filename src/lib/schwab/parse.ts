@@ -20,6 +20,17 @@ export interface OptionPosition {
   openedAt: string | null;
 }
 
+export interface FilledOptionOrder {
+  orderId: number;
+  accountNumber: string;
+  instruction: "SELL_TO_OPEN" | "BUY_TO_CLOSE";
+  symbol: string;
+  contracts: number;
+  fillPrice: number;  // per share (×100 for total per contract)
+  total: number;      // positive = credit received, negative = debit paid
+  time: string;
+}
+
 export interface WorkingOrder {
   orderId: number;
   accountNumber: string;
@@ -62,6 +73,36 @@ export function parseFilledOrder(order: any, accountNumber: string): FilledOrder
 
   const fillPrice = totalValue / totalShares;
   return { orderId: order.orderId, accountNumber, side, shares: totalShares, fillPrice, total: fillPrice * totalShares, time: order.closeTime };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseFilledOptionOrder(order: any, accountNumber: string): FilledOptionOrder | null {
+  if (order.status !== "FILLED") return null;
+  const leg = order.orderLegCollection?.[0];
+  if (!leg || leg.orderLegType !== "OPTION") return null;
+  if (leg.instrument?.underlyingSymbol !== "TQQQ") return null;
+
+  const rawInstruction: string = leg.instruction ?? "";
+  if (rawInstruction !== "SELL_TO_OPEN" && rawInstruction !== "BUY_TO_CLOSE") return null;
+  const instruction = rawInstruction as "SELL_TO_OPEN" | "BUY_TO_CLOSE";
+
+  const symbol: string = leg.instrument?.symbol ?? "";
+  let totalValue = 0;
+  let totalContracts = 0;
+  for (const activity of order.orderActivityCollection ?? []) {
+    if (activity.executionType !== "FILL") continue;
+    for (const execLeg of activity.executionLegs ?? []) {
+      totalValue += execLeg.price * execLeg.quantity;
+      totalContracts += execLeg.quantity;
+    }
+  }
+  if (totalContracts === 0) return null;
+
+  const fillPrice = totalValue / totalContracts;
+  const gross = fillPrice * totalContracts * 100;
+  const total = instruction === "SELL_TO_OPEN" ? gross : -gross;
+
+  return { orderId: order.orderId, accountNumber, instruction, symbol, contracts: totalContracts, fillPrice, total, time: order.closeTime };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -3,14 +3,17 @@ import { getAccountHashes } from "@/lib/schwab/accounts";
 import {
   flattenOrders,
   parseFilledOrder,
+  parseFilledOptionOrder,
   parseWorkingOrder,
   FilledOrder,
+  FilledOptionOrder,
   WorkingOrder,
   OptionPosition,
 } from "@/lib/schwab/parse";
 
 export interface Snapshot {
   filledOrders: FilledOrder[];
+  filledOptionOrders: FilledOptionOrder[];
   workingOrders: WorkingOrder[];
   tqqqShares: Record<string, number>;
   optionPositions: OptionPosition[];
@@ -21,7 +24,7 @@ async function fetchAccountData(
   hash: string,
   fromIso: string,
   toIso: string
-): Promise<{ filled: FilledOrder[]; working: WorkingOrder[]; tqqqShares: number; options: OptionPosition[] }> {
+): Promise<{ filled: FilledOrder[]; filledOptions: FilledOptionOrder[]; working: WorkingOrder[]; tqqqShares: number; options: OptionPosition[] }> {
   const [filledRes, workingRes, positionsRes] = await Promise.all([
     schwabFetch(
       `/trader/v1/accounts/${hash}/orders?fromEnteredTime=${fromIso}&toEnteredTime=${toIso}&status=FILLED`
@@ -36,9 +39,13 @@ async function fetchAccountData(
   const workingRaw = workingRes.ok ? await workingRes.json() : [];
   const positionsData = positionsRes.ok ? await positionsRes.json() : null;
 
-  const filled = flattenOrders(Array.isArray(filledRaw) ? filledRaw : [])
+  const flatFilled = flattenOrders(Array.isArray(filledRaw) ? filledRaw : []);
+  const filled = flatFilled
     .map((o) => parseFilledOrder(o, accountNumber))
     .filter((o): o is FilledOrder => o !== null);
+  const filledOptions = flatFilled
+    .map((o) => parseFilledOptionOrder(o, accountNumber))
+    .filter((o): o is FilledOptionOrder => o !== null);
 
   const working = flattenOrders(Array.isArray(workingRaw) ? workingRaw : [])
     .map((o) => parseWorkingOrder(o, accountNumber))
@@ -110,7 +117,7 @@ async function fetchAccountData(
     })
     .filter((p): p is OptionPosition => p !== null);
 
-  return { filled, working, tqqqShares, options };
+  return { filled, filledOptions, working, tqqqShares, options };
 }
 
 export async function GET() {
@@ -134,6 +141,10 @@ export async function GET() {
       .flatMap((r) => r.filled)
       .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
 
+    const filledOptionOrders: FilledOptionOrder[] = results
+      .flatMap((r) => r.filledOptions)
+      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
     const workingOrders: WorkingOrder[] = results
       .flatMap((r) => r.working)
       .sort(
@@ -147,7 +158,7 @@ export async function GET() {
 
     const optionPositions: OptionPosition[] = results.flatMap((r) => r.options);
 
-    return Response.json({ filledOrders, workingOrders, tqqqShares, optionPositions } satisfies Snapshot);
+    return Response.json({ filledOrders, filledOptionOrders, workingOrders, tqqqShares, optionPositions } satisfies Snapshot);
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
     return Response.json({ error: message }, { status: 500 });
