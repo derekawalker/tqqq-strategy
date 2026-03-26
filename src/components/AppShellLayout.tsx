@@ -13,7 +13,7 @@ import { useLevels } from "@/lib/hooks/useLevels";
 const NAVBAR_WIDTH = 180;
 
 export default function AppShellLayout({ children }: { children: ReactNode }) {
-  const { activeAccount, setQuote, refreshTick, tickRefresh, tqqqShares, setAlerts, workingOrders, optionPositions, quote } = useApp();
+  const { activeAccount, setQuote, refreshTick, quoteTick, tickRefresh, tqqqShares, setAlerts, workingOrders, optionPositions, quote } = useApp();
   const levelsSummary = useLevels();
   const computedColorScheme = useComputedColorScheme("dark");
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -104,7 +104,7 @@ export default function AppShellLayout({ children }: { children: ReactNode }) {
     }
     load();
     return () => { cancelled = true; };
-  }, [refreshTick, setQuote]);
+  }, [refreshTick, quoteTick, setQuote]);
 
   const mainBg = activeAccount
     ? computedColorScheme === "dark"

@@ -10,6 +10,7 @@ import {
   Skeleton,
   Select,
   Stack,
+  Menu,
   useMantineColorScheme,
   useComputedColorScheme,
 } from "@mantine/core";
@@ -23,6 +24,8 @@ import {
   IconMoon,
   IconPlugConnected,
   IconPlugConnectedX,
+  IconChartLine,
+  IconRefreshDot,
 } from "@tabler/icons-react";
 import { useApp } from "@/lib/context/AppContext";
 import { useRouter } from "next/navigation";
@@ -33,7 +36,7 @@ interface AppHeaderProps {
 }
 
 export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps) {
-  const { accounts, activeAccount, setActiveAccount, privacyMode, togglePrivacy, quote, schwabConnected, checkSchwabAuth } = useApp();
+  const { accounts, activeAccount, setActiveAccount, privacyMode, togglePrivacy, quote, schwabConnected, checkSchwabAuth, tickQuoteRefresh } = useApp();
   const { setColorScheme } = useMantineColorScheme();
   const computedColorScheme = useComputedColorScheme("light");
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -110,11 +113,23 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
           {privacyMode ? <IconEyeOff size={14} /> : <IconEye size={14} />}
         </ActionIcon>
       </Tooltip>
-      <Tooltip label="Refresh data">
-        <ActionIcon {...aiProps} onClick={onRefresh}>
-          <IconRefresh size={14} />
-        </ActionIcon>
-      </Tooltip>
+      <Menu position="bottom-end" withinPortal>
+        <Menu.Target>
+          <Tooltip label="Refresh">
+            <ActionIcon {...aiProps}>
+              <IconRefresh size={14} />
+            </ActionIcon>
+          </Tooltip>
+        </Menu.Target>
+        <Menu.Dropdown>
+          <Menu.Item leftSection={<IconChartLine size={14} />} onClick={tickQuoteRefresh}>
+            Refresh prices
+          </Menu.Item>
+          <Menu.Item leftSection={<IconRefreshDot size={14} />} onClick={onRefresh}>
+            Refresh all
+          </Menu.Item>
+        </Menu.Dropdown>
+      </Menu>
       <Tooltip label={computedColorScheme === "light" ? "Dark mode" : "Light mode"}>
         <ActionIcon {...aiProps} onClick={toggleTheme}>
           {computedColorScheme === "light" ? <IconMoon size={14} /> : <IconSun size={14} />}

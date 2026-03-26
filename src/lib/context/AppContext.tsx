@@ -65,6 +65,8 @@ interface AppContextValue {
   setQuote: React.Dispatch<React.SetStateAction<Quote>>;
   refreshTick: number;
   tickRefresh: () => void;
+  quoteTick: number;
+  tickQuoteRefresh: () => void;
   alerts: Alerts;
   setAlerts: React.Dispatch<React.SetStateAction<Alerts>>;
   schwabConnected: boolean | null; // null = loading
@@ -201,6 +203,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
   const [quote, setQuote] = useState<Quote>({ price: 0, changePercent: 0, loading: true });
   const [refreshTick, setRefreshTick] = useState(0);
+  const [quoteTick, setQuoteTick] = useState(0);
   const [allFilledOrders, setAllFilledOrders] = useState<FilledOrder[]>([]);
   const [allFilledOptionOrders, setAllFilledOptionOrders] = useState<FilledOptionOrder[]>([]);
   const [allWorkingOrders, setAllWorkingOrders] = useState<WorkingOrder[]>([]);
@@ -303,6 +306,10 @@ const togglePrivacy = () => setPrivacyMode((p) => !p);
     setQuote((q) => ({ ...q, loading: true }));
     setRefreshTick((t) => t + 1);
   };
+  const tickQuoteRefresh = () => {
+    setQuote((q) => ({ ...q, loading: true }));
+    setQuoteTick((t) => t + 1);
+  };
 
   return (
     <AppContext.Provider
@@ -321,6 +328,8 @@ const togglePrivacy = () => setPrivacyMode((p) => !p);
         setQuote,
         refreshTick,
         tickRefresh,
+        quoteTick,
+        tickQuoteRefresh,
         alerts,
         setAlerts,
         schwabConnected,

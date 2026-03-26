@@ -210,7 +210,7 @@ export default function ChartPage() {
             {/* Current level buy price */}
             {currentSellPrice && (
               <ReferenceLine y={currentSellPrice} stroke={currentLevelColor} strokeDasharray="5 3" strokeWidth={1.5}
-                label={{ value: `L${currentLevel} Sell  $${currentSellPrice.toFixed(2)}`, position: "right", fill: currentLevelColor, fontSize: 11 }} />
+                label={{ value: `L${currentLevel} $${currentSellPrice.toFixed(2)}`, position: "right", fill: currentLevelColor, fontSize: 11 }} />
             )}
 
             {/* Next level buy price */}

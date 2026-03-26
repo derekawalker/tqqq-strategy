@@ -25,8 +25,7 @@ async function fetchBalance(accountNumber: string, hash: string): Promise<Accoun
   if (!account) return null;
 
   const totalValue: number = account.currentBalances?.liquidationValue ?? 0;
-  const availableFunds: number = account.currentBalances?.availableFunds ?? 0;
-  const cashAvailableForTrading: number = account.currentBalances?.cashAvailableForTrading ?? 0;
+  const cashAvailableForTrading: number = account.currentBalances?.buyingPowerNonMarginableTrade ?? 0;
   const cashBalance: number = account.currentBalances?.cashBalance ?? 0;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -64,7 +63,7 @@ async function fetchBalance(accountNumber: string, hash: string): Promise<Accoun
     moneyMarketValue,
     optionsValue,
     otherValue,
-    availableFunds,
+    availableFunds: cashAvailableForTrading,
     cashAvailableForTrading,
   };
 }
