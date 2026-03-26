@@ -13,7 +13,7 @@ import { useLevels } from "@/lib/hooks/useLevels";
 const NAVBAR_WIDTH = 180;
 
 export default function AppShellLayout({ children }: { children: ReactNode }) {
-  const { activeAccount, setQuote, refreshTick, tickRefresh, tqqqShares, setAlerts, workingOrders } = useApp();
+  const { activeAccount, setQuote, refreshTick, tickRefresh, tqqqShares, setAlerts, workingOrders, optionPositions, quote } = useApp();
   const levelsSummary = useLevels();
   const computedColorScheme = useComputedColorScheme("dark");
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -69,6 +69,28 @@ export default function AppShellLayout({ children }: { children: ReactNode }) {
   }, [levelsSummary, tqqqShares]);
 
   useEffect(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const expiring = optionPositions.filter((p) => {
+      const dte = Math.round((new Date(p.expiry + "T00:00:00").getTime() - today.getTime()) / 86400000);
+      return dte === 0;
+    }).length;
+
+    const itm = quote.loading ? null : optionPositions.filter((p) => {
+      if (p.putCall === "CALL") return p.strike < quote.price;
+      return p.strike > quote.price;
+    }).length;
+
+    setAlerts((prev) => ({
+      ...prev,
+      expiringOptions: expiring,
+      itmOptions: itm,
+    }));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [optionPositions, quote.price, quote.loading]);
+
+  useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
@@ -110,10 +132,25 @@ export default function AppShellLayout({ children }: { children: ReactNode }) {
       )}
 
       <AppShell.Main style={{ background: mainBg, minHeight: "100vh", paddingBottom: isMobile ? 70 : undefined }}>
-        <Box mb="md">
-          <AlertBar />
+        <Box
+          style={{
+            position: "sticky",
+            top: "var(--app-shell-header-height)",
+            zIndex: 50,
+            background: computedColorScheme === "dark" ? "rgba(0, 0, 0, 0.2)" : "rgba(255, 255, 255, 0.6)",
+            marginInline: "calc(var(--mantine-spacing-md) * -1)",
+            marginTop: "calc(var(--mantine-spacing-md) * -1)",
+            padding: "var(--mantine-spacing-xs) var(--mantine-spacing-md)",
+            marginBottom: "var(--mantine-spacing-md)",
+          }}
+        >
+          <Box maw={1024} mx="auto">
+            <AlertBar />
+          </Box>
         </Box>
-        {children}
+        <Box maw={1024} mx="auto">
+          {children}
+        </Box>
       </AppShell.Main>
 
       {isMobile && <BottomNav />}

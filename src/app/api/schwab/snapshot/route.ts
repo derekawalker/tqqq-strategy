@@ -6,12 +6,14 @@ import {
   parseWorkingOrder,
   FilledOrder,
   WorkingOrder,
+  OptionPosition,
 } from "@/lib/schwab/parse";
 
 export interface Snapshot {
   filledOrders: FilledOrder[];
   workingOrders: WorkingOrder[];
-  tqqqShares: Record<string, number>; // accountNumber → TQQQ long shares
+  tqqqShares: Record<string, number>;
+  optionPositions: OptionPosition[];
 }
 
 async function fetchAccountData(
@@ -19,7 +21,7 @@ async function fetchAccountData(
   hash: string,
   fromIso: string,
   toIso: string
-): Promise<{ filled: FilledOrder[]; working: WorkingOrder[]; tqqqShares: number }> {
+): Promise<{ filled: FilledOrder[]; working: WorkingOrder[]; tqqqShares: number; options: OptionPosition[] }> {
   const [filledRes, workingRes, positionsRes] = await Promise.all([
     schwabFetch(
       `/trader/v1/accounts/${hash}/orders?fromEnteredTime=${fromIso}&toEnteredTime=${toIso}&status=FILLED`
@@ -44,13 +46,71 @@ async function fetchAccountData(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const positions: any[] = positionsData?.securitiesAccount?.positions ?? [];
-  const tqqqPosition = positions.find(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (p: any) => p.instrument?.symbol === "TQQQ"
-  );
+  const tqqqPosition = positions.find((p: any) => p.instrument?.symbol === "TQQQ");
   const tqqqShares: number = tqqqPosition?.longQuantity ?? 0;
 
-  return { filled, working, tqqqShares };
+  // Build a map of option symbol → earliest sell-to-open close time from order history
+  const optionOpenDates = new Map<string, string>();
+  for (const order of flattenOrders(Array.isArray(filledRaw) ? filledRaw : [])) {
+    if (order.status !== "FILLED") continue;
+    const leg = order.orderLegCollection?.[0];
+    if (!leg || leg.orderLegType !== "OPTION" || leg.instruction !== "SELL_TO_OPEN") continue;
+    const sym: string = leg.instrument?.symbol;
+    if (!sym) continue;
+    // Keep the earliest (oldest) open date
+    if (!optionOpenDates.has(sym) || order.closeTime < optionOpenDates.get(sym)!) {
+      optionOpenDates.set(sym, order.closeTime);
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const options: OptionPosition[] = positions
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .filter((p: any) =>
+      p.instrument?.assetType === "OPTION" &&
+      p.instrument?.underlyingSymbol === "TQQQ" &&
+      (p.shortQuantity ?? 0) > 0
+    )
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((p: any): OptionPosition | null => {
+      const sym: string = p.instrument?.symbol ?? "";
+
+      // Parse OCC symbol: "TQQQ  260327C00050000"
+      //   chars 0-5:  underlying (padded)
+      //   chars 6-11: YYMMDD
+      //   char  12:   C or P
+      //   chars 13-20: strike * 1000
+      const occMatch = sym.match(/^.{6}(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/);
+
+      let strike: number = p.instrument?.strikePrice ?? 0;
+      let expiry: string = (p.instrument?.expirationDate as string)?.slice(0, 10) ?? "";
+
+      if (occMatch) {
+        const [, yy, mm, dd, , strikeRaw] = occMatch;
+        if (!strike) strike = parseInt(strikeRaw, 10) / 1000;
+        if (!expiry) expiry = `20${yy}-${mm}-${dd}`;
+      }
+
+      if (!strike) return null;
+
+      const putCallRaw: string = p.instrument?.putCall ?? (occMatch?.[4] === "C" ? "CALL" : "PUT") ?? "";
+      const putCall: "CALL" | "PUT" = putCallRaw === "CALL" ? "CALL" : "PUT";
+
+      return {
+        accountNumber,
+        symbol: sym,
+        putCall,
+        strike,
+        expiry,
+        shortQty: p.shortQuantity ?? 0,
+        marketValue: p.marketValue ?? 0,
+        averagePrice: p.averagePrice ?? 0,
+        openedAt: optionOpenDates.get(sym) ?? null,
+      };
+    })
+    .filter((p): p is OptionPosition => p !== null);
+
+  return { filled, working, tqqqShares, options };
 }
 
 export async function GET() {
@@ -85,7 +145,9 @@ export async function GET() {
       accounts.map(([accountNumber], i) => [accountNumber, results[i].tqqqShares])
     );
 
-    return Response.json({ filledOrders, workingOrders, tqqqShares } satisfies Snapshot);
+    const optionPositions: OptionPosition[] = results.flatMap((r) => r.options);
+
+    return Response.json({ filledOrders, workingOrders, tqqqShares, optionPositions } satisfies Snapshot);
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
     return Response.json({ error: message }, { status: 500 });

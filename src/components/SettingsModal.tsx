@@ -68,7 +68,14 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
               label="Starting Date"
               placeholder="Pick a date"
               value={s.startingDate}
-              onChange={(val) => updateAccountSettings(activeAccount.accountNumber, { startingDate: val ? new Date(val) : null })}
+              onChange={(val) => {
+                if (!val) { updateAccountSettings(activeAccount.accountNumber, { startingDate: null }); return; }
+                const [y, m, day] = val instanceof Date
+                  ? [val.getFullYear(), val.getMonth() + 1, val.getDate()]
+                  : (val as string).split("-").map(Number);
+                const d = new Date(y, m - 1, day, 12, 0, 0, 0);
+                updateAccountSettings(activeAccount.accountNumber, { startingDate: d });
+              }}
             />
             <NumberInput
               label="Initial Lot Price"

@@ -1,1 +1,463 @@
-export default function Page() { return <div /> }
+"use client";
+
+import { useMemo } from "react";
+import {
+  Table, Text, Group, Stack, Skeleton, Center, NumberInput,
+  SimpleGrid, Paper, Badge, Box,
+} from "@mantine/core";
+import { useApp } from "@/lib/context/AppContext";
+import { useLevels } from "@/lib/hooks/useLevels";
+import type { OptionPosition } from "@/lib/schwab/parse";
+import type { Level } from "@/lib/levels";
+
+// ── helpers ────────────────────────────────────────────────────────────────
+
+function daysUntil(expiry: string): number {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.max(0, Math.round((new Date(expiry + "T00:00:00").getTime() - today.getTime()) / 86400000));
+}
+
+function progressPct(averagePrice: number, marketValue: number, shortQty: number): number {
+  if (averagePrice <= 0 || shortQty <= 0) return 0;
+  const currentPerShare = Math.abs(marketValue) / shortQty / 100;
+  return Math.max(0, Math.min(100, ((averagePrice - currentPerShare) / averagePrice) * 100));
+}
+
+/** Round up to nearest $0.50 — used for calls (sell above current price) */
+function callStrikeForLevel(level: Level): number {
+  return Math.ceil(level.sellPrice / 0.5) * 0.5;
+}
+
+/** Round down to nearest $0.50 — used for puts (buy below current price) */
+function putStrikeForLevel(level: Level): number {
+  return Math.floor(level.buyPrice / 0.5) * 0.5;
+}
+
+/** Find a position whose strike matches within $0.01 */
+function matchPosition(positions: OptionPosition[], strike: number): OptionPosition | null {
+  return positions.find((p) => Math.abs(p.strike - strike) < 0.01) ?? null;
+}
+
+// ── calls allocation ───────────────────────────────────────────────────────
+
+interface CallRow {
+  strike: number;
+  levelNums: number[];
+  ownedShares: number;
+  carryIn: number;
+  contracts: number;
+  carryOut: number;
+  inSafeZone: boolean;
+  position: OptionPosition | null;
+}
+
+function buildCallRows(
+  levels: Level[],
+  ownedSet: Set<number>,
+  currentLevel: number,
+  safetyLevels: number,
+  positions: OptionPosition[],
+): CallRow[] {
+  const maxSafe = currentLevel - safetyLevels;
+
+  const strikeToLevels = new Map<number, number[]>();
+  for (let n = 0; n <= currentLevel; n++) {
+    const s = callStrikeForLevel(levels[n]);
+    if (!strikeToLevels.has(s)) strikeToLevels.set(s, []);
+    strikeToLevels.get(s)!.push(n);
+  }
+
+  const highStrike = callStrikeForLevel(levels[0]);
+  const lowStrike  = callStrikeForLevel(levels[currentLevel]);
+  const safeEdge   = callStrikeForLevel(levels[Math.max(0, maxSafe)]);
+
+  const rows: CallRow[] = [];
+  let carryIn = 0;
+
+  for (let s = highStrike; s >= lowStrike - 0.01; s = Math.round((s - 0.5) * 100) / 100) {
+    const strike = Math.round(s * 100) / 100;
+    const levelNums = strikeToLevels.get(strike) ?? [];
+    const inSafeZone = strike >= safeEdge;
+
+    const ownedShares = levelNums
+      .filter((n) => inSafeZone && n <= maxSafe && ownedSet.has(n))
+      .reduce((sum, n) => sum + levels[n].shares, 0);
+
+    const total = ownedShares + carryIn;
+    const contracts = inSafeZone ? Math.floor(total / 100) : 0;
+    const carryOut  = inSafeZone ? total % 100 : 0;
+
+    rows.push({ strike, levelNums, ownedShares, carryIn, contracts, carryOut, inSafeZone, position: matchPosition(positions, strike) });
+
+    carryIn = carryOut;
+  }
+
+  return rows;
+}
+
+// ── puts allocation ────────────────────────────────────────────────────────
+
+interface PutRow {
+  strike: number;
+  levelNums: number[];
+  levelShares: number;  // shares from levels landing on this strike
+  carryIn: number;
+  contracts: number;
+  carryOut: number;
+  inSafeZone: boolean;
+  position: OptionPosition | null;
+}
+
+function buildPutRows(
+  levels: Level[],
+  currentLevel: number,
+  safetyLevels: number,
+  positions: OptionPosition[],
+): PutRow[] {
+  const minSafe = currentLevel + safetyLevels;  // first level index in safe zone
+
+  const strikeToLevels = new Map<number, number[]>();
+  for (let n = currentLevel; n < levels.length; n++) {
+    const s = putStrikeForLevel(levels[n]);
+    if (!strikeToLevels.has(s)) strikeToLevels.set(s, []);
+    strikeToLevels.get(s)!.push(n);
+  }
+
+  // High put strike: current level; low put strike: last level
+  const highStrike = putStrikeForLevel(levels[currentLevel]);
+  const lowStrike  = putStrikeForLevel(levels[levels.length - 1]);
+  const safeEdge   = putStrikeForLevel(levels[Math.min(minSafe, levels.length - 1)]);
+
+  const rows: PutRow[] = [];
+  let carryIn = 0;
+
+  for (let s = highStrike; s >= lowStrike - 0.01; s = Math.round((s - 0.5) * 100) / 100) {
+    const strike = Math.round(s * 100) / 100;
+    const levelNums = strikeToLevels.get(strike) ?? [];
+    // Safe zone for puts: at or below the safe edge price
+    const inSafeZone = strike <= safeEdge;
+
+    const levelShares = levelNums
+      .filter((n) => inSafeZone && n >= minSafe)
+      .reduce((sum, n) => sum + levels[n].shares, 0);
+
+    const total = levelShares + carryIn;
+    const contracts = inSafeZone ? Math.floor(total / 100) : 0;
+    const carryOut  = inSafeZone ? total % 100 : 0;
+
+    rows.push({ strike, levelNums, levelShares, carryIn, contracts, carryOut, inSafeZone, position: matchPosition(positions, strike) });
+
+    carryIn = carryOut;
+  }
+
+  return rows;
+}
+
+// ── shared position row renderer ───────────────────────────────────────────
+
+function PositionCells({
+  position, color, privacyMode, inSafeZone,
+}: { position: OptionPosition | null; color: string; privacyMode: boolean; inSafeZone: boolean }) {
+  const mask = (v: string) => (privacyMode ? "••••" : v);
+
+  if (!position) {
+    return (
+      <>
+        <Table.Td ta="right"><Text size="sm" c="dimmed">—</Text></Table.Td>
+        <Table.Td ta="right"><Text size="sm" c="dimmed">—</Text></Table.Td>
+        <Table.Td style={{ minWidth: 100 }}><Text size="sm" c="dimmed">—</Text></Table.Td>
+      </>
+    );
+  }
+
+  const expiryLabel = position.expiry?.length >= 10
+    ? new Date(position.expiry.slice(0, 10) + "T00:00:00").toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" })
+    : null;
+  const dte = daysUntil(position.expiry);
+  const pct = progressPct(position.averagePrice, position.marketValue, position.shortQty);
+
+  return (
+    <>
+      <Table.Td ta="right">
+        <Group gap={6} justify="flex-end" wrap="nowrap">
+          <Badge size="sm" color={color} variant="light">{position.shortQty}</Badge>
+          {expiryLabel && <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>{expiryLabel}</Text>}
+        </Group>
+      </Table.Td>
+      <Table.Td ta="right">
+        {(() => {
+          const credit = position.averagePrice * position.shortQty * 100;
+          const costToClose = Math.abs(position.marketValue);
+          const value = credit - costToClose;
+          return (
+            <Text size="sm" c={value >= 0 ? color : "red"}>
+              {mask(`${value >= 0 ? "+" : ""}$${value.toFixed(2)}`)}
+            </Text>
+          );
+        })()}
+      </Table.Td>
+      <Table.Td style={{ minWidth: 100 }}>
+        <Stack gap={2}>
+          <Box style={{ height: 8, borderRadius: 999, background: "var(--mantine-color-dark-4)", overflow: "hidden" }}>
+            <Box style={{
+              height: "100%", width: `${pct}%`, borderRadius: 999,
+              background: `color-mix(in srgb, var(--mantine-color-gray-6) ${100 - pct}%, var(--mantine-color-${color}-5) ${pct}%)`,
+            }} />
+          </Box>
+          <Group justify="space-between">
+            <Text size="xs" c="dimmed">{pct.toFixed(0)}%</Text>
+            <Text size="xs" c={!inSafeZone && dte <= 2 ? undefined : "dimmed"} style={!inSafeZone && dte <= 2 ? { color: "var(--mantine-color-orange-5)" } : undefined}>{dte} DTE</Text>
+          </Group>
+        </Stack>
+      </Table.Td>
+    </>
+  );
+}
+
+// ── calls table ───────────────────────────────────────────────────────────
+
+function CallsTable({
+  rows, color, safetyLevels, onSafetyChange, privacyMode, currentLevel,
+}: {
+  rows: CallRow[];
+  color: string;
+  safetyLevels: number;
+  onSafetyChange: (v: number) => void;
+  privacyMode: boolean;
+  currentLevel: number;
+}) {
+  const mask = (v: string) => (privacyMode ? "••••" : v);
+
+  return (
+    <Stack gap="xs">
+      <Group justify="space-between" align="center">
+        <Text fw={700} size="sm">Covered Calls</Text>
+        <Group gap="xs" align="center">
+          <Text size="xs" c="dimmed">Safety Levels</Text>
+          <NumberInput
+            value={safetyLevels}
+            onChange={(v) => onSafetyChange(typeof v === "number" ? v : 0)}
+            min={0} max={30} size="xs" w={64}
+          />
+        </Group>
+      </Group>
+
+      {rows.length === 0 ? (
+        <Center h={80}><Text size="sm" c="dimmed">No levels configured.</Text></Center>
+      ) : (
+        <Table verticalSpacing="xs">
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Level</Table.Th>
+              <Table.Th ta="right">Strike</Table.Th>
+              <Table.Th ta="right">Qty</Table.Th>
+              <Table.Th ta="right">Held</Table.Th>
+              <Table.Th ta="right">Value</Table.Th>
+              <Table.Th>Progress</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {rows.map((row) => {
+              const dim = !row.position && (!row.inSafeZone || row.contracts === 0);
+              const isCurrent = row.levelNums.includes(currentLevel);
+              return (
+                <Table.Tr
+                  key={row.strike}
+                  bg={isCurrent ? "dark.4" : row.inSafeZone ? `var(--mantine-color-${color}-light-hover)` : undefined}
+                  style={{
+                    opacity: dim && !isCurrent ? 0.4 : 1,
+                    ...(isCurrent ? { borderLeft: `3px solid var(--mantine-color-${color}-5)` } : {}),
+                  }}
+                >
+                  <Table.Td>
+                    <Group gap={4}>
+                      <Text size="sm" c={row.levelNums.length === 0 ? "dimmed" : undefined}>
+                        {row.levelNums.length > 0 ? row.levelNums.join(", ") : "—"}
+                      </Text>
+                      {row.carryIn > 0 && (
+                        <Text size="xs" c="dimmed">(+{row.carryIn})</Text>
+                      )}
+                    </Group>
+                  </Table.Td>
+                  <Table.Td ta="right">
+                    <Text size="sm">{mask(`$${row.strike.toFixed(2)}`)}</Text>
+                  </Table.Td>
+                  <Table.Td ta="right">
+                    {row.contracts > 0 ? (
+                      <Badge color="gray" variant="light" size="sm">{row.contracts}</Badge>
+                    ) : row.inSafeZone && row.ownedShares > 0 ? (
+                      <Text size="xs" c="dimmed">{row.ownedShares}sh</Text>
+                    ) : (
+                      <Text size="sm" c="dimmed">—</Text>
+                    )}
+                  </Table.Td>
+                  <PositionCells position={row.position} color={color} privacyMode={privacyMode} inSafeZone={row.inSafeZone} />
+                </Table.Tr>
+              );
+            })}
+          </Table.Tbody>
+        </Table>
+      )}
+    </Stack>
+  );
+}
+
+// ── puts table ────────────────────────────────────────────────────────────
+
+function PutsTable({
+  rows, color, safetyLevels, onSafetyChange, privacyMode, currentLevel,
+}: {
+  rows: PutRow[];
+  color: string;
+  safetyLevels: number;
+  onSafetyChange: (v: number) => void;
+  privacyMode: boolean;
+  currentLevel: number;
+}) {
+  const mask = (v: string) => (privacyMode ? "••••" : v);
+
+  return (
+    <Stack gap="xs">
+      <Group justify="space-between" align="center">
+        <Text fw={700} size="sm">Cash Secured Puts</Text>
+        <Group gap="xs" align="center">
+          <Text size="xs" c="dimmed">Safety Levels</Text>
+          <NumberInput
+            value={safetyLevels}
+            onChange={(v) => onSafetyChange(typeof v === "number" ? v : 0)}
+            min={0} max={30} size="xs" w={64}
+          />
+        </Group>
+      </Group>
+
+      {rows.length === 0 ? (
+        <Center h={80}><Text size="sm" c="dimmed">No levels configured.</Text></Center>
+      ) : (
+        <Table verticalSpacing="xs">
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Level</Table.Th>
+              <Table.Th ta="right">Strike</Table.Th>
+              <Table.Th ta="right">Qty</Table.Th>
+              <Table.Th ta="right">Held</Table.Th>
+              <Table.Th ta="right">Value</Table.Th>
+              <Table.Th>Progress</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {rows.map((row) => {
+              const dim = !row.position && (!row.inSafeZone || row.contracts === 0);
+              const isCurrent = row.levelNums.includes(currentLevel);
+              return (
+                <Table.Tr
+                  key={row.strike}
+                  bg={isCurrent ? "dark.4" : row.inSafeZone ? `var(--mantine-color-${color}-light-hover)` : undefined}
+                  style={{
+                    opacity: dim && !isCurrent ? 0.4 : 1,
+                    ...(isCurrent ? { borderLeft: `3px solid var(--mantine-color-${color}-5)` } : {}),
+                  }}
+                >
+                  <Table.Td>
+                    <Group gap={4}>
+                      <Text size="sm" c={row.levelNums.length === 0 ? "dimmed" : undefined}>
+                        {row.levelNums.length > 0 ? row.levelNums.join(", ") : "—"}
+                      </Text>
+                      {row.carryIn > 0 && (
+                        <Text size="xs" c="dimmed">(+{row.carryIn})</Text>
+                      )}
+                    </Group>
+                  </Table.Td>
+                  <Table.Td ta="right">
+                    <Text size="sm">{mask(`$${row.strike.toFixed(2)}`)}</Text>
+                  </Table.Td>
+                  <Table.Td ta="right">
+                    {row.contracts > 0 ? (
+                      <Badge color="gray" variant="light" size="sm">{row.contracts}</Badge>
+                    ) : row.inSafeZone && row.levelShares > 0 ? (
+                      <Text size="xs" c="dimmed">{row.levelShares}sh</Text>
+                    ) : (
+                      <Text size="sm" c="dimmed">—</Text>
+                    )}
+                  </Table.Td>
+                  <PositionCells position={row.position} color={color} privacyMode={privacyMode} inSafeZone={row.inSafeZone} />
+                </Table.Tr>
+              );
+            })}
+          </Table.Tbody>
+        </Table>
+      )}
+    </Stack>
+  );
+}
+
+// ── page ──────────────────────────────────────────────────────────────────
+
+export default function OptionsPage() {
+  const { optionPositions, snapshotLoading, activeAccount, privacyMode, updateAccountSettings } = useApp();
+  const levelsSummary = useLevels();
+  const color = activeAccount?.color ?? "blue";
+
+  const callSafety = activeAccount?.settings.callSafetyLevels ?? 6;
+  const putSafety  = activeAccount?.settings.putSafetyLevels  ?? 8;
+
+  const handleCallSafety = (v: number) => {
+    if (activeAccount) updateAccountSettings(activeAccount.accountNumber, { callSafetyLevels: v });
+  };
+  const handlePutSafety = (v: number) => {
+    if (activeAccount) updateAccountSettings(activeAccount.accountNumber, { putSafetyLevels: v });
+  };
+
+  const calls = useMemo(() => optionPositions.filter((p) => p.putCall === "CALL"), [optionPositions]);
+  const puts  = useMemo(() => optionPositions.filter((p) => p.putCall === "PUT"),  [optionPositions]);
+
+  const callRows = useMemo(() => {
+    const levels = levelsSummary?.levels ?? [];
+    const currentLevel = levelsSummary?.currentLevel ?? -1;
+    if (levels.length === 0 || currentLevel < 1) return [];
+    const ownedSet = new Set(levelsSummary?.ownedLevels.map((l) => l.n) ?? []);
+    return buildCallRows(levels, ownedSet, currentLevel, callSafety, calls);
+  }, [levelsSummary, callSafety, calls]);
+
+  const putRows = useMemo(() => {
+    const levels = levelsSummary?.levels ?? [];
+    const currentLevel = levelsSummary?.currentLevel ?? -1;
+    if (levels.length === 0 || currentLevel < 0) return [];
+    return buildPutRows(levels, currentLevel, putSafety, puts);
+  }, [levelsSummary, putSafety, puts]);
+
+  if (snapshotLoading) {
+    return (
+      <Stack>
+        <Skeleton height={40} radius="md" />
+        <Skeleton height={200} radius="md" />
+      </Stack>
+    );
+  }
+
+  return (
+    <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
+      <Paper withBorder p="md" radius="md">
+        <CallsTable
+          rows={callRows}
+          color={color}
+          safetyLevels={callSafety}
+          onSafetyChange={handleCallSafety}
+          privacyMode={privacyMode}
+          currentLevel={levelsSummary?.currentLevel ?? -1}
+        />
+      </Paper>
+
+      <Paper withBorder p="md" radius="md">
+        <PutsTable
+          rows={putRows}
+          color={color}
+          safetyLevels={putSafety}
+          onSafetyChange={handlePutSafety}
+          privacyMode={privacyMode}
+          currentLevel={levelsSummary?.currentLevel ?? -1}
+        />
+      </Paper>
+    </SimpleGrid>
+  );
+}

@@ -1,8 +1,8 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from "react";
-import type { FilledOrder, WorkingOrder } from "@/lib/schwab/parse";
-export type { FilledOrder, WorkingOrder };
+import type { FilledOrder, WorkingOrder, OptionPosition } from "@/lib/schwab/parse";
+export type { FilledOrder, WorkingOrder, OptionPosition };
 
 export interface AccountSettings {
   startingCash: number | null;
@@ -12,6 +12,8 @@ export interface AccountSettings {
   reductionFactor: number | null;
   orderWarnBelow: number | null;
   orderBuffer: number | null;
+  callSafetyLevels: number | null;
+  putSafetyLevels: number | null;
 }
 
 export interface Account {
@@ -29,6 +31,8 @@ const DEFAULT_SETTINGS: AccountSettings = {
   reductionFactor: null,
   orderWarnBelow: 3,
   orderBuffer: 5,
+  callSafetyLevels: 6,
+  putSafetyLevels: 8,
 };
 
 export interface Quote {
@@ -66,7 +70,8 @@ interface AppContextValue {
   checkSchwabAuth: () => Promise<void>;
   filledOrders: FilledOrder[];
   workingOrders: WorkingOrder[];
-  tqqqShares: number; // TQQQ shares held in active account per Schwab positions
+  optionPositions: OptionPosition[];
+  tqqqShares: number;
   snapshotLoading: boolean;
 }
 
@@ -195,6 +200,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [refreshTick, setRefreshTick] = useState(0);
   const [allFilledOrders, setAllFilledOrders] = useState<FilledOrder[]>([]);
   const [allWorkingOrders, setAllWorkingOrders] = useState<WorkingOrder[]>([]);
+  const [allOptionPositions, setAllOptionPositions] = useState<OptionPosition[]>([]);
   const [allTqqqShares, setAllTqqqShares] = useState<Record<string, number>>({});
   const [snapshotLoading, setSnapshotLoading] = useState(false);
 
@@ -208,6 +214,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         if (data.filledOrders) setAllFilledOrders(data.filledOrders);
         if (data.workingOrders) setAllWorkingOrders(data.workingOrders);
+        if (data.optionPositions) setAllOptionPositions(data.optionPositions);
         if (data.tqqqShares) setAllTqqqShares(data.tqqqShares);
       } catch {
         // ignore
@@ -227,6 +234,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const workingOrders = useMemo(
     () => accountNumber ? allWorkingOrders.filter((o) => o.accountNumber === accountNumber) : [],
     [allWorkingOrders, accountNumber]
+  );
+  const optionPositions = useMemo(
+    () => accountNumber ? allOptionPositions.filter((o) => o.accountNumber === accountNumber) : [],
+    [allOptionPositions, accountNumber]
   );
   const tqqqShares = useMemo(
     () => accountNumber ? (allTqqqShares[accountNumber] ?? 0) : 0,
@@ -293,6 +304,7 @@ const togglePrivacy = () => setPrivacyMode((p) => !p);
         checkSchwabAuth,
         filledOrders,
         workingOrders,
+        optionPositions,
         tqqqShares,
         snapshotLoading,
       }}

@@ -8,6 +8,18 @@ export interface FilledOrder {
   time: string;
 }
 
+export interface OptionPosition {
+  accountNumber: string;
+  symbol: string;
+  putCall: "CALL" | "PUT";
+  strike: number;
+  expiry: string;         // "YYYY-MM-DD"
+  shortQty: number;
+  marketValue: number;    // current mark (negative = liability)
+  averagePrice: number;   // credit received per share when opened
+  openedAt: string | null;
+}
+
 export interface WorkingOrder {
   orderId: number;
   accountNumber: string;
