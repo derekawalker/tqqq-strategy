@@ -93,7 +93,7 @@ async function fetchAccountData(
 
       if (!strike) return null;
 
-      const putCallRaw: string = p.instrument?.putCall ?? (occMatch?.[4] === "C" ? "CALL" : "PUT") ?? "";
+      const putCallRaw: string = p.instrument?.putCall ?? (occMatch?.[4] === "C" ? "CALL" : "PUT");
       const putCall: "CALL" | "PUT" = putCallRaw === "CALL" ? "CALL" : "PUT";
 
       return {

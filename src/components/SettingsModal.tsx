@@ -70,9 +70,9 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
               value={s.startingDate}
               onChange={(val) => {
                 if (!val) { updateAccountSettings(activeAccount.accountNumber, { startingDate: null }); return; }
-                const [y, m, day] = val instanceof Date
-                  ? [val.getFullYear(), val.getMonth() + 1, val.getDate()]
-                  : (val as string).split("-").map(Number);
+                const [y, m, day] = typeof val === "string"
+                  ? val.split("-").map(Number)
+                  : [(val as Date).getFullYear(), (val as Date).getMonth() + 1, (val as Date).getDate()];
                 const d = new Date(y, m - 1, day, 12, 0, 0, 0);
                 updateAccountSettings(activeAccount.accountNumber, { startingDate: d });
               }}
