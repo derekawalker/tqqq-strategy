@@ -116,19 +116,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
+    // Load from localStorage immediately for a fast first render
     const savedAccounts = loadAccounts();
     const savedNumber = localStorage.getItem(ACTIVE_ACCOUNT_KEY);
     const saved = savedNumber ? savedAccounts.find((a) => a.accountNumber === savedNumber) : null;
     setAccounts(savedAccounts);
     setActiveAccount(saved ?? savedAccounts[0] ?? null);
     setInitialized(true);
+
+    // Then fetch from Supabase and override if available (handles new devices)
+    fetch("/api/settings?key=accounts")
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.value) return;
+        const remote = (data.value as Account[]).map((a) => ({
+          ...a,
+          settings: {
+            ...a.settings,
+            startingDate: a.settings.startingDate ? new Date(a.settings.startingDate) : null,
+          },
+        }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
+        setAccounts(remote);
+        setActiveAccount((active) => {
+          const preferred = localStorage.getItem(ACTIVE_ACCOUNT_KEY) ?? active?.accountNumber;
+          return remote.find((a) => a.accountNumber === preferred) ?? remote[0] ?? null;
+        });
+      })
+      .catch(() => {});
   }, []);
 
-  // Persist accounts — React batches the load effect's setState calls, so when initialized
-  // flips to true, accounts already holds the loaded value in the same render.
+  // Persist accounts to localStorage and Supabase
   useEffect(() => {
     if (!initialized) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
+    fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "accounts", value: accounts }),
+    }).catch(() => {});
   }, [initialized, accounts]);
 
   // Persist active account selection

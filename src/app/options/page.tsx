@@ -1,12 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   Table, Text, Group, Stack, Skeleton, Center, NumberInput,
-  SimpleGrid, Paper, Badge, Box,
+  SimpleGrid, Paper, Badge, Box, SegmentedControl,
 } from "@mantine/core";
+import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
+import { IconArrowRight } from "@tabler/icons-react";
 import type { OptionPosition } from "@/lib/schwab/parse";
 import type { Level } from "@/lib/levels";
 
@@ -165,8 +167,8 @@ function PositionCells({
     return (
       <>
         <Table.Td ta="right"><Text size="sm" c="dimmed">—</Text></Table.Td>
-        <Table.Td ta="right"><Text size="sm" c="dimmed">—</Text></Table.Td>
-        <Table.Td style={{ minWidth: 100 }}><Text size="sm" c="dimmed">—</Text></Table.Td>
+        <Table.Td ta="right" className="hide-mobile"><Text size="sm" c="dimmed">—</Text></Table.Td>
+        <Table.Td style={{ minWidth: 70 }}><Text size="sm" c="dimmed">—</Text></Table.Td>
       </>
     );
   }
@@ -176,6 +178,10 @@ function PositionCells({
     : null;
   const dte = daysUntil(position.expiry);
   const pct = progressPct(position.averagePrice, position.marketValue, position.shortQty);
+  const totalDays = position.openedAt
+    ? Math.max(1, Math.round((new Date(position.expiry + "T00:00:00").getTime() - new Date(position.openedAt).getTime()) / 86400000))
+    : 45;
+  const elapsedPct = Math.min(100, Math.max(0, ((totalDays - dte) / totalDays) * 100));
 
   return (
     <>
@@ -185,7 +191,7 @@ function PositionCells({
           {expiryLabel && <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>{expiryLabel}</Text>}
         </Group>
       </Table.Td>
-      <Table.Td ta="right">
+      <Table.Td ta="right" className="hide-mobile">
         {(() => {
           const credit = position.averagePrice * position.shortQty * 100;
           const costToClose = Math.abs(position.marketValue);
@@ -197,18 +203,31 @@ function PositionCells({
           );
         })()}
       </Table.Td>
-      <Table.Td style={{ minWidth: 100 }}>
+      <Table.Td style={{ minWidth: 70 }}>
         <Stack gap={2}>
-          <Box style={{ height: 8, borderRadius: 999, background: "var(--mantine-color-dark-4)", overflow: "hidden" }}>
+          <Group justify="space-between">
+            <Text size="xs" c="dimmed">{totalDays}d</Text>
+            <IconArrowRight size={10} style={{ color: "var(--mantine-color-dimmed)" }} />
+            <Text size="xs" c={dte < 7 ? "red" : dte <= 14 ? "orange" : "lime"}>{dte}d</Text>
+          </Group>
+          <Box style={{ height: 4, borderRadius: 999, background: "var(--mantine-color-dark-4)", overflow: "hidden" }}>
+            <Box style={{
+              height: "100%", borderRadius: 999,
+              width: `${elapsedPct}%`,
+              background: `var(--mantine-color-${dte < 7 ? "red" : dte <= 14 ? "orange" : "lime"}-5)`,
+            }} />
+          </Box>
+          <Box style={{ height: 4, borderRadius: 999, background: "var(--mantine-color-dark-4)", overflow: "hidden" }}>
             <Box style={{
               height: "100%", width: `${pct}%`, borderRadius: 999,
               background: `color-mix(in srgb, var(--mantine-color-gray-6) ${100 - pct}%, var(--mantine-color-${color}-5) ${pct}%)`,
             }} />
           </Box>
-          <Group justify="space-between">
+          <Box style={{ display: "flex", justifyContent: "space-between" }}>
             <Text size="xs" c="dimmed">{pct.toFixed(0)}%</Text>
-            <Text size="xs" c={!inSafeZone && dte <= 2 ? undefined : "dimmed"} style={!inSafeZone && dte <= 2 ? { color: "var(--mantine-color-orange-5)" } : undefined}>{dte} DTE</Text>
-          </Group>
+            <Text size="xs" c="dimmed">of</Text>
+            <Text size="xs" c="dimmed">{mask(`$${(position.averagePrice * position.shortQty * 100).toFixed(2)}`)}</Text>
+          </Box>
         </Stack>
       </Table.Td>
     </>
@@ -253,7 +272,7 @@ function CallsTable({
               <Table.Th ta="right">Strike</Table.Th>
               <Table.Th ta="right">Qty</Table.Th>
               <Table.Th ta="right">Held</Table.Th>
-              <Table.Th ta="right">Value</Table.Th>
+              <Table.Th ta="right" className="hide-mobile">Value</Table.Th>
               <Table.Th>Progress</Table.Th>
             </Table.Tr>
           </Table.Thead>
@@ -272,7 +291,7 @@ function CallsTable({
                 >
                   <Table.Td>
                     <Group gap={4}>
-                      <Text size="sm" c={row.levelNums.length === 0 ? "dimmed" : undefined}>
+                      <Text size="xs" c={row.levelNums.length === 0 ? "dimmed" : undefined}>
                         {row.levelNums.length > 0 ? row.levelNums.join(", ") : "—"}
                       </Text>
                       {row.carryIn > 0 && (
@@ -281,7 +300,7 @@ function CallsTable({
                     </Group>
                   </Table.Td>
                   <Table.Td ta="right">
-                    <Text size="sm">{mask(`$${row.strike.toFixed(2)}`)}</Text>
+                    <Text size="xs">{mask(`$${row.strike.toFixed(2)}`)}</Text>
                   </Table.Td>
                   <Table.Td ta="right">
                     {row.contracts > 0 ? (
@@ -341,7 +360,7 @@ function PutsTable({
               <Table.Th ta="right">Strike</Table.Th>
               <Table.Th ta="right">Qty</Table.Th>
               <Table.Th ta="right">Held</Table.Th>
-              <Table.Th ta="right">Value</Table.Th>
+              <Table.Th ta="right" className="hide-mobile">Value</Table.Th>
               <Table.Th>Progress</Table.Th>
             </Table.Tr>
           </Table.Thead>
@@ -360,7 +379,7 @@ function PutsTable({
                 >
                   <Table.Td>
                     <Group gap={4}>
-                      <Text size="sm" c={row.levelNums.length === 0 ? "dimmed" : undefined}>
+                      <Text size="xs" c={row.levelNums.length === 0 ? "dimmed" : undefined}>
                         {row.levelNums.length > 0 ? row.levelNums.join(", ") : "—"}
                       </Text>
                       {row.carryIn > 0 && (
@@ -369,7 +388,7 @@ function PutsTable({
                     </Group>
                   </Table.Td>
                   <Table.Td ta="right">
-                    <Text size="sm">{mask(`$${row.strike.toFixed(2)}`)}</Text>
+                    <Text size="xs">{mask(`$${row.strike.toFixed(2)}`)}</Text>
                   </Table.Td>
                   <Table.Td ta="right">
                     {row.contracts > 0 ? (
@@ -397,6 +416,8 @@ export default function OptionsPage() {
   const { optionPositions, snapshotLoading, activeAccount, privacyMode, updateAccountSettings } = useApp();
   const levelsSummary = useLevels();
   const color = activeAccount?.color ?? "blue";
+  const isMobile = useMediaQuery("(max-width: 768px)");
+  const [mobileTab, setMobileTab] = useState<"calls" | "puts">("calls");
 
   const callSafety = activeAccount?.settings.callSafetyLevels ?? 6;
   const putSafety  = activeAccount?.settings.putSafetyLevels  ?? 8;
@@ -435,8 +456,43 @@ export default function OptionsPage() {
     );
   }
 
+  if (isMobile) {
+    return (
+      <Stack>
+        <SegmentedControl
+          fullWidth
+          value={mobileTab}
+          onChange={(v) => setMobileTab(v as "calls" | "puts")}
+          data={[
+            { label: "Covered Calls", value: "calls" },
+            { label: "Cash Secured Puts", value: "puts" },
+          ]}
+        />
+          {mobileTab === "calls" ? (
+            <CallsTable
+              rows={callRows}
+              color={color}
+              safetyLevels={callSafety}
+              onSafetyChange={handleCallSafety}
+              privacyMode={privacyMode}
+              currentLevel={levelsSummary?.currentLevel ?? -1}
+            />
+          ) : (
+            <PutsTable
+              rows={putRows}
+              color={color}
+              safetyLevels={putSafety}
+              onSafetyChange={handlePutSafety}
+              privacyMode={privacyMode}
+              currentLevel={levelsSummary?.currentLevel ?? -1}
+            />
+          )}
+      </Stack>
+    );
+  }
+
   return (
-    <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
+    <SimpleGrid cols={2} spacing="xl">
       <Paper withBorder p="md" radius="md">
         <CallsTable
           rows={callRows}

@@ -108,25 +108,23 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
           <IconSettings size={14} />
         </ActionIcon>
       </Tooltip>
-      <Tooltip label={privacyMode ? "Show values" : "Hide values"}>
+      <Tooltip label={privacyMode ? "Show values" : "Privacy mode"}>
         <ActionIcon {...aiProps} onClick={togglePrivacy}>
           {privacyMode ? <IconEyeOff size={14} /> : <IconEye size={14} />}
         </ActionIcon>
       </Tooltip>
       <Menu position="bottom-end" withinPortal>
         <Menu.Target>
-          <Tooltip label="Refresh">
-            <ActionIcon {...aiProps}>
-              <IconRefresh size={14} />
-            </ActionIcon>
-          </Tooltip>
+          <ActionIcon {...aiProps}>
+            <IconRefresh size={14} />
+          </ActionIcon>
         </Menu.Target>
         <Menu.Dropdown>
           <Menu.Item leftSection={<IconChartLine size={14} />} onClick={tickQuoteRefresh}>
             Refresh prices
           </Menu.Item>
           <Menu.Item leftSection={<IconRefreshDot size={14} />} onClick={onRefresh}>
-            Refresh all
+            Refresh Schwab
           </Menu.Item>
         </Menu.Dropdown>
       </Menu>

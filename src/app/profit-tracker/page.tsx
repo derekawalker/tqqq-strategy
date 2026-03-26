@@ -24,6 +24,18 @@ const PERIODS: { value: Period; label: string; days: number | null }[] = [
   { value: "all",   label: "All Time", days: null },
 ];
 
+interface RealizedOptionTrade {
+  id: string;
+  symbol: string;
+  strike: number;
+  contracts: number;
+  openPrice: number;        // STO fill price per share
+  closePrice: number | null; // BTC fill price per share, null if expired
+  net: number;              // net profit
+  time: string;             // close time: BTC fill time, or expiry date at 4pm
+  how: "BTC" | "expired";
+}
+
 interface ProfitRow {
   orderId: number;
   date: string;  // dateKey for grouping — uses buy date when available
@@ -241,6 +253,79 @@ function MonthCard({ month, privacyMode, color }: { month: MonthSummary; privacy
 
 export default function ProfitPage() {
   const { filledOrders, filledOptionOrders, transactions, snapshotLoading, privacyMode, activeAccount } = useApp();
+
+  // Pair each STO with its BTC(s) FIFO; produce one net trade per close event.
+  // Unmatched STOs are included only if the option has expired.
+  const realizedOptionTrades = useMemo((): RealizedOptionTrade[] => {
+    const today = new Date().toISOString().slice(0, 10);
+
+    const parseExpiry = (symbol: string): string => {
+      const m = symbol.match(/^.{6}(\d{2})(\d{2})(\d{2})[CP]/);
+      return m ? `20${m[1]}-${m[2]}-${m[3]}` : "";
+    };
+
+    const parseStrike = (symbol: string): number => {
+      const m = symbol.match(/^.{6}\d{6}[CP](\d{8})$/);
+      return m ? parseInt(m[1], 10) / 1000 : 0;
+    };
+
+    const bySymbol = new Map<string, { stos: typeof filledOptionOrders; btcs: typeof filledOptionOrders }>();
+    for (const o of filledOptionOrders) {
+      if (!bySymbol.has(o.symbol)) bySymbol.set(o.symbol, { stos: [], btcs: [] });
+      (o.instruction === "SELL_TO_OPEN" ? bySymbol.get(o.symbol)!.stos : bySymbol.get(o.symbol)!.btcs).push(o);
+    }
+
+    const trades: RealizedOptionTrade[] = [];
+    for (const [symbol, { stos, btcs }] of bySymbol) {
+      const expiry = parseExpiry(symbol);
+      const isExpired = expiry !== "" && expiry <= today;
+
+      // Sort oldest-first for FIFO matching
+      const sortedStos = [...stos].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+      const stoState = sortedStos.map((s) => ({ order: s, remaining: s.contracts }));
+      const sortedBtcs = [...btcs].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+
+      let stoIdx = 0;
+      for (const btc of sortedBtcs) {
+        let btcRemaining = btc.contracts;
+        const btcPer = btc.total / btc.contracts;
+        while (btcRemaining > 0 && stoIdx < stoState.length) {
+          const entry = stoState[stoIdx];
+          const matched = Math.min(btcRemaining, entry.remaining);
+          const stoPer = entry.order.total / entry.order.contracts;
+          trades.push({
+            id: `${btc.orderId}-${entry.order.orderId}`,
+            symbol, contracts: matched,
+            strike: parseStrike(symbol),
+            openPrice: entry.order.fillPrice,
+            closePrice: btc.fillPrice,
+            net: (stoPer + btcPer) * matched,
+            time: btc.time,
+            how: "BTC",
+          });
+          btcRemaining -= matched;
+          entry.remaining -= matched;
+          if (entry.remaining === 0) stoIdx++;
+        }
+      }
+
+      // Unmatched STOs: include only if expired
+      for (const entry of stoState) {
+        if (entry.remaining <= 0 || !isExpired) continue;
+        trades.push({
+          id: `${entry.order.orderId}-expired`,
+          symbol, contracts: entry.remaining,
+          strike: parseStrike(symbol),
+          openPrice: entry.order.fillPrice,
+          closePrice: null,
+          net: (entry.order.total / entry.order.contracts) * entry.remaining,
+          time: expiry + "T16:00:00",
+          how: "expired",
+        });
+      }
+    }
+    return trades;
+  }, [filledOptionOrders]);
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [period, setPeriod] = useState<string>(() => {
     if (typeof window !== "undefined") {
@@ -300,8 +385,8 @@ export default function ProfitPage() {
 
       const dayRows = rows.filter((r) => r.date === dateKey);
       const equity = dayRows.reduce((s, r) => s + (r.profit ?? 0), 0);
-      const dayOptions = filledOptionOrders.filter((o) => new Date(o.time).toLocaleDateString("en-CA") === dateKey);
-      const options = dayOptions.reduce((s, o) => s + o.total, 0);
+      const dayOptions = realizedOptionTrades.filter((o) => new Date(o.time).toLocaleDateString("en-CA") === dateKey);
+      const options = dayOptions.reduce((s, o) => s + o.net, 0);
       const dayTxns = transactions.filter((t) => new Date(t.time).toLocaleDateString("en-CA") === dateKey);
       const interest = dayTxns.filter((t) => t.category === "interest").reduce((s, t) => s + t.amount, 0);
       const dividends = dayTxns.filter((t) => t.category === "dividend").reduce((s, t) => s + t.amount, 0);
@@ -314,7 +399,7 @@ export default function ProfitPage() {
       });
     }
     return days;
-  }, [rows, filledOptionOrders, transactions]);
+  }, [rows, realizedOptionTrades, transactions]);
 
   const last12Weeks = useMemo<WeekSummary[]>(() => {
     const weeks: WeekSummary[] = [];
@@ -332,8 +417,8 @@ export default function ProfitPage() {
 
       const weekRows = rows.filter((r) => weekStart(r.date) === wKey);
       const equity = weekRows.reduce((s, r) => s + (r.profit ?? 0), 0);
-      const weekOptions = filledOptionOrders.filter((o) => weekStart(new Date(o.time).toLocaleDateString("en-CA")) === wKey);
-      const options = weekOptions.reduce((s, o) => s + o.total, 0);
+      const weekOptions = realizedOptionTrades.filter((o) => weekStart(new Date(o.time).toLocaleDateString("en-CA")) === wKey);
+      const options = weekOptions.reduce((s, o) => s + o.net, 0);
       const weekTxns = transactions.filter((t) => weekStart(new Date(t.time).toLocaleDateString("en-CA")) === wKey);
       const interest = weekTxns.filter((t) => t.category === "interest").reduce((s, t) => s + t.amount, 0);
       const dividends = weekTxns.filter((t) => t.category === "dividend").reduce((s, t) => s + t.amount, 0);
@@ -346,7 +431,7 @@ export default function ProfitPage() {
       });
     }
     return weeks;
-  }, [rows, filledOptionOrders, transactions]);
+  }, [rows, realizedOptionTrades, transactions]);
 
   const last12Months = useMemo<MonthSummary[]>(() => {
     const months: MonthSummary[] = [];
@@ -357,8 +442,8 @@ export default function ProfitPage() {
       const label = d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
       const monthRows = rows.filter((r) => monthKey(r.date) === mKey);
       const equity = monthRows.reduce((s, r) => s + (r.profit ?? 0), 0);
-      const monthOptions = filledOptionOrders.filter((o) => monthKey(new Date(o.time).toLocaleDateString("en-CA")) === mKey);
-      const options = monthOptions.reduce((s, o) => s + o.total, 0);
+      const monthOptions = realizedOptionTrades.filter((o) => monthKey(new Date(o.time).toLocaleDateString("en-CA")) === mKey);
+      const options = monthOptions.reduce((s, o) => s + o.net, 0);
       const monthTxns = transactions.filter((t) => monthKey(new Date(t.time).toLocaleDateString("en-CA")) === mKey);
       const interest = monthTxns.filter((t) => t.category === "interest").reduce((s, t) => s + t.amount, 0);
       const dividends = monthTxns.filter((t) => t.category === "dividend").reduce((s, t) => s + t.amount, 0);
@@ -370,46 +455,46 @@ export default function ProfitPage() {
       });
     }
     return months;
-  }, [rows, filledOptionOrders, transactions]);
+  }, [rows, realizedOptionTrades, transactions]);
 
   const allTimeData = useMemo(() => {
     const equityTotal = rows.reduce((s, r) => s + (r.profit ?? 0), 0);
-    const optionsTotal = filledOptionOrders.reduce((s, o) => s + o.total, 0);
+    const optionsTotal = realizedOptionTrades.reduce((s, o) => s + o.net, 0);
     const interestTotal = transactions.filter((t) => t.category === "interest").reduce((s, t) => s + t.amount, 0);
     const dividendsTotal = transactions.filter((t) => t.category === "dividend").reduce((s, t) => s + t.amount, 0);
     const total = equityTotal + optionsTotal + interestTotal + dividendsTotal;
 
     const yearSet = [...new Set([
       ...rows.map((r) => r.date.slice(0, 4)),
-      ...filledOptionOrders.map((o) => new Date(o.time).toLocaleDateString("en-CA").slice(0, 4)),
+      ...realizedOptionTrades.map((o) => new Date(o.time).toLocaleDateString("en-CA").slice(0, 4)),
       ...transactions.map((t) => new Date(t.time).toLocaleDateString("en-CA").slice(0, 4)),
     ])].sort((a, b) => b.localeCompare(a));
 
     const years = yearSet.map((year) => {
       const yearRows = rows.filter((r) => r.date.startsWith(year));
-      const yearOptions = filledOptionOrders.filter((o) => new Date(o.time).toLocaleDateString("en-CA").startsWith(year));
+      const yearOptions = realizedOptionTrades.filter((o) => new Date(o.time).toLocaleDateString("en-CA").startsWith(year));
       const yearTxns = transactions.filter((t) => new Date(t.time).toLocaleDateString("en-CA").startsWith(year));
       return {
         year,
         equity: yearRows.reduce((s, r) => s + (r.profit ?? 0), 0),
         equityTrades: yearRows.length,
-        options: yearOptions.reduce((s, o) => s + o.total, 0),
+        options: yearOptions.reduce((s, o) => s + o.net, 0),
         optionsTrades: yearOptions.length,
         interest: yearTxns.filter((t) => t.category === "interest").reduce((s, t) => s + t.amount, 0),
         dividends: yearTxns.filter((t) => t.category === "dividend").reduce((s, t) => s + t.amount, 0),
       };
     });
     return { total, trades: rows.length, years };
-  }, [rows, filledOptionOrders, transactions]);
+  }, [rows, realizedOptionTrades, transactions]);
 
   const yearlyData = useMemo(() => {
     const currentYear = new Date().getFullYear();
     const yearStr = String(currentYear);
     const yearRows = rows.filter((r) => r.date.startsWith(yearStr));
-    const yearOptions = filledOptionOrders.filter((o) => new Date(o.time).toLocaleDateString("en-CA").startsWith(yearStr));
+    const yearOptions = realizedOptionTrades.filter((o) => new Date(o.time).toLocaleDateString("en-CA").startsWith(yearStr));
     const yearTxns = transactions.filter((t) => new Date(t.time).toLocaleDateString("en-CA").startsWith(yearStr));
     const yearTotal = yearRows.reduce((s, r) => s + (r.profit ?? 0), 0)
-      + yearOptions.reduce((s, o) => s + o.total, 0)
+      + yearOptions.reduce((s, o) => s + o.net, 0)
       + yearTxns.reduce((s, t) => s + t.amount, 0);
 
     const months: { monthKey: string; label: string; equity: number; equityTrades: number; options: number; interest: number; dividends: number }[] = [];
@@ -424,13 +509,13 @@ export default function ProfitPage() {
         label: d.toLocaleDateString("en-US", { month: "long" }),
         equity: mRows.reduce((s, r) => s + (r.profit ?? 0), 0),
         equityTrades: mRows.length,
-        options: mOptions.reduce((s, o) => s + o.total, 0),
+        options: mOptions.reduce((s, o) => s + o.net, 0),
         interest: mTxns.filter((t) => t.category === "interest").reduce((s, t) => s + t.amount, 0),
         dividends: mTxns.filter((t) => t.category === "dividend").reduce((s, t) => s + t.amount, 0),
       });
     }
     return { year: currentYear, total: yearTotal, trades: yearRows.length, months };
-  }, [rows, filledOptionOrders, transactions]);
+  }, [rows, realizedOptionTrades, transactions]);
 
   if (snapshotLoading) {
     return (
@@ -503,7 +588,7 @@ export default function ProfitPage() {
                   </Accordion.Control>
                   <Accordion.Panel>
                     {(() => {
-                      const weekOptRows = filledOptionOrders.filter((o) => weekStart(new Date(o.time).toLocaleDateString("en-CA")) === week.weekKey);
+                      const weekOptRows = realizedOptionTrades.filter((o) => weekStart(new Date(o.time).toLocaleDateString("en-CA")) === week.weekKey);
                       const weekTxnRows = transactions.filter((t) => weekStart(new Date(t.time).toLocaleDateString("en-CA")) === week.weekKey);
                       const allRows: { time: string; el: React.ReactNode }[] = [
                         ...weekRows.map((row) => ({
@@ -525,12 +610,12 @@ export default function ProfitPage() {
                         ...weekOptRows.map((o) => ({
                           time: o.time,
                           el: (
-                            <Table.Tr key={`opt-${o.orderId}`}>
+                            <Table.Tr key={`opt-${o.id}`}>
                               <Table.Td><Text size="sm" c="dimmed">{fmtDate(o.time)}</Text></Table.Td>
-                              <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}c</Text></Table.Td>
-                              <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">{o.instruction === "SELL_TO_OPEN" ? "STO" : "BTC"}</Text></Table.Td>
+                              <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}</Text></Table.Td>
+                              <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} ·${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
                               <Table.Td ta="right">
-                                <Text size="sm" fw={600} c={o.total < 0 ? "red" : "orange"}>{mask(fmtMoney(o.total, true))}</Text>
+                                <Text size="sm" fw={600} c={o.net < 0 ? "red" : "orange"}>{mask(fmtMoney(o.net, true))}</Text>
                               </Table.Td>
                             </Table.Tr>
                           ),
@@ -607,7 +692,7 @@ export default function ProfitPage() {
                   </Accordion.Control>
                   <Accordion.Panel>
                     {(() => {
-                      const mOptRows = filledOptionOrders.filter((o) => monthKey(new Date(o.time).toLocaleDateString("en-CA")) === month.monthKey);
+                      const mOptRows = realizedOptionTrades.filter((o) => monthKey(new Date(o.time).toLocaleDateString("en-CA")) === month.monthKey);
                       const mTxnRows = transactions.filter((t) => monthKey(new Date(t.time).toLocaleDateString("en-CA")) === month.monthKey);
                       const allRows: { time: string; el: React.ReactNode }[] = [
                         ...monthRows.map((row) => ({
@@ -629,12 +714,12 @@ export default function ProfitPage() {
                         ...mOptRows.map((o) => ({
                           time: o.time,
                           el: (
-                            <Table.Tr key={`opt-${o.orderId}`}>
+                            <Table.Tr key={`opt-${o.id}`}>
                               <Table.Td><Text size="sm" c="dimmed">{fmtDate(o.time)}</Text></Table.Td>
-                              <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}c</Text></Table.Td>
-                              <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">{o.instruction === "SELL_TO_OPEN" ? "STO" : "BTC"}</Text></Table.Td>
+                              <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}</Text></Table.Td>
+                              <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} ·${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
                               <Table.Td ta="right">
-                                <Text size="sm" fw={600} c={o.total < 0 ? "red" : "orange"}>{mask(fmtMoney(o.total, true))}</Text>
+                                <Text size="sm" fw={600} c={o.net < 0 ? "red" : "orange"}>{mask(fmtMoney(o.net, true))}</Text>
                               </Table.Td>
                             </Table.Tr>
                           ),
@@ -849,7 +934,7 @@ export default function ProfitPage() {
             <Table.Tbody>
               {last7Days.flatMap((day, di) => {
                 const dayRows = filteredRows.filter((r) => r.date === day.dateKey);
-                const dayOptRows = filledOptionOrders.filter((o) => new Date(o.time).toLocaleDateString("en-CA") === day.dateKey);
+                const dayOptRows = realizedOptionTrades.filter((o) => new Date(o.time).toLocaleDateString("en-CA") === day.dateKey);
                 const dayTxnRows = transactions.filter((t) => new Date(t.time).toLocaleDateString("en-CA") === day.dateKey);
                 if (dayRows.length === 0 && dayOptRows.length === 0 && dayTxnRows.length === 0) return [];
                 const dayTotal = day.equity + day.options + day.interest + day.dividends;
@@ -873,12 +958,12 @@ export default function ProfitPage() {
                   ...dayOptRows.map((o) => ({
                     time: o.time,
                     el: (isLast: boolean) => (
-                      <Table.Tr key={`opt-${o.orderId}`}>
+                      <Table.Tr key={`opt-${o.id}`}>
                         <Table.Td style={isLast ? dateGroupLastCellLeft : undefined}><Text size="sm" c="dimmed">{new Date(o.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</Text></Table.Td>
-                        <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}c</Text></Table.Td>
-                        <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">{o.instruction === "SELL_TO_OPEN" ? "STO" : "BTC"}</Text></Table.Td>
+                        <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}</Text></Table.Td>
+                        <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} ·${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
                         <Table.Td ta="right" style={isLast ? dateGroupLastCellRight : undefined}>
-                          <Text size="sm" fw={600} c={o.total < 0 ? "red" : "orange"}>{mask(fmtMoney(o.total, true))}</Text>
+                          <Text size="sm" fw={600} c={o.net < 0 ? "red" : "orange"}>{mask(fmtMoney(o.net, true))}</Text>
                         </Table.Td>
                       </Table.Tr>
                     ),

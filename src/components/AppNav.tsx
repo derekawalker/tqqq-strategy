@@ -26,7 +26,7 @@ import {
 } from "@tabler/icons-react";
 
 const ALL_PAGES = [
-  { href: "/",                    label: "Dashboard",    icon: IconLayoutDashboard },
+  { href: "/",                    label: "Dash",    icon: IconLayoutDashboard },
   { href: "/levels",              label: "Levels",       icon: IconList },
   { href: "/working-orders",      label: "Working",      icon: IconClockHour4 },
   { href: "/filled-orders",       label: "Filled",       icon: IconCheckbox },
