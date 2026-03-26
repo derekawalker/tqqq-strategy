@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode } from "react";
 import type { FilledOrder, FilledOptionOrder, WorkingOrder, OptionPosition } from "@/lib/schwab/parse";
 import type { Transaction } from "@/app/api/schwab/transactions/route";
 export type { FilledOrder, FilledOptionOrder, WorkingOrder, OptionPosition, Transaction };
@@ -114,6 +114,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [activeAccount, setActiveAccount] = useState<Account | null>(DEFAULT_ACCOUNTS[0] ?? null);
   // initialized becomes true after the first localStorage load — persists only fire after this
   const [initialized, setInitialized] = useState(false);
+  // Prevents writing back to Supabase when the update originated from Supabase
+  const loadingFromSupabase = useRef(false);
 
   useEffect(() => {
     // Load from localStorage immediately for a fast first render
@@ -137,6 +139,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           },
         }));
         localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
+        loadingFromSupabase.current = true;
         setAccounts(remote);
         setActiveAccount((active) => {
           const preferred = localStorage.getItem(ACTIVE_ACCOUNT_KEY) ?? active?.accountNumber;
@@ -150,6 +153,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!initialized) return;
     localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
+    if (loadingFromSupabase.current) {
+      loadingFromSupabase.current = false;
+      return;
+    }
     fetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
