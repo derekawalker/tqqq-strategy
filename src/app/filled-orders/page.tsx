@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   Table,
   ScrollArea,
@@ -317,13 +317,13 @@ export default function FilledOrdersPage() {
                 grouped.get(key)!.push(o);
               }
               return [...grouped.entries()].map(([dateKey, dateOrders], gi) => (
-                <>
+                <React.Fragment key={dateKey}>
                   {gi > 0 && (
-                    <Table.Tr key={`spacer-${dateKey}`} style={{ height: 10, background: "transparent" }}>
+                    <Table.Tr style={{ height: 10, background: "transparent" }}>
                       <Table.Td colSpan={5} style={{ padding: 0, border: "none" }} />
                     </Table.Tr>
                   )}
-                  <Table.Tr key={`date-${dateKey}`} bg={dateGroupHeaderBg}>
+                  <Table.Tr bg={dateGroupHeaderBg}>
                     <Table.Td colSpan={5} style={dateGroupHeaderCellLeft}>
                       <Text size="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5}>
                         {fmtDateKey(dateKey)}
@@ -350,7 +350,7 @@ export default function FilledOrdersPage() {
                     </Table.Tr>
                     );
                   })}
-                </>
+                </React.Fragment>
               ));
             })()}
           </Table.Tbody>

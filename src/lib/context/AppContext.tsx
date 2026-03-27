@@ -138,7 +138,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
             startingDate: a.settings.startingDate ? new Date(a.settings.startingDate) : null,
           },
         }));
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(remote));
+        // Only use Supabase data if it has meaningful settings; otherwise keep localStorage
+        const hasRealSettings = remote.some((a) =>
+          a.settings.startingCash != null || a.settings.startingDate != null || a.settings.initialLotPrice != null
+        );
+        if (!hasRealSettings) return;
         loadingFromSupabase.current = true;
         setAccounts(remote);
         setActiveAccount((active) => {
