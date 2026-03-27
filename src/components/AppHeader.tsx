@@ -113,10 +113,10 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
         </Menu.Target>
         <Menu.Dropdown>
           <Menu.Item leftSection={<IconChartLine size={14} />} onClick={tickQuoteRefresh}>
-            Refresh prices
+            Refresh market
           </Menu.Item>
           <Menu.Item leftSection={<IconRefreshDot size={14} />} onClick={onRefresh}>
-            Refresh Schwab
+            Refresh accounts
           </Menu.Item>
         </Menu.Dropdown>
       </Menu>

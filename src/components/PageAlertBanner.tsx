@@ -57,7 +57,7 @@ const PAGE_ALERT_MAP: Record<string, AlertDef[]> = {
     {
       title: "Missing Orders",
       triggered: (a) => a.workingOrders === false,
-      description: () => "One or more levels within your buffer are .",
+      description: () => "One or more levels within your buffer are missing.",
     },
     {
       title: "Duplicate Orders",

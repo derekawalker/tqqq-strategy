@@ -20,7 +20,7 @@ function getCallSentiment(pct: number): SentimentMsg | null {
   if (pct >= 5)  return { text: "Major up day — excellent time to sell calls", good: true };
   if (pct >= 4)  return { text: "Strong up day — great call premium available", good: true };
   if (pct >= 3)  return { text: "Up day — good opportunity to sell calls", good: true };
-  if (pct >= 2)  return { text: "Slight up move — consider selling calls", good: true };
+  if (pct >= 2)  return { text: "Notable up move — consider selling calls", good: true };
   if (pct >= 1)  return { text: "Minor up move — calls have some premium", good: true };
   if (pct <= -5) return { text: "Major down day — do not sell calls", good: false };
   if (pct <= -4) return { text: "Strong down day — avoid selling calls", good: false };
@@ -34,7 +34,7 @@ function getPutSentiment(pct: number): SentimentMsg | null {
   if (pct <= -5) return { text: "Major down day — prime time to sell puts", good: true };
   if (pct <= -4) return { text: "Strong down day — excellent put premium", good: true };
   if (pct <= -3) return { text: "Down day — good opportunity to sell puts", good: true };
-  if (pct <= -2) return { text: "Slight down move — consider selling puts", good: true };
+  if (pct <= -2) return { text: "Notable down move — consider selling puts", good: true };
   if (pct <= -1) return { text: "Minor down move — puts have some premium", good: true };
   if (pct >= 5)  return { text: "Major up day — do not sell puts", good: false };
   if (pct >= 4)  return { text: "Strong up day — avoid selling puts", good: false };
