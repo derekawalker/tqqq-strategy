@@ -1,10 +1,10 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode } from "react";
-import type { FilledOrder, FilledOptionOrder, WorkingOrder, OptionPosition } from "@/lib/schwab/parse";
+import type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition } from "@/lib/schwab/parse";
 import type { Transaction } from "@/app/api/schwab/transactions/route";
 import type { AccountBalance } from "@/app/api/schwab/balances/route";
-export type { FilledOrder, FilledOptionOrder, WorkingOrder, OptionPosition, Transaction, AccountBalance };
+export type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition, Transaction, AccountBalance };
 
 export interface AccountSettings {
   startingCash: number | null;
@@ -75,6 +75,7 @@ interface AppContextValue {
   checkSchwabAuth: () => Promise<void>;
   filledOrders: FilledOrder[];
   filledOptionOrders: FilledOptionOrder[];
+  expiredOptionOrders: ExpiredOptionOrder[];
   workingOrders: WorkingOrder[];
   optionPositions: OptionPosition[];
   transactions: Transaction[];
@@ -247,6 +248,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [quoteTick, setQuoteTick] = useState(0);
   const [allFilledOrders, setAllFilledOrders] = useState<FilledOrder[]>([]);
   const [allFilledOptionOrders, setAllFilledOptionOrders] = useState<FilledOptionOrder[]>([]);
+  const [allExpiredOptionOrders, setAllExpiredOptionOrders] = useState<ExpiredOptionOrder[]>([]);
   const [allWorkingOrders, setAllWorkingOrders] = useState<WorkingOrder[]>([]);
   const [allOptionPositions, setAllOptionPositions] = useState<OptionPosition[]>([]);
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
@@ -263,6 +265,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         if (data.filledOrders) setAllFilledOrders(data.filledOrders);
         if (data.filledOptionOrders) setAllFilledOptionOrders(data.filledOptionOrders);
+        if (data.expiredOptionOrders) setAllExpiredOptionOrders(data.expiredOptionOrders);
         if (data.workingOrders) setAllWorkingOrders(data.workingOrders);
         if (data.optionPositions) setAllOptionPositions(data.optionPositions);
         if (data.tqqqShares) setAllTqqqShares(data.tqqqShares);
@@ -323,6 +326,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const filledOptionOrders = useMemo(
     () => accountNumber ? allFilledOptionOrders.filter((o) => o.accountNumber === accountNumber) : [],
     [allFilledOptionOrders, accountNumber]
+  );
+  const expiredOptionOrders = useMemo(
+    () => accountNumber ? allExpiredOptionOrders.filter((o) => o.accountNumber === accountNumber) : [],
+    [allExpiredOptionOrders, accountNumber]
   );
   const transactions = useMemo(
     () => accountNumber ? allTransactions.filter((t) => t.accountNumber === accountNumber) : [],
@@ -400,6 +407,7 @@ const togglePrivacy = () => setPrivacyMode((p) => !p);
         checkSchwabAuth,
         filledOrders,
         filledOptionOrders,
+        expiredOptionOrders,
         workingOrders,
         optionPositions,
         transactions,

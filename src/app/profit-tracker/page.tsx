@@ -37,7 +37,7 @@ interface RealizedOptionTrade {
   openPrice: number;        // STO fill price per share
   closePrice: number | null; // BTC fill price per share, null if expired
   net: number;              // net profit
-  time: string;             // close time: BTC fill time, or expiry date at 4pm
+  time: string;             // close time: BTC fill time or expiration time
   how: "BTC" | "expired";
 }
 
@@ -248,81 +248,70 @@ function MonthCard({ month, privacyMode, color }: { month: MonthSummary; privacy
 }
 
 export default function ProfitPage() {
-  const { filledOrders, filledOptionOrders, transactions, snapshotLoading, privacyMode, activeAccount } = useApp();
+  const { filledOrders, filledOptionOrders, expiredOptionOrders, transactions, snapshotLoading, privacyMode, activeAccount } = useApp();
   const summaryBg = useCardBg(activeAccount?.color ?? "blue");
 
-  // Pair each STO with its BTC(s) FIFO; produce one net trade per close event.
-  // Unmatched STOs are included only if the option has expired.
+  // Pair each STO with its BTC(s) and expirations FIFO; produce one net trade per close event.
   const realizedOptionTrades = useMemo((): RealizedOptionTrade[] => {
-    const today = new Date().toISOString().slice(0, 10);
-
-    const parseExpiry = (symbol: string): string => {
-      const m = symbol.match(/^.{6}(\d{2})(\d{2})(\d{2})[CP]/);
-      return m ? `20${m[1]}-${m[2]}-${m[3]}` : "";
-    };
-
     const parseStrike = (symbol: string): number => {
       const m = symbol.match(/^.{6}\d{6}[CP](\d{8})$/);
       return m ? parseInt(m[1], 10) / 1000 : 0;
     };
 
-    const bySymbol = new Map<string, { stos: typeof filledOptionOrders; btcs: typeof filledOptionOrders }>();
+    type CloseEvent =
+      | { kind: "BTC"; order: typeof filledOptionOrders[number]; contracts: number; time: string }
+      | { kind: "expired"; activityId: number; contracts: number; time: string };
+
+    const bySymbol = new Map<string, { stos: typeof filledOptionOrders; closes: CloseEvent[] }>();
     for (const o of filledOptionOrders) {
-      if (!bySymbol.has(o.symbol)) bySymbol.set(o.symbol, { stos: [], btcs: [] });
-      (o.instruction === "SELL_TO_OPEN" ? bySymbol.get(o.symbol)!.stos : bySymbol.get(o.symbol)!.btcs).push(o);
+      if (!bySymbol.has(o.symbol)) bySymbol.set(o.symbol, { stos: [], closes: [] });
+      if (o.instruction === "SELL_TO_OPEN") {
+        bySymbol.get(o.symbol)!.stos.push(o);
+      } else {
+        bySymbol.get(o.symbol)!.closes.push({ kind: "BTC", order: o, contracts: o.contracts, time: o.time });
+      }
+    }
+    for (const e of expiredOptionOrders) {
+      if (!bySymbol.has(e.symbol)) bySymbol.set(e.symbol, { stos: [], closes: [] });
+      bySymbol.get(e.symbol)!.closes.push({ kind: "expired", activityId: e.activityId, contracts: e.contracts, time: e.time });
     }
 
     const trades: RealizedOptionTrade[] = [];
-    for (const [symbol, { stos, btcs }] of bySymbol) {
-      const expiry = parseExpiry(symbol);
-      const isExpired = expiry !== "" && expiry <= today;
-
+    for (const [symbol, { stos, closes }] of bySymbol) {
       // Sort oldest-first for FIFO matching
       const sortedStos = [...stos].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
       const stoState = sortedStos.map((s) => ({ order: s, remaining: s.contracts }));
-      const sortedBtcs = [...btcs].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+      const sortedCloses = [...closes].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
       let stoIdx = 0;
-      for (const btc of sortedBtcs) {
-        let btcRemaining = btc.contracts;
-        const btcPer = btc.total / btc.contracts;
-        while (btcRemaining > 0 && stoIdx < stoState.length) {
+      for (const close of sortedCloses) {
+        let remaining = close.contracts;
+        const btcPer = close.kind === "BTC" ? close.order.total / close.order.contracts : 0;
+        while (remaining > 0 && stoIdx < stoState.length) {
           const entry = stoState[stoIdx];
-          const matched = Math.min(btcRemaining, entry.remaining);
+          const matched = Math.min(remaining, entry.remaining);
           const stoPer = entry.order.total / entry.order.contracts;
+          const id = close.kind === "BTC"
+            ? `${close.order.orderId}-${entry.order.orderId}`
+            : `exp-${close.activityId}-${entry.order.orderId}`;
           trades.push({
-            id: `${btc.orderId}-${entry.order.orderId}`,
+            id,
             symbol, contracts: matched,
             strike: parseStrike(symbol),
             openPrice: entry.order.fillPrice,
-            closePrice: btc.fillPrice,
+            closePrice: close.kind === "BTC" ? close.order.fillPrice : null,
             net: (stoPer + btcPer) * matched,
-            time: btc.time,
-            how: "BTC",
+            time: close.time,
+            how: close.kind === "BTC" ? "BTC" : "expired",
           });
-          btcRemaining -= matched;
+          remaining -= matched;
           entry.remaining -= matched;
           if (entry.remaining === 0) stoIdx++;
         }
       }
-
-      // Unmatched STOs: include only if expired
-      for (const entry of stoState) {
-        if (entry.remaining <= 0 || !isExpired) continue;
-        trades.push({
-          id: `${entry.order.orderId}-expired`,
-          symbol, contracts: entry.remaining,
-          strike: parseStrike(symbol),
-          openPrice: entry.order.fillPrice,
-          closePrice: null,
-          net: (entry.order.total / entry.order.contracts) * entry.remaining,
-          time: expiry + "T16:00:00",
-          how: "expired",
-        });
-      }
     }
     return trades;
-  }, [filledOptionOrders]);
+  }, [filledOptionOrders, expiredOptionOrders]);
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [period, setPeriod] = useState<string>(() => {
     if (typeof window !== "undefined") {

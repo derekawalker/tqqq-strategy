@@ -5,15 +5,18 @@ import {
   parseFilledOrder,
   parseFilledOptionOrder,
   parseWorkingOrder,
+  parseExpiredOptionOrder,
   FilledOrder,
   FilledOptionOrder,
   WorkingOrder,
   OptionPosition,
+  ExpiredOptionOrder,
 } from "@/lib/schwab/parse";
 
 export interface Snapshot {
   filledOrders: FilledOrder[];
   filledOptionOrders: FilledOptionOrder[];
+  expiredOptionOrders: ExpiredOptionOrder[];
   workingOrders: WorkingOrder[];
   tqqqShares: Record<string, number>;
   optionPositions: OptionPosition[];
@@ -24,8 +27,8 @@ async function fetchAccountData(
   hash: string,
   fromIso: string,
   toIso: string
-): Promise<{ filled: FilledOrder[]; filledOptions: FilledOptionOrder[]; working: WorkingOrder[]; tqqqShares: number; options: OptionPosition[] }> {
-  const [filledRes, workingRes, positionsRes] = await Promise.all([
+): Promise<{ filled: FilledOrder[]; filledOptions: FilledOptionOrder[]; expiredOptions: ExpiredOptionOrder[]; working: WorkingOrder[]; tqqqShares: number; options: OptionPosition[] }> {
+  const [filledRes, workingRes, positionsRes, txRes] = await Promise.all([
     schwabFetch(
       `/trader/v1/accounts/${hash}/orders?fromEnteredTime=${fromIso}&toEnteredTime=${toIso}&status=FILLED`
     ),
@@ -33,11 +36,15 @@ async function fetchAccountData(
       `/trader/v1/accounts/${hash}/orders?fromEnteredTime=${fromIso}&toEnteredTime=${toIso}&status=WORKING`
     ),
     schwabFetch(`/trader/v1/accounts/${hash}?fields=positions`),
+    schwabFetch(
+      `/trader/v1/accounts/${hash}/transactions?startDate=${fromIso}&endDate=${toIso}&types=RECEIVE_AND_DELIVER`
+    ),
   ]);
 
   const filledRaw = filledRes.ok ? await filledRes.json() : [];
   const workingRaw = workingRes.ok ? await workingRes.json() : [];
   const positionsData = positionsRes.ok ? await positionsRes.json() : null;
+  const txRaw = txRes.ok ? await txRes.json() : [];
 
   const flatFilled = flattenOrders(Array.isArray(filledRaw) ? filledRaw : []);
   const filled = flatFilled
@@ -46,6 +53,11 @@ async function fetchAccountData(
   const filledOptions = flatFilled
     .map((o) => parseFilledOptionOrder(o, accountNumber))
     .filter((o): o is FilledOptionOrder => o !== null);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const expiredOptions: ExpiredOptionOrder[] = (Array.isArray(txRaw) ? txRaw : [] as any[])
+    .map((tx: any) => parseExpiredOptionOrder(tx, accountNumber))
+    .filter((o): o is ExpiredOptionOrder => o !== null);
 
   const working = flattenOrders(Array.isArray(workingRaw) ? workingRaw : [])
     .map((o) => parseWorkingOrder(o, accountNumber))
@@ -117,7 +129,7 @@ async function fetchAccountData(
     })
     .filter((p): p is OptionPosition => p !== null);
 
-  return { filled, filledOptions, working, tqqqShares, options };
+  return { filled, filledOptions, expiredOptions, working, tqqqShares, options };
 }
 
 export async function GET() {
@@ -158,7 +170,11 @@ export async function GET() {
 
     const optionPositions: OptionPosition[] = results.flatMap((r) => r.options);
 
-    return Response.json({ filledOrders, filledOptionOrders, workingOrders, tqqqShares, optionPositions } satisfies Snapshot);
+    const expiredOptionOrders: ExpiredOptionOrder[] = results
+      .flatMap((r) => r.expiredOptions)
+      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
+    return Response.json({ filledOrders, filledOptionOrders, expiredOptionOrders, workingOrders, tqqqShares, optionPositions } satisfies Snapshot);
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
     return Response.json({ error: message }, { status: 500 });

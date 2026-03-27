@@ -41,6 +41,32 @@ export interface WorkingOrder {
   status: string;
 }
 
+export interface ExpiredOptionOrder {
+  activityId: number;
+  accountNumber: string;
+  symbol: string;
+  contracts: number;
+  time: string;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseExpiredOptionOrder(tx: any, accountNumber: string): ExpiredOptionOrder | null {
+  if (tx.type !== "RECEIVE_AND_DELIVER") return null;
+  const desc: string = tx.description ?? "";
+  if (!desc.toLowerCase().includes("removed due to expiration")) return null;
+  const item = tx.transferItems?.[0];
+  if (!item) return null;
+  const instr = item.instrument;
+  if (instr?.assetType !== "OPTION" || instr?.underlyingSymbol !== "TQQQ") return null;
+  return {
+    activityId: tx.activityId,
+    accountNumber,
+    symbol: instr.symbol,
+    contracts: item.amount ?? 1,
+    time: tx.time,
+  };
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function flattenOrders(orders: any[]): any[] {
   const result: any[] = [];
