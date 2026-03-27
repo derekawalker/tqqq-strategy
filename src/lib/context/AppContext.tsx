@@ -3,7 +3,8 @@
 import { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode } from "react";
 import type { FilledOrder, FilledOptionOrder, WorkingOrder, OptionPosition } from "@/lib/schwab/parse";
 import type { Transaction } from "@/app/api/schwab/transactions/route";
-export type { FilledOrder, FilledOptionOrder, WorkingOrder, OptionPosition, Transaction };
+import type { AccountBalance } from "@/app/api/schwab/balances/route";
+export type { FilledOrder, FilledOptionOrder, WorkingOrder, OptionPosition, Transaction, AccountBalance };
 
 export interface AccountSettings {
   startingCash: number | null;
@@ -79,6 +80,8 @@ interface AppContextValue {
   transactions: Transaction[];
   tqqqShares: number;
   snapshotLoading: boolean;
+  balances: AccountBalance[];
+  balancesLoading: boolean;
 }
 
 const STORAGE_KEY = "tqqq-accounts";
@@ -282,6 +285,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, [refreshTick]);
 
+  const [allBalances, setAllBalances] = useState<AccountBalance[]>([]);
+  const [balancesLoading, setBalancesLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setBalancesLoading(true);
+      try {
+        const res = await fetch("/api/schwab/balances");
+        if (!res.ok) return;
+        const data: AccountBalance[] = await res.json();
+        if (!cancelled) setAllBalances(data);
+      } catch {
+        // ignore
+      } finally {
+        if (!cancelled) setBalancesLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [refreshTick]);
+
   const accountNumber = activeAccount?.accountNumber ?? null;
   const filledOrders = useMemo(
     () => accountNumber ? allFilledOrders.filter((o) => o.accountNumber === accountNumber) : [],
@@ -380,6 +405,8 @@ const togglePrivacy = () => setPrivacyMode((p) => !p);
         transactions,
         tqqqShares,
         snapshotLoading,
+        balances: allBalances,
+        balancesLoading,
       }}
     >
       {children}

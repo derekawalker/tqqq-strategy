@@ -135,6 +135,8 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
           <Text fw={700} size="sm">TQQQ Strategy</Text>
           <Select
             size="xs"
+            radius="sm"
+            comboboxProps={{ radius: "sm" }}
             value={activeAccount?.accountNumber ?? null}
             onChange={(val) => {
               const account = accounts.find((a) => a.accountNumber === val);

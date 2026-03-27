@@ -10,6 +10,8 @@ import { useCardBg } from "@/lib/hooks/useCardBg";
 import { CARD_RADIUS } from "@/lib/cardStyles";
 import type { Candle } from "@/app/api/chart/route";
 
+let miniCache: { tick: number; data: Candle[] } | null = null;
+
 function CenterLabel({ viewBox, value, color, bg }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   viewBox?: any; value: string; color: string; bg: string;
@@ -30,23 +32,32 @@ function CenterLabel({ viewBox, value, color, bg }: {
 }
 
 export function MiniChartCard() {
-  const { refreshTick, activeAccount, quote } = useApp();
+  const { quoteTick, activeAccount, quote } = useApp();
   const router = useRouter();
   const levelsSummary = useLevels();
   const color = activeAccount?.color ?? "dark";
-  const [candles, setCandles] = useState<Candle[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  const [fetchedData, setFetchedData] = useState<{ tick: number; data: Candle[] } | null>(null);
+
+  const candles: Candle[] = (miniCache?.tick === quoteTick ? miniCache.data : null)
+    ?? (fetchedData?.tick === quoteTick ? fetchedData.data : null)
+    ?? [];
+  const loading = candles.length === 0 && miniCache?.tick !== quoteTick && fetchedData?.tick !== quoteTick;
 
   useEffect(() => {
+    if (miniCache?.tick === quoteTick) return;
     let cancelled = false;
-    setLoading(true);
     fetch("/api/chart?range=1d")
       .then((r) => r.json())
-      .then((data) => { if (!cancelled && Array.isArray(data)) setCandles(data); })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .then((data) => {
+        if (!cancelled && Array.isArray(data)) {
+          miniCache = { tick: quoteTick, data };
+          setFetchedData({ tick: quoteTick, data });
+        }
+      })
+      .catch(() => {});
     return () => { cancelled = true; };
-  }, [refreshTick]);
+  }, [quoteTick]);
 
   const bg = useCardBg(color);
 

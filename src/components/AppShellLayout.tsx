@@ -13,7 +13,7 @@ import { useLevels } from "@/lib/hooks/useLevels";
 const NAVBAR_WIDTH = 180;
 
 export default function AppShellLayout({ children }: { children: ReactNode }) {
-  const { activeAccount, setQuote, refreshTick, quoteTick, tickRefresh, tqqqShares, setAlerts, workingOrders, optionPositions, quote } = useApp();
+  const { activeAccount, setQuote, refreshTick, quoteTick, tickRefresh, tqqqShares, setAlerts, workingOrders, optionPositions, quote, balances } = useApp();
   const levelsSummary = useLevels();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -91,19 +91,10 @@ export default function AppShellLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!activeAccount) return;
-    let cancelled = false;
-    fetch("/api/schwab/balances")
-      .then((r) => r.json())
-      .then((data) => {
-        if (cancelled || !Array.isArray(data)) return;
-        const balance = data.find((b: { accountNumber: string }) => b.accountNumber === activeAccount.accountNumber);
-        if (!balance) return;
-        setAlerts((prev) => ({ ...prev, idleCash: balance.cash > 1000 ? balance.cash : null }));
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
+    const balance = balances.find((b) => b.accountNumber === activeAccount.accountNumber);
+    setAlerts((prev) => ({ ...prev, idleCash: balance && balance.cash > 1000 ? balance.cash : null }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeAccount?.accountNumber, refreshTick]);
+  }, [balances, activeAccount?.accountNumber]);
 
   useEffect(() => {
     let cancelled = false;

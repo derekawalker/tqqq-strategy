@@ -49,8 +49,10 @@ function LegendDash({ color }: { color: string }) {
   return <Box style={{ width: 20, height: 2, borderTop: `2px dashed ${color}`, display: "inline-block" }} />;
 }
 
+const candleCache: Record<string, { tick: number; data: Candle[] }> = {};
+
 export default function ChartPage() {
-  const { activeAccount, quote, refreshTick } = useApp();
+  const { activeAccount, quote, quoteTick } = useApp();
   const levelsSummary = useLevels();
   const color = activeAccount?.color ?? "blue";
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -65,19 +67,36 @@ export default function ChartPage() {
     setRange(r);
     localStorage.setItem("chart-range", r);
   };
-  const [candles, setCandles] = useState<Candle[]>([]);
-  const [loading, setLoading] = useState(true);
+
+  // fetchedData tracks the last async result so useMemo can incorporate it
+  const [fetchedData, setFetchedData] = useState<{ range: string; tick: number; data: Candle[] } | null>(null);
+
+  // Derive candles from cache (instant on remount) or latest fetch result; derive loading from absence of data
+  const displayCandles = useMemo((): Candle[] => {
+    const c = candleCache[range];
+    if (c?.tick === quoteTick) return c.data;
+    if (fetchedData?.range === range && fetchedData?.tick === quoteTick) return fetchedData.data;
+    return [];
+  }, [range, quoteTick, fetchedData]);
+
+  const loading = displayCandles.length === 0 &&
+    candleCache[range]?.tick !== quoteTick &&
+    !(fetchedData?.range === range && fetchedData?.tick === quoteTick);
 
   useEffect(() => {
+    if (candleCache[range]?.tick === quoteTick) return;
     let cancelled = false;
-    setLoading(true);
     fetch(`/api/chart?range=${range}`)
       .then((r) => r.json())
-      .then((data) => { if (!cancelled && Array.isArray(data)) setCandles(data); })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
+      .then((data) => {
+        if (!cancelled && Array.isArray(data)) {
+          candleCache[range] = { tick: quoteTick, data };
+          setFetchedData({ range, tick: quoteTick, data });
+        }
+      })
+      .catch(() => {});
     return () => { cancelled = true; };
-  }, [refreshTick, range]);
+  }, [quoteTick, range]);
 
   const levels = levelsSummary?.levels ?? [];
   const currentLevel = levelsSummary?.currentLevel ?? -1;
@@ -87,20 +106,20 @@ export default function ChartPage() {
   const currentPrice = quote.loading ? null : quote.price;
 
   const { highPoint, lowPoint } = useMemo(() => {
-    if (candles.length === 0) return { highPoint: null, lowPoint: null };
-    let high = candles[0], low = candles[0];
-    for (const c of candles) {
+    if (displayCandles.length === 0) return { highPoint: null, lowPoint: null };
+    let high = displayCandles[0], low = displayCandles[0];
+    for (const c of displayCandles) {
       if (c.close > high.close) high = c;
       if (c.close < low.close) low = c;
     }
     return { highPoint: high, lowPoint: low };
-  }, [candles]);
+  }, [displayCandles]);
 
   // First candle timestamp of each trading day
   const dayBoundaries = useMemo(() => {
     const seen = new Set<string>();
     const result: { time: number; label: string }[] = [];
-    for (const c of candles) {
+    for (const c of displayCandles) {
       const d = new Date(c.time);
       const key = d.toLocaleDateString("en-CA");
       if (!seen.has(key)) {
@@ -109,11 +128,11 @@ export default function ChartPage() {
       }
     }
     return result;
-  }, [candles]);
+  }, [displayCandles]);
 
   const yDomain = useMemo((): [number, number] => {
-    if (candles.length === 0) return [0, 100];
-    const all = candles.map((c) => c.close);
+    if (displayCandles.length === 0) return [0, 100];
+    const all = displayCandles.map((c) => c.close);
     if (currentPrice) all.push(currentPrice);
     if (currentSellPrice) all.push(currentSellPrice);
     if (nextBuyPrice) all.push(nextBuyPrice);
@@ -121,7 +140,7 @@ export default function ChartPage() {
     const max = Math.max(...all);
     const pad = (max - min) * 0.08;
     return [min - pad, max + pad];
-  }, [candles, currentPrice, currentSellPrice, nextBuyPrice]);
+  }, [displayCandles, currentPrice, currentSellPrice, nextBuyPrice]);
 
   if (loading) {
     return <Skeleton height={460} radius="md" />;
@@ -144,12 +163,10 @@ export default function ChartPage() {
         />
       </Group>
       <Paper p={isMobile ? "xs" : "md"}>
-        <Group justify="space-between" align="center" mb="md">
-          <Text fw={600} size="sm" c="dimmed">TQQQ — {{ "1d": "1 Day (5 min)", "1w": "1 Week (30 min)", "1m": "1 Month (daily)" }[range]}</Text>
-        </Group>
+        <Text fw={600} size="sm" c="dimmed" ta="center" mb="md">TQQQ — {{ "1d": "1 Day (5 min)", "1w": "1 Week (30 min)", "1m": "1 Month (daily)" }[range]}</Text>
 
         <ResponsiveContainer width="100%" height={isMobile ? 320 : 400}>
-          <ComposedChart data={candles} margin={{ top: 20, right: isMobile ? 48 : 60, left: isMobile ? 0 : 10, bottom: 0 }}>
+          <ComposedChart data={displayCandles} margin={{ top: 20, right: isMobile ? 48 : 60, left: isMobile ? 0 : 10, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" vertical={false} />
             <XAxis
               dataKey="time"
