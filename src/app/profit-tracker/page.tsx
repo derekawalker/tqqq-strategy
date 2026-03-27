@@ -563,6 +563,99 @@ export default function ProfitPage() {
         </ScrollArea>
       )}
 
+      {period === "day" && (
+        filteredRows.length === 0 && last7Days.every((d) => d.options === 0 && d.interest === 0 && d.dividends === 0) ? (
+          <Center h={150}>
+            <Text c="dimmed" size="sm">No activity in this period.</Text>
+          </Center>
+        ) : (
+          <Accordion multiple defaultValue={[last7Days[0]?.dateKey]} variant="separated" className="profit-accordion">
+            {last7Days.map((day) => {
+              const dayRows = filteredRows.filter((r) => r.date === day.dateKey);
+              const hasActivity = dayRows.length > 0 || day.options !== 0 || day.interest !== 0 || day.dividends !== 0;
+              if (!hasActivity) return null;
+              const dayTotal = day.equity + day.options + day.interest + day.dividends;
+              return (
+                <Accordion.Item key={day.dateKey} value={day.dateKey}>
+                  <Accordion.Control>
+                    <Group justify="space-between" pr="md">
+                      <Text size="sm" fw={700}>{day.dayOfWeek}, {day.label}</Text>
+                      <Text size="sm" fw={700} c="white">
+                        {mask(`${dayTotal >= 0 ? "+" : ""}$${fmt(dayTotal)}`)}
+                      </Text>
+                    </Group>
+                  </Accordion.Control>
+                  <Accordion.Panel>
+                    {(() => {
+                      const dayOptRows = realizedOptionTrades.filter((o) => new Date(o.time).toLocaleDateString("en-CA") === day.dateKey);
+                      const dayTxnRows = transactions.filter((t) => new Date(t.time).toLocaleDateString("en-CA") === day.dateKey);
+                      const allRows: { time: string; el: React.ReactNode }[] = [
+                        ...dayRows.map((row) => ({
+                          time: row.time,
+                          el: (
+                            <Table.Tr key={`eq-${row.orderId}`}>
+                              <Table.Td><Text size="sm" c="dimmed">{fmtDate(row.time)}</Text></Table.Td>
+                              <Table.Td ta="right"><Text size="sm">{fmt(row.shares, 0)}</Text></Table.Td>
+                              <Table.Td ta="right" className="hide-mobile"><Text size="sm">{row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text></Table.Td>
+                              <Table.Td ta="right" className="hide-mobile"><Text size="sm">{mask(`$${fmt(row.sellPrice)}`)}</Text></Table.Td>
+                              <Table.Td ta="right">
+                                <Text size="sm" fw={600} c={row.profit != null ? (row.profit >= 0 ? activeAccount?.color ?? "blue" : "red") : "dimmed"}>
+                                  {row.profit != null ? mask(`${row.profit >= 0 ? "+" : ""}$${fmt(row.profit)}`) : "—"}
+                                </Text>
+                              </Table.Td>
+                            </Table.Tr>
+                          ),
+                        })),
+                        ...dayOptRows.map((o) => ({
+                          time: o.time,
+                          el: (
+                            <Table.Tr key={`opt-${o.id}`}>
+                              <Table.Td><Text size="sm" c="dimmed">{fmtDate(o.time)}</Text></Table.Td>
+                              <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}</Text></Table.Td>
+                              <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} · ${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
+                              <Table.Td ta="right">
+                                <Text size="sm" fw={600} c={o.net < 0 ? "red" : "orange"}>{mask(fmtMoney(o.net, true))}</Text>
+                              </Table.Td>
+                            </Table.Tr>
+                          ),
+                        })),
+                        ...dayTxnRows.map((t) => ({
+                          time: t.time,
+                          el: (
+                            <Table.Tr key={`txn-${t.activityId}`}>
+                              <Table.Td><Text size="sm" c="dimmed">{fmtDate(t.time)}</Text></Table.Td>
+                              <Table.Td />
+                              <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">{t.description}</Text></Table.Td>
+                              <Table.Td ta="right">
+                                <Text size="sm" fw={600} c="lime">{mask(fmtMoney(t.amount, true))}</Text>
+                              </Table.Td>
+                            </Table.Tr>
+                          ),
+                        })),
+                      ].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+                      return (
+                        <Table>
+                          <Table.Thead>
+                            <Table.Tr>
+                              <Table.Th>Time</Table.Th>
+                              <Table.Th ta="right">Qty</Table.Th>
+                              <Table.Th ta="right" className="hide-mobile">Buy Price</Table.Th>
+                              <Table.Th ta="right" className="hide-mobile">Sell Price</Table.Th>
+                              <Table.Th ta="right">Profit</Table.Th>
+                            </Table.Tr>
+                          </Table.Thead>
+                          <Table.Tbody>{allRows.map((r) => r.el)}</Table.Tbody>
+                        </Table>
+                      );
+                    })()}
+                  </Accordion.Panel>
+                </Accordion.Item>
+              );
+            })}
+          </Accordion>
+        )
+      )}
+
       {period === "week" && (
         filteredRows.length === 0 && last12Weeks.every((w) => w.options === 0 && w.interest === 0 && w.dividends === 0) ? (
           <Center h={150}>
@@ -907,92 +1000,6 @@ export default function ProfitPage() {
         </Stack>
       )}
 
-      {period === "day" && (
-        <ScrollArea>
-          <Table className="table-grouped">
-            <Table.Thead>
-              <Table.Tr>
-                <Table.Th>Time</Table.Th>
-                <Table.Th ta="right">Qty</Table.Th>
-                <Table.Th ta="right" className="hide-mobile">Buy Price</Table.Th>
-                <Table.Th ta="right" className="hide-mobile">Sell Price</Table.Th>
-                <Table.Th ta="right">Profit</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {last7Days.flatMap((day, di) => {
-                const dayRows = filteredRows.filter((r) => r.date === day.dateKey);
-                const dayOptRows = realizedOptionTrades.filter((o) => new Date(o.time).toLocaleDateString("en-CA") === day.dateKey);
-                const dayTxnRows = transactions.filter((t) => new Date(t.time).toLocaleDateString("en-CA") === day.dateKey);
-                if (dayRows.length === 0 && dayOptRows.length === 0 && dayTxnRows.length === 0) return [];
-                const dayTotal = day.equity + day.options + day.interest + day.dividends;
-                const allDayRows: { time: string; el: (isLast: boolean) => React.ReactNode }[] = [
-                  ...dayRows.map((row) => ({
-                    time: row.time,
-                    el: (isLast: boolean) => (
-                      <Table.Tr key={`eq-${row.orderId}`}>
-                        <Table.Td style={isLast ? dateGroupLastCellLeft : undefined}><Text size="sm" c="dimmed">{new Date(row.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</Text></Table.Td>
-                        <Table.Td ta="right"><Text size="sm">{fmt(row.shares, 0)}</Text></Table.Td>
-                        <Table.Td ta="right" className="hide-mobile"><Text size="sm">{row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text></Table.Td>
-                        <Table.Td ta="right" className="hide-mobile"><Text size="sm">{mask(`$${fmt(row.sellPrice)}`)}</Text></Table.Td>
-                        <Table.Td ta="right" style={isLast ? dateGroupLastCellRight : undefined}>
-                          <Text size="sm" fw={600} c={row.profit != null ? (row.profit >= 0 ? activeAccount?.color ?? "blue" : "red") : "dimmed"}>
-                            {row.profit != null ? mask(`${row.profit >= 0 ? "+" : ""}$${fmt(row.profit)}`) : "—"}
-                          </Text>
-                        </Table.Td>
-                      </Table.Tr>
-                    ),
-                  })),
-                  ...dayOptRows.map((o) => ({
-                    time: o.time,
-                    el: (isLast: boolean) => (
-                      <Table.Tr key={`opt-${o.id}`}>
-                        <Table.Td style={isLast ? dateGroupLastCellLeft : undefined}><Text size="sm" c="dimmed">{new Date(o.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</Text></Table.Td>
-                        <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}</Text></Table.Td>
-                        <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} ·${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
-                        <Table.Td ta="right" style={isLast ? dateGroupLastCellRight : undefined}>
-                          <Text size="sm" fw={600} c={o.net < 0 ? "red" : "orange"}>{mask(fmtMoney(o.net, true))}</Text>
-                        </Table.Td>
-                      </Table.Tr>
-                    ),
-                  })),
-                  ...dayTxnRows.map((t) => ({
-                    time: t.time,
-                    el: (isLast: boolean) => (
-                      <Table.Tr key={`txn-${t.activityId}`}>
-                        <Table.Td style={isLast ? dateGroupLastCellLeft : undefined}><Text size="sm" c="dimmed">{new Date(t.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</Text></Table.Td>
-                        <Table.Td />
-                        <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">{t.description}</Text></Table.Td>
-                        <Table.Td ta="right" style={isLast ? dateGroupLastCellRight : undefined}>
-                          <Text size="sm" fw={600} c="lime">{mask(fmtMoney(t.amount, true))}</Text>
-                        </Table.Td>
-                      </Table.Tr>
-                    ),
-                  })),
-                ].sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
-                return [
-                  ...(di > 0 ? [
-                    <Table.Tr key={`spacer-${day.dateKey}`} style={{ height: 10, background: "transparent" }}>
-                      <Table.Td colSpan={5} style={{ padding: 0, border: "none" }} />
-                    </Table.Tr>
-                  ] : []),
-                  <Table.Tr key={`hdr-${day.dateKey}`} bg={dateGroupHeaderBg}>
-                    <Table.Td colSpan={isMobile ? 2 : 4} style={dateGroupHeaderCellLeft}>
-                      <Text size="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5}>
-                        {new Date(day.dateKey + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric", year: "2-digit" })}
-                      </Text>
-                    </Table.Td>
-                    <Table.Td ta="right" style={dateGroupHeaderCellRight}>
-                      <Text size="xs" fw={700} c="dimmed">{mask(fmtMoney(dayTotal, true))}</Text>
-                    </Table.Td>
-                  </Table.Tr>,
-                  ...allDayRows.map((r, i) => r.el(i === allDayRows.length - 1)),
-                ];
-              })}
-            </Table.Tbody>
-          </Table>
-        </ScrollArea>
-      )}
     </Stack>
   );
 }
