@@ -1,7 +1,7 @@
 "use client";
 
-import { Fragment } from "react";
-import { Table, ScrollArea, Text, Center, ThemeIcon, Alert, Stack } from "@mantine/core";
+import { Fragment, useRef, useEffect } from "react";
+import { Table, Text, Center, ThemeIcon, Alert, Stack } from "@mantine/core";
 import { IconCheck, IconAlertTriangle } from "@tabler/icons-react";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
@@ -39,6 +39,11 @@ export default function LevelsPage() {
   const { activeAccount, privacyMode, quote, alerts, tqqqShares } = useApp();
   const summary = useLevels();
   const accountColor = activeAccount?.color ?? "blue";
+  const currentRowRef = useRef<HTMLTableRowElement>(null);
+
+  useEffect(() => {
+    currentRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [summary?.currentLevel, activeAccount?.accountNumber]);
 
   if (!summary) {
     return (
@@ -71,9 +76,8 @@ export default function LevelsPage() {
         Your account holds {fmt(tqqqShares, 0)} shares of TQQQ, but your levels total {fmt(totalShares, 0)} shares.
       </Alert>
     )}
-    <ScrollArea>
-      <Table>
-        <Table.Thead>
+    <Table>
+        <Table.Thead style={{ position: "sticky", top: isMobile ? 88 : 56, zIndex: 1, background: "var(--mantine-color-dark-7)" }}>
           <Table.Tr style={{ verticalAlign: "top" }}>
             <Table.Th w={40} />
             <Table.Th>
@@ -112,7 +116,7 @@ export default function LevelsPage() {
             return (
               <Fragment key={n}>
                 {inRange && <ProgressRow progress={progress} color={accountColor} paddingTop={6} paddingBottom={0} cols={isMobile ? 5 : 7} />}
-                <Table.Tr style={inRange ? { background: `color-mix(in srgb, var(--mantine-color-${accountColor}-7) 8%, transparent)` } : undefined}>
+                <Table.Tr ref={inRange ? currentRowRef : undefined} style={inRange ? { background: `color-mix(in srgb, var(--mantine-color-${accountColor}-7) 8%, transparent)` } : undefined}>
                   <Table.Td>
                     {owned && (
                       <ThemeIcon variant="subtle" color="teal" size="sm">
@@ -139,7 +143,6 @@ export default function LevelsPage() {
           })}
         </Table.Tbody>
       </Table>
-    </ScrollArea>
     </Stack>
   );
 }
