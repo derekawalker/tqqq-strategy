@@ -42,7 +42,7 @@ export function GainLossCard() {
     return { totalGain, totalGainPct, annualROI };
   }, [balance, activeAccount]);
 
-  const gainColor = (totalGain ?? 0) >= 0 ? "light-dark(var(--mantine-color-dark-9), white)" : "var(--mantine-color-red-6)";
+  const gainColor = (totalGain ?? 0) >= 0 ? "white" : "var(--mantine-color-red-6)";
   const bg = useCardBg(activeAccount?.color ?? "dark");
   const router = useRouter();
 

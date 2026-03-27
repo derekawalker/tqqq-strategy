@@ -11,8 +11,6 @@ import {
   Select,
   Stack,
   Menu,
-  useMantineColorScheme,
-  useComputedColorScheme,
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import {
@@ -20,8 +18,6 @@ import {
   IconEye,
   IconEyeOff,
   IconRefresh,
-  IconSun,
-  IconMoon,
   IconPlugConnected,
   IconPlugConnectedX,
   IconChartLine,
@@ -37,13 +33,8 @@ interface AppHeaderProps {
 
 export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps) {
   const { accounts, activeAccount, setActiveAccount, privacyMode, togglePrivacy, quote, schwabConnected, checkSchwabAuth, tickQuoteRefresh } = useApp();
-  const { setColorScheme } = useMantineColorScheme();
-  const computedColorScheme = useComputedColorScheme("light");
   const isMobile = useMediaQuery("(max-width: 768px)");
   const router = useRouter();
-
-  const toggleTheme = () =>
-    setColorScheme(computedColorScheme === "light" ? "dark" : "light");
 
   const priceColor = quote.changePercent >= 0 ? "teal" : "red";
   const priceSign = quote.changePercent >= 0 ? "+" : "";
@@ -70,8 +61,8 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
 
   const aiProps = {
     variant: "outline" as const,
-    color: computedColorScheme === "dark" ? "gray.3" : "gray.6",
-    styles: { root: { borderColor: computedColorScheme === "dark" ? "var(--mantine-color-gray-7)" : "var(--mantine-color-gray-5)" } },
+    color: "gray.3",
+    styles: { root: { borderColor: "var(--mantine-color-gray-7)" } },
     size: "input-xs",
   };
 
@@ -128,18 +119,11 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
           </Menu.Item>
         </Menu.Dropdown>
       </Menu>
-      <Tooltip label={computedColorScheme === "light" ? "Dark mode" : "Light mode"}>
-        <ActionIcon {...aiProps} onClick={toggleTheme}>
-          {computedColorScheme === "light" ? <IconMoon size={14} /> : <IconSun size={14} />}
-        </ActionIcon>
-      </Tooltip>
     </Group>
   );
 
   const headerBg = activeAccount
-    ? computedColorScheme === "dark"
-      ? `color-mix(in srgb, var(--mantine-color-${activeAccount.color}-7) 12%, var(--mantine-color-dark-8))`
-      : `var(--mantine-color-${activeAccount.color}-0)`
+    ? `color-mix(in srgb, var(--mantine-color-${activeAccount.color}-7) 12%, var(--mantine-color-dark-8))`
     : undefined;
 
   if (isMobile) {
@@ -162,8 +146,8 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
             styles={{
               input: {
                 backgroundColor: "transparent",
-                borderColor: computedColorScheme === "dark" ? "var(--mantine-color-gray-7)" : "var(--mantine-color-gray-5)",
-                color: computedColorScheme === "dark" ? "var(--mantine-color-gray-3)" : "var(--mantine-color-gray-7)",
+                borderColor: "var(--mantine-color-gray-7)",
+                color: "var(--mantine-color-gray-3)",
               },
             }}
             w={160}

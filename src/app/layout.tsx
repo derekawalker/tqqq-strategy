@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { MantineProvider, createTheme, mantineHtmlProps } from "@mantine/core";
+import { MantineProvider, createTheme } from "@mantine/core";
 
 const theme = createTheme({
   defaultRadius: "xl",
@@ -48,9 +48,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" {...mantineHtmlProps}>
+    <html lang="en">
 <body>
-        <MantineProvider theme={theme} defaultColorScheme="dark">
+        <MantineProvider theme={theme} forceColorScheme="dark">
           <AppProvider>
             <Notifications />
             <AppShellLayout>{children}</AppShellLayout>

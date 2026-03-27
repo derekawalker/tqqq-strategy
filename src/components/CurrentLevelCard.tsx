@@ -63,7 +63,7 @@ export function CurrentLevelCard() {
                   opacity,
                   transform: `translateY(${translateY}px)`,
                   background: isCurrent ? `var(--mantine-color-${color}-6)` : "transparent",
-                  border: `2px solid ${isCurrent ? `var(--mantine-color-${color}-6)` : "light-dark(var(--mantine-color-gray-3), var(--mantine-color-dark-4))"}`,
+                  border: `2px solid ${isCurrent ? `var(--mantine-color-${color}-6)` : "var(--mantine-color-dark-4)"}`,
                   transition: "all 0.15s ease",
                 }}
               >

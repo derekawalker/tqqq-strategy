@@ -41,7 +41,7 @@ export default function AlertBar() {
   const { alerts, activeAccount } = useApp();
   const router = useRouter();
   const color = activeAccount?.color ?? "dark";
-  const idleBg = `light-dark(color-mix(in srgb, var(--mantine-color-${color}-2) 50%, white), var(--mantine-color-dark-6))`;
+  const idleBg = `var(--mantine-color-dark-6)`;
 
   return (
     <SimpleGrid cols={{ base: 3, sm: 6 }} spacing="xs">

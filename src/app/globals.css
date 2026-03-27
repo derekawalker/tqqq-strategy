@@ -6,7 +6,7 @@
 
 /* Sticky table header — match page background */
 [data-sticky-header] th {
-  background: light-dark(white, var(--mantine-color-dark-8)) !important;
+  background: var(--mantine-color-dark-8) !important;
 }
 
 /* Remove table row borders globally */

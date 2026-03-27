@@ -97,7 +97,7 @@ export function AccountValueCard() {
         <Group justify="space-between" align="flex-start">
           <Text c="dimmed" tt="uppercase" fw={600} ta="center" w="100%" style={CARD_LABEL_STYLE}>Account Value</Text>
         </Group>
-        <Text fw={700} lh={1} ta="center" className={outfit.className} style={{ fontSize: "4rem", width: "100%", color: "light-dark(var(--mantine-color-dark-9), white)" }}>
+        <Text fw={700} lh={1} ta="center" className={outfit.className} style={{ fontSize: "4rem", width: "100%", color: "white" }}>
           {mask(`$${fmt(total)}`)}
         </Text>
 

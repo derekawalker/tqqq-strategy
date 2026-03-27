@@ -24,7 +24,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { useMantineTheme, useComputedColorScheme } from "@mantine/core";
+import { useMantineTheme } from "@mantine/core";
 import { useApp } from "@/lib/context/AppContext";
 import type { FilledOrder } from "@/lib/schwab/parse";
 import { dateGroupHeaderCellLeft, dateGroupLastCellLeft, dateGroupLastCellRight, dateGroupHeaderBg } from "@/lib/tableStyles";
@@ -99,11 +99,8 @@ function CustomDot(props: any) {
 
 function DayChart({ dayOrders, color }: { dayOrders: FilledOrder[]; color: string }) {
   const theme = useMantineTheme();
-  const computedColorScheme = useComputedColorScheme("dark");
   const lineColor = theme.colors[color]?.[6] ?? theme.colors.blue[6];
-  const gridColor = computedColorScheme === "dark"
-    ? "var(--mantine-color-dark-4)"
-    : "var(--mantine-color-gray-3)";
+  const gridColor = "var(--mantine-color-dark-4)";
 
   let sellCount = 0;
   const chartData: ChartPoint[] = [...dayOrders]

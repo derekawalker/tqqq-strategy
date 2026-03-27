@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, ReactNode } from "react";
-import { AppShell, Box, useComputedColorScheme } from "@mantine/core";
+import { AppShell, Box } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import AppHeader from "@/components/AppHeader";
 import AlertBar from "@/components/AlertBar";
@@ -15,7 +15,6 @@ const NAVBAR_WIDTH = 180;
 export default function AppShellLayout({ children }: { children: ReactNode }) {
   const { activeAccount, setQuote, refreshTick, quoteTick, tickRefresh, tqqqShares, setAlerts, workingOrders, optionPositions, quote } = useApp();
   const levelsSummary = useLevels();
-  const computedColorScheme = useComputedColorScheme("dark");
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -123,9 +122,7 @@ export default function AppShellLayout({ children }: { children: ReactNode }) {
   }, [refreshTick, quoteTick, setQuote]);
 
   const mainBg = activeAccount
-    ? computedColorScheme === "dark"
-      ? `linear-gradient(135deg, color-mix(in srgb, var(--mantine-color-${activeAccount.color}-7) 10%, var(--mantine-color-dark-9)) 0%, var(--mantine-color-dark-8) 100%)`
-      : `linear-gradient(135deg, var(--mantine-color-${activeAccount.color}-1) 0%, var(--mantine-color-gray-1) 100%)`
+    ? `linear-gradient(135deg, color-mix(in srgb, var(--mantine-color-${activeAccount.color}-7) 10%, var(--mantine-color-dark-9)) 0%, var(--mantine-color-dark-8) 100%)`
     : undefined;
 
   return (
@@ -151,11 +148,9 @@ export default function AppShellLayout({ children }: { children: ReactNode }) {
             position: "sticky",
             top: "var(--app-shell-header-height)",
             zIndex: 50,
-            background: computedColorScheme === "dark"
-              ? activeAccount
-                ? `color-mix(in srgb, var(--mantine-color-${activeAccount.color}-9) 8%, var(--mantine-color-dark-8))`
-                : "var(--mantine-color-dark-8)"
-              : "rgba(255, 255, 255, 0.95)",
+            background: activeAccount
+              ? `color-mix(in srgb, var(--mantine-color-${activeAccount.color}-9) 8%, var(--mantine-color-dark-8))`
+              : "var(--mantine-color-dark-8)",
             marginInline: "calc(var(--mantine-spacing-md) * -1)",
             marginTop: "calc(var(--mantine-spacing-md) * -1)",
             padding: "var(--mantine-spacing-xs) var(--mantine-spacing-md)",
