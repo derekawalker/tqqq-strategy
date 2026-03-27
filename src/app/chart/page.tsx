@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useMediaQuery } from "@mantine/hooks";
 import { Paper, Stack, Text, Group, Box, Skeleton, SegmentedControl } from "@mantine/core";
 import {
   ResponsiveContainer, ComposedChart, Line, XAxis, YAxis,
@@ -52,6 +53,7 @@ export default function ChartPage() {
   const { activeAccount, quote, refreshTick } = useApp();
   const levelsSummary = useLevels();
   const color = activeAccount?.color ?? "blue";
+  const isMobile = useMediaQuery("(max-width: 768px)");
 
   const [range, setRange] = useState<"1d" | "1w" | "1m">(() => {
     if (typeof window === "undefined") return "1w";
@@ -103,7 +105,7 @@ export default function ChartPage() {
       const key = d.toLocaleDateString("en-CA");
       if (!seen.has(key)) {
         seen.add(key);
-        result.push({ time: c.time, label: d.toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric" }) });
+        result.push({ time: c.time, label: d.toLocaleDateString("en-US", { month: "numeric", day: "numeric" }) });
       }
     }
     return result;
@@ -132,7 +134,7 @@ export default function ChartPage() {
 
   return (
     <Stack>
-      <Paper withBorder p="md" radius="md">
+      <Paper withBorder p={isMobile ? "xs" : "md"} radius="md">
         <Group justify="space-between" align="center" mb="md">
           <Text fw={700} size="sm">TQQQ — {{ "1d": "1 Day (5 min)", "1w": "1 Week (30 min)", "1m": "1 Month (daily)" }[range]}</Text>
           <SegmentedControl
@@ -143,8 +145,8 @@ export default function ChartPage() {
           />
         </Group>
 
-        <ResponsiveContainer width="100%" height={400}>
-          <ComposedChart data={candles} margin={{ top: 20, right: 80, left: 10, bottom: 0 }}>
+        <ResponsiveContainer width="100%" height={isMobile ? 320 : 400}>
+          <ComposedChart data={candles} margin={{ top: 20, right: isMobile ? 48 : 60, left: isMobile ? 0 : 10, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" vertical={false} />
             <XAxis
               dataKey="time"
@@ -159,7 +161,7 @@ export default function ChartPage() {
               domain={yDomain}
               tickFormatter={(v: number) => `$${v.toFixed(2)}`}
               tick={{ fontSize: 11, fill: "var(--mantine-color-gray-5)" }}
-              width={68}
+              width={isMobile ? 52 : 68}
               axisLine={false}
               tickLine={false}
             />
@@ -189,7 +191,7 @@ export default function ChartPage() {
             {/* Day boundaries */}
             {dayBoundaries.map(({ time, label }) => (
               <ReferenceLine key={time} x={time} stroke="var(--mantine-color-dark-3)" strokeWidth={1}
-                label={{ value: label, position: "insideTopRight", fill: "var(--mantine-color-gray-6)", fontSize: 10 }} />
+                label={range !== "1m" ? { value: label, position: "insideTopRight", fill: "var(--mantine-color-gray-6)", fontSize: 10 } : undefined} />
             ))}
 
             <Line
@@ -210,13 +212,13 @@ export default function ChartPage() {
             {/* Current level buy price */}
             {currentSellPrice && (
               <ReferenceLine y={currentSellPrice} stroke={currentLevelColor} strokeDasharray="5 3" strokeWidth={1.5}
-                label={{ value: `L${currentLevel} $${currentSellPrice.toFixed(2)}`, position: "right", fill: currentLevelColor, fontSize: 11 }} />
+                label={{ value: `$${currentSellPrice.toFixed(2)}`, position: "right", fill: currentLevelColor, fontSize: 11 }} />
             )}
 
             {/* Next level buy price */}
             {nextBuyPrice && (
               <ReferenceLine y={nextBuyPrice} stroke={nextLevelColor} strokeDasharray="5 3" strokeWidth={1.5}
-                label={{ value: `L${currentLevel + 1}  $${nextBuyPrice.toFixed(2)}`, position: "right", fill: nextLevelColor, fontSize: 11 }} />
+                label={{ value: `$${nextBuyPrice.toFixed(2)}`, position: "right", fill: nextLevelColor, fontSize: 11 }} />
             )}
 
             {/* Week high */}
@@ -234,7 +236,6 @@ export default function ChartPage() {
         </ResponsiveContainer>
 
         <Group gap="xl" mt="sm" justify="center">
-          <Group gap={6}><Box style={{ width: 20, height: 2, background: "linear-gradient(to right, var(--mantine-color-indigo-7), var(--mantine-color-lime-7))", display: "inline-block" }} /><Text size="xs" c="dimmed">TQQQ</Text></Group>
           {currentPrice && <Group gap={6}><LegendDash color={currentColor} /><Text size="xs" c="dimmed">Current</Text></Group>}
           {currentSellPrice && <Group gap={6}><LegendDash color={currentLevelColor} /><Text size="xs" c="dimmed">L{currentLevel} Sell</Text></Group>}
           {nextBuyPrice && <Group gap={6}><LegendDash color={nextLevelColor} /><Text size="xs" c="dimmed">L{currentLevel + 1} Buy</Text></Group>}

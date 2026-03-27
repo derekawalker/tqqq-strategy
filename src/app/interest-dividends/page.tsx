@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { useMediaQuery } from "@mantine/hooks";
 import {
   Table, Text, Group, Stack, Skeleton, Paper, Badge, ScrollArea, SimpleGrid,
 } from "@mantine/core";
@@ -12,12 +13,13 @@ const fmt = (n: number) =>
 
 const fmtDate = (iso: string) => {
   const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "2-digit" });
 };
 
 export default function InterestDividendsPage() {
   const { activeAccount, privacyMode, refreshTick } = useApp();
   const color = activeAccount?.color ?? "blue";
+  const isMobile = useMediaQuery("(max-width: 768px)");
   const mask = (v: string) => (privacyMode ? "••••" : v);
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -62,24 +64,30 @@ export default function InterestDividendsPage() {
 
   return (
     <Stack>
-      <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+      <SimpleGrid cols={3} spacing="md">
         <Paper withBorder p="md" radius="md">
-          <Text size="xs" c="dimmed" mb={4}>Total</Text>
-          <Text fw={700} size="xl" c={total >= 0 ? color : "red"}>
-            {mask(`$${fmt(total)}`)}
-          </Text>
+          <Stack align={isMobile ? "center" : "flex-start"} gap={4}>
+            <Text size="xs" c="dimmed">Total</Text>
+            <Text fw={700} size="xl" c={total >= 0 ? color : "red"}>
+              {mask(`$${fmt(total)}`)}
+            </Text>
+          </Stack>
         </Paper>
         <Paper withBorder p="md" radius="md">
-          <Text size="xs" c="dimmed" mb={4}>Dividends</Text>
-          <Text fw={700} size="xl" c={totalDividends >= 0 ? color : "red"}>
-            {mask(`$${fmt(totalDividends)}`)}
-          </Text>
+          <Stack align={isMobile ? "center" : "flex-start"} gap={4}>
+            <Text size="xs" c="dimmed">Dividends</Text>
+            <Text fw={700} size="xl" c={totalDividends >= 0 ? color : "red"}>
+              {mask(`$${fmt(totalDividends)}`)}
+            </Text>
+          </Stack>
         </Paper>
         <Paper withBorder p="md" radius="md">
-          <Text size="xs" c="dimmed" mb={4}>Interest</Text>
-          <Text fw={700} size="xl" c={totalInterest >= 0 ? color : "red"}>
-            {mask(`$${fmt(totalInterest)}`)}
-          </Text>
+          <Stack align={isMobile ? "center" : "flex-start"} gap={4}>
+            <Text size="xs" c="dimmed">Interest</Text>
+            <Text fw={700} size="xl" c={totalInterest >= 0 ? color : "red"}>
+              {mask(`$${fmt(totalInterest)}`)}
+            </Text>
+          </Stack>
         </Paper>
       </SimpleGrid>
 
@@ -93,7 +101,7 @@ export default function InterestDividendsPage() {
                 <Table.Tr>
                   <Table.Th>Date</Table.Th>
                   <Table.Th>Description</Table.Th>
-                  <Table.Th>Symbol</Table.Th>
+                  <Table.Th className="hide-mobile">Symbol</Table.Th>
                   <Table.Th>Type</Table.Th>
                   <Table.Th ta="right">Amount</Table.Th>
                 </Table.Tr>
@@ -104,10 +112,10 @@ export default function InterestDividendsPage() {
                     <Table.Td>
                       <Text size="sm" style={{ whiteSpace: "nowrap" }}>{fmtDate(t.time)}</Text>
                     </Table.Td>
-                    <Table.Td>
-                      <Text size="sm">{t.description}</Text>
+                    <Table.Td style={{ maxWidth: isMobile ? 120 : undefined }}>
+                      <Text size="sm" truncate="end">{t.description}</Text>
                     </Table.Td>
-                    <Table.Td>
+                    <Table.Td className="hide-mobile">
                       <Text size="sm" c="dimmed">{t.symbol ?? "—"}</Text>
                     </Table.Td>
                     <Table.Td>
