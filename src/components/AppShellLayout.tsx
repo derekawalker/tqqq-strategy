@@ -91,6 +91,22 @@ export default function AppShellLayout({ children }: { children: ReactNode }) {
   }, [optionPositions, quote.price, quote.loading]);
 
   useEffect(() => {
+    if (!activeAccount) return;
+    let cancelled = false;
+    fetch("/api/schwab/balances")
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled || !Array.isArray(data)) return;
+        const balance = data.find((b: { accountNumber: string }) => b.accountNumber === activeAccount.accountNumber);
+        if (!balance) return;
+        setAlerts((prev) => ({ ...prev, idleCash: balance.cash > 1000 ? balance.cash : null }));
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAccount?.accountNumber, refreshTick]);
+
+  useEffect(() => {
     let cancelled = false;
     async function load() {
       try {

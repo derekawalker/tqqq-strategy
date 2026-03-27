@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import {
   Table, Text, Group, Stack, Skeleton, Center, NumberInput,
-  SimpleGrid, Paper, Badge, Box, SegmentedControl,
+  SimpleGrid, Badge, Box, SegmentedControl,
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
@@ -11,6 +11,55 @@ import { useLevels } from "@/lib/hooks/useLevels";
 import { IconArrowRight } from "@tabler/icons-react";
 import type { OptionPosition } from "@/lib/schwab/parse";
 import type { Level } from "@/lib/levels";
+
+// ── sentiment messages ─────────────────────────────────────────────────────
+
+interface SentimentMsg { text: string; good: boolean }
+
+function getCallSentiment(pct: number): SentimentMsg | null {
+  if (pct >= 5)  return { text: "Major up day — excellent time to sell calls", good: true };
+  if (pct >= 4)  return { text: "Strong up day — great call premium available", good: true };
+  if (pct >= 3)  return { text: "Up day — good opportunity to sell calls", good: true };
+  if (pct >= 2)  return { text: "Slight up move — consider selling calls", good: true };
+  if (pct >= 1)  return { text: "Minor up move — calls have some premium", good: true };
+  if (pct <= -5) return { text: "Major down day — do not sell calls", good: false };
+  if (pct <= -4) return { text: "Strong down day — avoid selling calls", good: false };
+  if (pct <= -3) return { text: "Down day — hold off on calls", good: false };
+  if (pct <= -2) return { text: "Down move — wait for a better day to sell calls", good: false };
+  if (pct <= -1) return { text: "Minor down move — calls have less premium today", good: false };
+  return null;
+}
+
+function getPutSentiment(pct: number): SentimentMsg | null {
+  if (pct <= -5) return { text: "Major down day — prime time to sell puts", good: true };
+  if (pct <= -4) return { text: "Strong down day — excellent put premium", good: true };
+  if (pct <= -3) return { text: "Down day — good opportunity to sell puts", good: true };
+  if (pct <= -2) return { text: "Slight down move — consider selling puts", good: true };
+  if (pct <= -1) return { text: "Minor down move — puts have some premium", good: true };
+  if (pct >= 5)  return { text: "Major up day — do not sell puts", good: false };
+  if (pct >= 4)  return { text: "Strong up day — avoid selling puts", good: false };
+  if (pct >= 3)  return { text: "Up day — hold off on puts", good: false };
+  if (pct >= 2)  return { text: "Up move — wait for a down day to sell puts", good: false };
+  if (pct >= 1)  return { text: "Minor up move — puts have less premium today", good: false };
+  return null;
+}
+
+function SentimentBanner({ msg }: { msg: SentimentMsg | null }) {
+  if (!msg) return null;
+  const bgColor     = msg.good ? "rgba(20,184,166,0.08)" : "rgba(239,68,68,0.08)";
+  const borderColor = msg.good ? "var(--mantine-color-teal-6)" : "var(--mantine-color-red-6)";
+  const textColor   = msg.good ? "var(--mantine-color-teal-4)" : "var(--mantine-color-red-4)";
+  return (
+    <Box style={{
+      background: bgColor,
+      border: `1px solid ${borderColor}`,
+      borderRadius: 6,
+      padding: "6px 10px",
+    }}>
+      <Text size="xs" style={{ color: textColor }}>{msg.text}</Text>
+    </Box>
+  );
+}
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -240,7 +289,7 @@ function PositionCells({
 // ── calls table ───────────────────────────────────────────────────────────
 
 function CallsTable({
-  rows, color, safetyLevels, onSafetyChange, privacyMode, currentLevel,
+  rows, color, safetyLevels, onSafetyChange, privacyMode, currentLevel, changePercent,
 }: {
   rows: CallRow[];
   color: string;
@@ -248,6 +297,7 @@ function CallsTable({
   onSafetyChange: (v: number) => void;
   privacyMode: boolean;
   currentLevel: number;
+  changePercent: number;
 }) {
   const mask = (v: string) => (privacyMode ? "••••" : v);
 
@@ -264,6 +314,8 @@ function CallsTable({
           />
         </Group>
       </Group>
+
+      <SentimentBanner msg={getCallSentiment(changePercent)} />
 
       {rows.length === 0 ? (
         <Center h={80}><Text size="sm" c="dimmed">No levels configured.</Text></Center>
@@ -328,7 +380,7 @@ function CallsTable({
 // ── puts table ────────────────────────────────────────────────────────────
 
 function PutsTable({
-  rows, color, safetyLevels, onSafetyChange, privacyMode, currentLevel,
+  rows, color, safetyLevels, onSafetyChange, privacyMode, currentLevel, changePercent,
 }: {
   rows: PutRow[];
   color: string;
@@ -336,6 +388,7 @@ function PutsTable({
   onSafetyChange: (v: number) => void;
   privacyMode: boolean;
   currentLevel: number;
+  changePercent: number;
 }) {
   const mask = (v: string) => (privacyMode ? "••••" : v);
 
@@ -352,6 +405,8 @@ function PutsTable({
           />
         </Group>
       </Group>
+
+      <SentimentBanner msg={getPutSentiment(changePercent)} />
 
       {rows.length === 0 ? (
         <Center h={80}><Text size="sm" c="dimmed">No levels configured.</Text></Center>
@@ -416,7 +471,8 @@ function PutsTable({
 // ── page ──────────────────────────────────────────────────────────────────
 
 export default function OptionsPage() {
-  const { optionPositions, snapshotLoading, activeAccount, privacyMode, updateAccountSettings } = useApp();
+  const { optionPositions, snapshotLoading, activeAccount, privacyMode, updateAccountSettings, quote } = useApp();
+  const changePercent = quote.loading ? 0 : quote.changePercent;
   const levelsSummary = useLevels();
   const color = activeAccount?.color ?? "blue";
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -479,6 +535,7 @@ export default function OptionsPage() {
               onSafetyChange={handleCallSafety}
               privacyMode={privacyMode}
               currentLevel={levelsSummary?.currentLevel ?? -1}
+              changePercent={changePercent}
             />
           ) : (
             <PutsTable
@@ -488,6 +545,7 @@ export default function OptionsPage() {
               onSafetyChange={handlePutSafety}
               privacyMode={privacyMode}
               currentLevel={levelsSummary?.currentLevel ?? -1}
+              changePercent={changePercent}
             />
           )}
       </Stack>
@@ -496,27 +554,24 @@ export default function OptionsPage() {
 
   return (
     <SimpleGrid cols={2} spacing="xl">
-      <Paper withBorder p="md" radius="md">
-        <CallsTable
-          rows={callRows}
-          color={color}
-          safetyLevels={callSafety}
-          onSafetyChange={handleCallSafety}
-          privacyMode={privacyMode}
-          currentLevel={levelsSummary?.currentLevel ?? -1}
-        />
-      </Paper>
-
-      <Paper withBorder p="md" radius="md">
-        <PutsTable
-          rows={putRows}
-          color={color}
-          safetyLevels={putSafety}
-          onSafetyChange={handlePutSafety}
-          privacyMode={privacyMode}
-          currentLevel={levelsSummary?.currentLevel ?? -1}
-        />
-      </Paper>
+      <CallsTable
+        rows={callRows}
+        color={color}
+        safetyLevels={callSafety}
+        onSafetyChange={handleCallSafety}
+        privacyMode={privacyMode}
+        currentLevel={levelsSummary?.currentLevel ?? -1}
+        changePercent={changePercent}
+      />
+      <PutsTable
+        rows={putRows}
+        color={color}
+        safetyLevels={putSafety}
+        onSafetyChange={handlePutSafety}
+        privacyMode={privacyMode}
+        currentLevel={levelsSummary?.currentLevel ?? -1}
+        changePercent={changePercent}
+      />
     </SimpleGrid>
   );
 }

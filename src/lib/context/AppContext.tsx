@@ -48,6 +48,7 @@ export interface Alerts {
   duplicateOrders: number | null;
   expiringOptions: number | null;
   itmOptions: number | null;
+  idleCash: number | null;
 }
 
 interface AppContextValue {
@@ -312,6 +313,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     duplicateOrders: null,
     expiringOptions: null,
     itmOptions: null,
+    idleCash: null,
   });
 
   const updateAccountColor = (accountNumber: string, color: string) => {
