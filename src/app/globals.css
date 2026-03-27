@@ -4,6 +4,11 @@
   border-spacing: 0 !important;
 }
 
+/* Sticky table header — match page background */
+[data-sticky-header] th {
+  background: light-dark(white, var(--mantine-color-dark-8)) !important;
+}
+
 /* Remove table row borders globally */
 tr[data-with-row-border] {
   border-bottom: none !important;

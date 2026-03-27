@@ -18,7 +18,7 @@ export function CurrentLevelCard() {
 
   if (!levelsSummary || levelsSummary.currentLevel < 0) {
     return (
-      <Paper p="md" radius="md" withBorder onClick={() => router.push("/levels")} style={{ background: bg, cursor: "pointer", height: "100%" }}>
+      <Paper p="md" onClick={() => router.push("/levels")} style={{ background: bg, cursor: "pointer", height: "100%" }}>
         <Stack align="center" gap={8}>
           <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Current Level</Text>
           <Text size="sm" c="dimmed">—</Text>
@@ -32,7 +32,7 @@ export function CurrentLevelCard() {
   const end = Math.min(levels.length - 1, currentLevel + window);
 
   return (
-    <Paper p="md" radius="md" withBorder onClick={() => router.push("/levels")} style={{ background: bg, cursor: "pointer", height: "100%" }}>
+    <Paper p="md" onClick={() => router.push("/levels")} style={{ background: bg, cursor: "pointer", height: "100%" }}>
       <Stack align="center" gap={12} pt={isMobile ? 0 : "md"}>
         <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Current Level</Text>
         <Group gap={0} wrap="nowrap" justify="center">

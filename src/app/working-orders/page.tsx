@@ -134,36 +134,39 @@ export default function WorkingOrdersPage() {
   }
 
   return (
-    <Stack>
+    <Stack gap="md">
       <Group justify="space-between" wrap="nowrap" align="flex-end">
-        <Group wrap="nowrap" align="flex-end">
-        <NumberInput
-          key={`warn-${activeAccount?.accountNumber}`}
-          label="Warn below"
-          value={warnBelow ?? ""}
-          onChange={setWarnBelow}
-          min={0}
-          max={99}
-          w={90}
-          size="xs"
-        />
-        <NumberInput
-          key={`buffer-${activeAccount?.accountNumber}`}
-          label="Buffer levels"
-          value={buffer ?? ""}
-          onChange={setBuffer}
-          min={0}
-          max={50}
-          w={90}
-          size="xs"
-        />
+        <Text fw={700} size="xl">Working Orders</Text>
+        <Group wrap="nowrap" align="flex-end" gap="md">
+          <Group wrap="nowrap" align="flex-end" gap="xs">
+            <NumberInput
+              key={`warn-${activeAccount?.accountNumber}`}
+              label="Warn below"
+              value={warnBelow ?? ""}
+              onChange={setWarnBelow}
+              min={0}
+              max={99}
+              w={90}
+              size="xs"
+            />
+            <NumberInput
+              key={`buffer-${activeAccount?.accountNumber}`}
+              label="Buffer levels"
+              value={buffer ?? ""}
+              onChange={setBuffer}
+              min={0}
+              max={50}
+              w={90}
+              size="xs"
+            />
+          </Group>
+          <Stack gap={2} align="flex-end">
+            <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Pending Buys</Text>
+            <Text size="2xl" fw={800} c={activeAccount?.color ?? "teal"}>
+              {mask(`$${fmt(pendingBuyCost)}`)}
+            </Text>
+          </Stack>
         </Group>
-        <Stack gap={2} align="flex-end">
-          <Text size="xs"  fw={500}>Pending Buys</Text>
-          <Text size="xl" fw={700} c={activeAccount?.color ?? "teal"}>
-            {mask(`$${fmt(pendingBuyCost)}`)}
-          </Text>
-        </Stack>
       </Group>
 
       <ScrollArea>
@@ -246,4 +249,5 @@ export default function WorkingOrdersPage() {
       </ScrollArea>
     </Stack>
   );
+
 }

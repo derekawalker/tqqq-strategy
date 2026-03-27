@@ -53,7 +53,6 @@ export default function AlertBar() {
         return (
           <Paper
             key={key}
-            radius="md"
             px="sm"
             py={6}
             onClick={() => router.push(href)}

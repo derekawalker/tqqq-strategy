@@ -517,7 +517,8 @@ export default function OptionsPage() {
 
   if (isMobile) {
     return (
-      <Stack>
+      <Stack gap="md">
+        <Text fw={700} size="xl">Options</Text>
         <SegmentedControl
           fullWidth
           value={mobileTab}
@@ -553,6 +554,8 @@ export default function OptionsPage() {
   }
 
   return (
+    <Stack gap="md">
+    <Text fw={700} size="xl">Options</Text>
     <SimpleGrid cols={2} spacing="xl">
       <CallsTable
         rows={callRows}
@@ -573,5 +576,6 @@ export default function OptionsPage() {
         changePercent={changePercent}
       />
     </SimpleGrid>
+    </Stack>
   );
 }

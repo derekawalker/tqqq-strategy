@@ -46,7 +46,7 @@ export function GainLossCard() {
   const router = useRouter();
 
   return (
-    <Paper p="md" radius="md" withBorder onClick={() => router.push("/profit-tracker")} style={{ background: bg, cursor: "pointer", height: "100%" }}>
+    <Paper p="md" onClick={() => router.push("/profit-tracker")} style={{ background: bg, cursor: "pointer", height: "100%" }}>
       <Stack gap="md" align="center">
         <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Gain / Loss</Text>
         <Text

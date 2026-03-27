@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { MantineProvider, createTheme, mantineHtmlProps } from "@mantine/core";
 
 const theme = createTheme({
+  defaultRadius: "xl",
   components: {
     Table: {
       defaultProps: {
@@ -9,8 +10,13 @@ const theme = createTheme({
         highlightOnHover: true,
         stripedColor: "rgba(255,255,255,0.03)",
         highlightOnHoverColor: "rgba(255,255,255,0.05)",
-        verticalSpacing: "xs",
+        verticalSpacing: "sm",
         fz: "sm",
+      },
+    },
+    Paper: {
+      defaultProps: {
+        shadow: "sm",
       },
     },
   },

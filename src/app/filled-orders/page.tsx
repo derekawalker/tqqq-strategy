@@ -14,7 +14,6 @@ import {
   ActionIcon,
   Button,
   Box,
-  Divider,
 } from "@mantine/core";
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import {
@@ -206,6 +205,22 @@ export default function FilledOrdersPage() {
 
   return (
     <Stack gap="md">
+      {/* Page title + date nav */}
+      <Group justify="space-between" align="center">
+        <Text fw={700} size="xl">Filled Orders</Text>
+        <Group gap={4} align="center">
+          <Button size="xs" variant="subtle" color="gray" disabled={!canBack} onClick={() => setSelectedDate(availableDates[0])}>Oldest</Button>
+          <ActionIcon size="sm" variant="light" color="gray" disabled={!canBack} onClick={() => setSelectedDate(availableDates[currentIdx - 1])}>
+            <IconChevronLeft size={14} />
+          </ActionIcon>
+          <Text size="sm" w={60} ta="center">{effectiveDate ? fmtDateKey(effectiveDate) : "—"}</Text>
+          <ActionIcon size="sm" variant="light" color="gray" disabled={!canForward} onClick={() => setSelectedDate(availableDates[currentIdx + 1])}>
+            <IconChevronRight size={14} />
+          </ActionIcon>
+          <Button size="xs" variant="subtle" color="gray" disabled={effectiveDate === availableDates[availableDates.length - 1]} onClick={() => setSelectedDate(availableDates[availableDates.length - 1])}>Latest</Button>
+        </Group>
+      </Group>
+
       {/* Day chart */}
       {loading ? (
         <Skeleton height={160} radius="sm" />
@@ -213,67 +228,16 @@ export default function FilledOrdersPage() {
         <DayChart dayOrders={dayOrders} color={color} />
       )}
 
-      {/* Date navigation */}
+      {/* Table controls */}
       <Group justify="space-between" align="center">
-        <Button
-          size="xs"
-          variant="light"
-          color="gray"
-          disabled={!canBack}
-          onClick={() => setSelectedDate(availableDates[0])}
-        >
-          Oldest
-        </Button>
-
-        <Group gap={4} align="center">
-          <ActionIcon
-            size="sm"
-            variant="light"
-            color="gray"
-            disabled={!canBack}
-            onClick={() => setSelectedDate(availableDates[currentIdx - 1])}
-          >
-            <IconChevronLeft size={14} />
-          </ActionIcon>
-          <Text size="sm" w={60} ta="center">
-            {effectiveDate ? fmtDateKey(effectiveDate) : "—"}
+        {loading ? (
+          <Skeleton height={14} width={100} radius="sm" />
+        ) : (
+          <Text size="sm" c="dimmed">
+            <Text span fw={600} c="teal">{totalBuys}</Text>{" buys  "}
+            <Text span fw={600} c="red">{totalSells}</Text>{" sells"}
           </Text>
-          <ActionIcon
-            size="sm"
-            variant="light"
-            color="gray"
-            disabled={!canForward}
-            onClick={() => setSelectedDate(availableDates[currentIdx + 1])}
-          >
-            <IconChevronRight size={14} />
-          </ActionIcon>
-        </Group>
-
-        <Button
-          size="xs"
-          variant="light"
-          color="gray"
-          disabled={effectiveDate === availableDates[availableDates.length - 1]}
-          onClick={() => setSelectedDate(availableDates[availableDates.length - 1])}
-        >
-          Latest
-        </Button>
-      </Group>
-
-      <Divider />
-
-      {/* Table header */}
-      <Group justify="space-between" align="center">
-        <Group gap="xs" align="center">
-          {loading ? (
-            <Skeleton height={14} width={100} radius="sm" />
-          ) : (
-            <Text size="sm" c="dimmed">
-              <Text span fw={600} c="teal">{totalBuys}</Text>{" buys  "}
-              <Text span fw={600} c="red">{totalSells}</Text>{" sells"}
-            </Text>
-          )}
-        </Group>
+        )}
         <Select
           size="xs"
           value={days}

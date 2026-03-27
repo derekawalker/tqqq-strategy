@@ -133,16 +133,19 @@ export default function ChartPage() {
   const nextLevelColor = "var(--mantine-color-indigo-5)";
 
   return (
-    <Stack>
-      <Paper withBorder p={isMobile ? "xs" : "md"} radius="md">
+    <Stack gap="md">
+      <Group justify="space-between" align="center">
+        <Text fw={700} size="xl">Chart</Text>
+        <SegmentedControl
+          size="xs"
+          value={range}
+          onChange={handleRangeChange}
+          data={[{ label: "1D", value: "1d" }, { label: "1W", value: "1w" }, { label: "1M", value: "1m" }]}
+        />
+      </Group>
+      <Paper p={isMobile ? "xs" : "md"}>
         <Group justify="space-between" align="center" mb="md">
-          <Text fw={700} size="sm">TQQQ — {{ "1d": "1 Day (5 min)", "1w": "1 Week (30 min)", "1m": "1 Month (daily)" }[range]}</Text>
-          <SegmentedControl
-            size="xs"
-            value={range}
-            onChange={handleRangeChange}
-            data={[{ label: "1D", value: "1d" }, { label: "1W", value: "1w" }, { label: "1M", value: "1m" }]}
-          />
+          <Text fw={600} size="sm" c="dimmed">TQQQ — {{ "1d": "1 Day (5 min)", "1w": "1 Week (30 min)", "1m": "1 Month (daily)" }[range]}</Text>
         </Group>
 
         <ResponsiveContainer width="100%" height={isMobile ? 320 : 400}>

@@ -108,7 +108,7 @@ function DayCard({ day, privacyMode, color }: { day: DaySummary; privacyMode: bo
     <Paper
       withBorder
       p="xs"
-      radius="md"
+
       style={{
         minWidth: 110,
         height: "100%",
@@ -159,7 +159,7 @@ function WeekCard({ week, privacyMode, color }: { week: WeekSummary; privacyMode
     <Paper
       withBorder
       p="xs"
-      radius="md"
+
       style={{
         minWidth: 130,
         flexShrink: 0,
@@ -210,7 +210,7 @@ function MonthCard({ month, privacyMode, color }: { month: MonthSummary; privacy
     <Paper
       withBorder
       p="xs"
-      radius="md"
+
       style={{
         minWidth: 130,
         flexShrink: 0,
@@ -527,14 +527,17 @@ export default function ProfitPage() {
   }
 
   return (
-    <Stack>
-      <Tabs value={period} onChange={handlePeriodChange} color={activeAccount?.color ?? "blue"}>
-        <Tabs.List>
-          {PERIODS.map((p) => (
-            <Tabs.Tab key={p.value} value={p.value} className="profit-tab">{p.label}</Tabs.Tab>
-          ))}
-        </Tabs.List>
-      </Tabs>
+    <Stack gap="md">
+      <Group justify="space-between" align="center">
+        <Text fw={700} size="xl">Profit Tracker</Text>
+        <Tabs value={period} onChange={handlePeriodChange} color={activeAccount?.color ?? "blue"}>
+          <Tabs.List>
+            {PERIODS.map((p) => (
+              <Tabs.Tab key={p.value} value={p.value} className="profit-tab">{p.label}</Tabs.Tab>
+            ))}
+          </Tabs.List>
+        </Tabs>
+      </Group>
 
       {period === "day" && (
         <ScrollArea type="auto">
@@ -766,7 +769,7 @@ export default function ProfitPage() {
           <Paper
             withBorder
             p="md"
-            radius="md"
+      
             style={{
               borderColor: `var(--mantine-color-${activeAccount?.color ?? "blue"}-5)`,
               background: `var(--mantine-color-${activeAccount?.color ?? "blue"}-light)`,
@@ -844,7 +847,7 @@ export default function ProfitPage() {
           <Paper
             withBorder
             p="md"
-            radius="md"
+      
             style={{
               borderColor: `var(--mantine-color-${activeAccount?.color ?? "blue"}-5)`,
               background: `var(--mantine-color-${activeAccount?.color ?? "blue"}-light)`,

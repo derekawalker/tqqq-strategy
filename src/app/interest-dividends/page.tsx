@@ -63,36 +63,36 @@ export default function InterestDividendsPage() {
   }
 
   return (
-    <Stack>
+    <Stack gap="md">
+      <Text fw={700} size="xl">Interest & Dividends</Text>
       <SimpleGrid cols={3} spacing="md">
-        <Paper withBorder p="md" radius="md">
+        <Paper p="md">
           <Stack align={isMobile ? "center" : "flex-start"} gap={4}>
-            <Text size="xs" c="dimmed">Total</Text>
-            <Text fw={700} size="xl" c={total >= 0 ? color : "red"}>
+            <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Total</Text>
+            <Text fw={800} size="2xl" c={total >= 0 ? color : "red"}>
               {mask(`$${fmt(total)}`)}
             </Text>
           </Stack>
         </Paper>
-        <Paper withBorder p="md" radius="md">
+        <Paper p="md">
           <Stack align={isMobile ? "center" : "flex-start"} gap={4}>
-            <Text size="xs" c="dimmed">Dividends</Text>
-            <Text fw={700} size="xl" c={totalDividends >= 0 ? color : "red"}>
+            <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Dividends</Text>
+            <Text fw={800} size="2xl" c={totalDividends >= 0 ? color : "red"}>
               {mask(`$${fmt(totalDividends)}`)}
             </Text>
           </Stack>
         </Paper>
-        <Paper withBorder p="md" radius="md">
+        <Paper p="md">
           <Stack align={isMobile ? "center" : "flex-start"} gap={4}>
-            <Text size="xs" c="dimmed">Interest</Text>
-            <Text fw={700} size="xl" c={totalInterest >= 0 ? color : "red"}>
+            <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Interest</Text>
+            <Text fw={800} size="2xl" c={totalInterest >= 0 ? color : "red"}>
               {mask(`$${fmt(totalInterest)}`)}
             </Text>
           </Stack>
         </Paper>
       </SimpleGrid>
 
-      <Paper withBorder radius="md">
-        <ScrollArea>
+      <ScrollArea>
           {accountTransactions.length === 0 ? (
             <Text size="sm" c="dimmed" p="md">No interest or dividend transactions found.</Text>
           ) : (
@@ -138,7 +138,6 @@ export default function InterestDividendsPage() {
             </Table>
           )}
         </ScrollArea>
-      </Paper>
     </Stack>
   );
 }

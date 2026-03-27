@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment } from "react";
-import { Table, ScrollArea, Text, Center, ThemeIcon, Alert } from "@mantine/core";
+import { Table, ScrollArea, Text, Center, ThemeIcon, Alert, Stack } from "@mantine/core";
 import { IconCheck, IconAlertTriangle } from "@tabler/icons-react";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
@@ -58,7 +58,8 @@ export default function LevelsPage() {
   const mask = (val: string) => (privacyMode ? "••••" : val);
 
   return (
-    <>
+    <Stack gap="md">
+    <Text fw={700} size="xl">Levels</Text>
     {alerts.levelMatch === false && (
       <Alert
         icon={<IconAlertTriangle size={16} />}
@@ -139,6 +140,6 @@ export default function LevelsPage() {
         </Table.Tbody>
       </Table>
     </ScrollArea>
-    </>
+    </Stack>
   );
 }

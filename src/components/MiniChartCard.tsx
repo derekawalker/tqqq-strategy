@@ -51,7 +51,7 @@ export function MiniChartCard() {
 
   if (loading) {
     return (
-      <Paper p={0} radius="md" withBorder style={{ overflow: "hidden", background: bg, height: "100%" }}>
+      <Paper p={0} radius="xl" style={{ overflow: "hidden", background: bg, height: "100%" }}>
         <Skeleton height={140} radius="md" />
       </Paper>
     );
@@ -77,8 +77,6 @@ export function MiniChartCard() {
   return (
     <Paper
       p={0}
-      radius="md"
-      withBorder
       onClick={() => router.push("/chart")}
       style={{ overflow: "hidden", background: bg, cursor: "pointer", height: "100%" }}
     >
@@ -104,7 +102,7 @@ export function MiniChartCard() {
               const d = payload[0].payload as Candle;
               const time = new Date(d.time).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
               return (
-                <Paper p="xs" withBorder style={{ background: "var(--mantine-color-dark-7)" }}>
+                <Paper p="xs" style={{ background: "var(--mantine-color-dark-7)" }}>
                   <Text size="xs" c="dimmed">{time}</Text>
                   <Text size="xs" fw={700}>${d.close.toFixed(2)}</Text>
                 </Paper>
