@@ -80,6 +80,7 @@ interface AppContextValue {
   optionPositions: OptionPosition[];
   transactions: Transaction[];
   tqqqShares: number;
+  tqqqAvgPrice: number;
   snapshotLoading: boolean;
   balances: AccountBalance[];
   balancesLoading: boolean;
@@ -253,6 +254,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [allOptionPositions, setAllOptionPositions] = useState<OptionPosition[]>([]);
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
   const [allTqqqShares, setAllTqqqShares] = useState<Record<string, number>>({});
+  const [allTqqqAvgPrice, setAllTqqqAvgPrice] = useState<Record<string, number>>({});
   const [snapshotLoading, setSnapshotLoading] = useState(false);
 
   useEffect(() => {
@@ -269,6 +271,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (data.workingOrders) setAllWorkingOrders(data.workingOrders);
         if (data.optionPositions) setAllOptionPositions(data.optionPositions);
         if (data.tqqqShares) setAllTqqqShares(data.tqqqShares);
+        if (data.tqqqAvgPrice) setAllTqqqAvgPrice(data.tqqqAvgPrice);
       } catch {
         // ignore
       } finally {
@@ -338,6 +341,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const tqqqShares = useMemo(
     () => accountNumber ? (allTqqqShares[accountNumber] ?? 0) : 0,
     [allTqqqShares, accountNumber]
+  );
+  const tqqqAvgPrice = useMemo(
+    () => accountNumber ? (allTqqqAvgPrice[accountNumber] ?? 0) : 0,
+    [allTqqqAvgPrice, accountNumber]
   );
   const [alerts, setAlerts] = useState<Alerts>({
     levelMatch: null,
@@ -412,6 +419,7 @@ const togglePrivacy = () => setPrivacyMode((p) => !p);
         optionPositions,
         transactions,
         tqqqShares,
+        tqqqAvgPrice,
         snapshotLoading,
         balances: allBalances,
         balancesLoading,

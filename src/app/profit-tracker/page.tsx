@@ -5,11 +5,9 @@ import { Outfit } from "next/font/google";
 
 const outfit = Outfit({ subsets: ["latin"] });
 import { Table, ScrollArea, Text, Center, Skeleton, Stack, Tabs, Group, Paper, SimpleGrid, Divider, Accordion, Box } from "@mantine/core";
-import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
 import { useCardBg } from "@/lib/hooks/useCardBg";
-import { CARD_RADIUS } from "@/lib/cardStyles";
-import { dateGroupHeaderCellLeft, dateGroupHeaderCellRight, dateGroupLastCellLeft, dateGroupLastCellRight, dateGroupHeaderBg } from "@/lib/tableStyles";
+import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
 
 const fmt = (n: number, decimals = 2) =>
   n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
@@ -247,8 +245,9 @@ function MonthCard({ month, privacyMode, color }: { month: MonthSummary; privacy
   );
 }
 
+
 export default function ProfitPage() {
-  const { filledOrders, filledOptionOrders, expiredOptionOrders, transactions, snapshotLoading, privacyMode, activeAccount } = useApp();
+  const { filledOrders, filledOptionOrders, expiredOptionOrders, transactions, snapshotLoading, privacyMode, activeAccount, tqqqShares, tqqqAvgPrice, quote } = useApp();
   const summaryBg = useCardBg(activeAccount?.color ?? "blue");
 
   // Pair each STO with its BTC(s) and expirations FIFO; produce one net trade per close event.
@@ -312,7 +311,6 @@ export default function ProfitPage() {
     }
     return trades;
   }, [filledOptionOrders, expiredOptionOrders]);
-  const isMobile = useMediaQuery("(max-width: 768px)");
   const [period, setPeriod] = useState<string>(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("tqqq-profit-period") ?? "month";
@@ -470,7 +468,7 @@ export default function ProfitPage() {
         dividends: yearTxns.filter((t) => t.category === "dividend").reduce((s, t) => s + t.amount, 0),
       };
     });
-    return { total, trades: rows.length, years };
+    return { total, trades: rows.length, equityTotal, optionsTotal, intDivTotal: interestTotal + dividendsTotal, years };
   }, [rows, realizedOptionTrades, transactions]);
 
   const yearlyData = useMemo(() => {
@@ -479,9 +477,10 @@ export default function ProfitPage() {
     const yearRows = rows.filter((r) => r.date.startsWith(yearStr));
     const yearOptions = realizedOptionTrades.filter((o) => new Date(o.time).toLocaleDateString("en-CA").startsWith(yearStr));
     const yearTxns = transactions.filter((t) => new Date(t.time).toLocaleDateString("en-CA").startsWith(yearStr));
-    const yearTotal = yearRows.reduce((s, r) => s + (r.profit ?? 0), 0)
-      + yearOptions.reduce((s, o) => s + o.net, 0)
-      + yearTxns.reduce((s, t) => s + t.amount, 0);
+    const equityTotal = yearRows.reduce((s, r) => s + (r.profit ?? 0), 0);
+    const optionsTotal = yearOptions.reduce((s, o) => s + o.net, 0);
+    const intDivTotal = yearTxns.reduce((s, t) => s + t.amount, 0);
+    const yearTotal = equityTotal + optionsTotal + intDivTotal;
 
     const months: { monthKey: string; label: string; equity: number; equityTrades: number; options: number; interest: number; dividends: number }[] = [];
     for (let m = 0; m < 12; m++) {
@@ -500,7 +499,13 @@ export default function ProfitPage() {
         dividends: mTxns.filter((t) => t.category === "dividend").reduce((s, t) => s + t.amount, 0),
       });
     }
-    return { year: currentYear, total: yearTotal, trades: yearRows.length, months };
+    const intDivTxns = yearTxns.length;
+    return {
+      year: currentYear, total: yearTotal, months,
+      equityTotal, equityTrades: yearRows.length,
+      optionsTotal, optionsTrades: yearOptions.length,
+      intDivTotal, intDivTxns,
+    };
   }, [rows, realizedOptionTrades, transactions]);
 
   if (snapshotLoading) {
@@ -511,6 +516,11 @@ export default function ProfitPage() {
       </Stack>
     );
   }
+
+  const tqqqTotalCost = tqqqShares * tqqqAvgPrice;
+  const tqqqCurrentVal = tqqqShares * quote.price;
+  const tqqqUnrealized = tqqqShares > 0 && quote.price > 0 ? tqqqCurrentVal - tqqqTotalCost : null;
+  const grandTotal = tqqqUnrealized != null ? tqqqUnrealized + allTimeData.total : null;
 
   return (
     <Stack gap="md">
@@ -845,19 +855,111 @@ export default function ProfitPage() {
 
       {period === "year" && (
         <Stack>
-          <Paper
-            p="md"
-            radius={CARD_RADIUS}
-            style={{ background: summaryBg }}
-          >
-            <Stack gap={2} align="center">
-              <Text size="xs" c="dimmed" fw={500}>{yearlyData.year}</Text>
-              <Text size="xl" fw={700} c={yearlyData.total < 0 ? "red" : "white"} className={outfit.className}>
-                {mask(fmtMoney(yearlyData.total, true))}
-              </Text>
-              <Text size="sm" c="dimmed">{yearlyData.trades} equity trades</Text>
-            </Stack>
-          </Paper>
+          <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="md">
+            {/* Equity */}
+            <Paper p="md" radius={CARD_RADIUS} style={{ background: summaryBg, height: "100%" }}>
+              <Stack gap={4} h="100%">
+                <Text c="dimmed" tt="uppercase" fw={600} ta="center" style={CARD_LABEL_STYLE} mb={6}>Equity</Text>
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Trades</Text>
+                  <Text size="xs" fw={500} c="white" ta="right">{yearlyData.equityTrades}</Text>
+                </Group>
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Avg / trade</Text>
+                  <Text size="xs" fw={500} c="white" ta="right">
+                    {yearlyData.equityTrades > 0 ? mask(fmtMoney(yearlyData.equityTotal / yearlyData.equityTrades, true)) : "—"}
+                  </Text>
+                </Group>
+                <Divider mt="auto" />
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Total</Text>
+                  <Text fw={700} c={yearlyData.equityTotal < 0 ? "red" : activeAccount?.color ?? "blue"} ta="right" className={outfit.className} style={{ fontSize: "1rem" }}>
+                    {yearlyData.equityTrades > 0 ? mask(fmtMoney(yearlyData.equityTotal, true)) : "—"}
+                  </Text>
+                </Group>
+              </Stack>
+            </Paper>
+
+            {/* Options */}
+            <Paper p="md" radius={CARD_RADIUS} style={{ background: summaryBg, height: "100%" }}>
+              <Stack gap={4} h="100%">
+                <Text c="dimmed" tt="uppercase" fw={600} ta="center" style={CARD_LABEL_STYLE} mb={6}>Options</Text>
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Trades</Text>
+                  <Text size="xs" fw={500} c="white" ta="right">{yearlyData.optionsTrades}</Text>
+                </Group>
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Avg / trade</Text>
+                  <Text size="xs" fw={500} c="white" ta="right">
+                    {yearlyData.optionsTrades > 0 ? mask(fmtMoney(yearlyData.optionsTotal / yearlyData.optionsTrades, true)) : "—"}
+                  </Text>
+                </Group>
+                <Divider mt="auto" />
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Total</Text>
+                  <Text fw={700} c={yearlyData.optionsTotal < 0 ? "red" : "orange"} ta="right" className={outfit.className} style={{ fontSize: "1rem" }}>
+                    {yearlyData.optionsTrades > 0 ? mask(fmtMoney(yearlyData.optionsTotal, true)) : "—"}
+                  </Text>
+                </Group>
+              </Stack>
+            </Paper>
+
+            {/* Int / Div */}
+            <Paper p="md" radius={CARD_RADIUS} style={{ background: summaryBg, height: "100%" }}>
+              <Stack gap={4} h="100%">
+                <Text c="dimmed" tt="uppercase" fw={600} ta="center" style={CARD_LABEL_STYLE} mb={6}>Int / Div</Text>
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Payments</Text>
+                  <Text size="xs" fw={500} c="white" ta="right">{yearlyData.intDivTxns}</Text>
+                </Group>
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Avg / payment</Text>
+                  <Text size="xs" fw={500} c="white" ta="right">
+                    {yearlyData.intDivTxns > 0 ? mask(fmtMoney(yearlyData.intDivTotal / yearlyData.intDivTxns, true)) : "—"}
+                  </Text>
+                </Group>
+                <Divider mt="auto" />
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Total</Text>
+                  <Text fw={700} c={yearlyData.intDivTotal < 0 ? "red" : "lime"} ta="right" className={outfit.className} style={{ fontSize: "1rem" }}>
+                    {yearlyData.intDivTxns > 0 ? mask(fmtMoney(yearlyData.intDivTotal, true)) : "—"}
+                  </Text>
+                </Group>
+              </Stack>
+            </Paper>
+
+            {/* Total */}
+            <Paper p="md" radius={CARD_RADIUS} style={{ background: summaryBg, outline: "1px solid var(--mantine-color-dark-4)", height: "100%" }}>
+              <Stack gap={4} h="100%">
+                <Text c="dimmed" tt="uppercase" fw={600} ta="center" style={CARD_LABEL_STYLE} mb={6}>{yearlyData.year} Total</Text>
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Equity</Text>
+                  <Text size="xs" fw={500} c={yearlyData.equityTotal < 0 ? "red" : activeAccount?.color ?? "blue"} ta="right">
+                    {yearlyData.equityTrades > 0 ? mask(fmtMoney(yearlyData.equityTotal, true)) : "—"}
+                  </Text>
+                </Group>
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Options</Text>
+                  <Text size="xs" fw={500} c={yearlyData.optionsTotal < 0 ? "red" : "orange"} ta="right">
+                    {yearlyData.optionsTrades > 0 ? mask(fmtMoney(yearlyData.optionsTotal, true)) : "—"}
+                  </Text>
+                </Group>
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Int / Div</Text>
+                  <Text size="xs" fw={500} c="lime" ta="right">
+                    {yearlyData.intDivTxns > 0 ? mask(fmtMoney(yearlyData.intDivTotal, true)) : "—"}
+                  </Text>
+                </Group>
+                <Divider mt="auto" />
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Total</Text>
+                  <Text fw={700} c={yearlyData.total < 0 ? "red" : "white"} ta="right" className={outfit.className} style={{ fontSize: "1rem" }}>
+                    {mask(fmtMoney(yearlyData.total, true))}
+                  </Text>
+                </Group>
+              </Stack>
+            </Paper>
+          </SimpleGrid>
 
           <Table>
             <Table.Thead>
@@ -917,19 +1019,93 @@ export default function ProfitPage() {
 
       {period === "all" && (
         <Stack>
-          <Paper
-            p="md"
-            radius={CARD_RADIUS}
-            style={{ background: summaryBg }}
-          >
-            <Stack gap={2} align="center">
-              <Text size="xs" c="dimmed" fw={500}>All Time</Text>
-              <Text size="xl" fw={700} c={allTimeData.total < 0 ? "red" : "white"} className={outfit.className}>
-                {mask(fmtMoney(allTimeData.total, true))}
-              </Text>
-              <Text size="sm" c="dimmed">{allTimeData.trades} equity trades</Text>
-            </Stack>
-          </Paper>
+          <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+            {/* Box 1: TQQQ long position */}
+            <Paper p="md" radius={CARD_RADIUS} style={{ background: summaryBg, height: "100%" }}>
+              <Stack gap={4} h="100%">
+                <Text c="dimmed" tt="uppercase" fw={600} ta="center" style={CARD_LABEL_STYLE} mb={6}>Long Position</Text>
+
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Cost: {tqqqShares > 0 ? `${tqqqShares.toLocaleString()} × ${fmt(tqqqAvgPrice)}` : "No shares held"}</Text>
+                  <Text size="xs" fw={500} c="white" ta="right">
+                    {tqqqShares > 0 && tqqqAvgPrice > 0 ? mask(`$${fmt(tqqqTotalCost, 0)}`) : "—"}
+                  </Text>
+                </Group>
+
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Value: {tqqqShares > 0 && quote.price > 0 ? `${tqqqShares.toLocaleString()} × ${fmt(quote.price)}` : "—"}</Text>
+                  <Text size="xs" fw={500} c="white" ta="right">
+                    {tqqqShares > 0 && quote.price > 0 ? mask(`$${fmt(tqqqCurrentVal, 0)}`) : "—"}
+                  </Text>
+                </Group>
+                <Divider mt="auto" />
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Gain / loss</Text>
+                  <Text fw={700} c={tqqqUnrealized != null && tqqqUnrealized < 0 ? "red" : "white"} ta="right" className={outfit.className} style={{ fontSize: "1rem" }}>
+                    {tqqqUnrealized != null ? mask(fmtMoney(tqqqUnrealized, true)) : "—"}
+                  </Text>
+                </Group>
+              </Stack>
+            </Paper>
+
+            {/* Box 2: Realized profit breakdown */}
+            <Paper p="md" radius={CARD_RADIUS} style={{ background: summaryBg, height: "100%" }}>
+              <Stack gap={4} h="100%">
+                <Text c="dimmed" tt="uppercase" fw={600} ta="center" style={CARD_LABEL_STYLE} mb={6}>Realized Profit</Text>
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Equity ({allTimeData.trades} trades)</Text>
+                  <Text size="xs" fw={500} c={allTimeData.equityTotal < 0 ? "red" : activeAccount?.color ?? "blue"} ta="right">
+                    {mask(fmtMoney(allTimeData.equityTotal, true))}
+                  </Text>
+                </Group>
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Options</Text>
+                  <Text size="xs" fw={500} c={allTimeData.optionsTotal < 0 ? "red" : "orange"} ta="right">
+                    {mask(fmtMoney(allTimeData.optionsTotal, true))}
+                  </Text>
+                </Group>
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Int / Div</Text>
+                  <Text size="xs" fw={500} c="lime" ta="right">
+                    {mask(fmtMoney(allTimeData.intDivTotal, true))}
+                  </Text>
+                </Group>
+                <Divider mt="auto" />
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Total</Text>
+                  <Text fw={700} c={allTimeData.total < 0 ? "red" : "white"} ta="right" className={outfit.className} style={{ fontSize: "1rem" }}>
+                    {mask(fmtMoney(allTimeData.total, true))}
+                  </Text>
+                </Group>
+              </Stack>
+            </Paper>
+
+            {/* Box 3: Grand total */}
+            <Paper p="md" radius={CARD_RADIUS} style={{ background: summaryBg, outline: "1px solid var(--mantine-color-dark-4)", height: "100%" }}>
+              <Stack gap={4} h="100%">
+                <Text c="dimmed" tt="uppercase" fw={600} ta="center" style={CARD_LABEL_STYLE} mb={6}>Grand Total</Text>
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Unrealized</Text>
+                  <Text size="xs" fw={500} c={tqqqUnrealized != null && tqqqUnrealized < 0 ? "red" : "white"} ta="right">
+                    {tqqqUnrealized != null ? mask(fmtMoney(tqqqUnrealized, true)) : "—"}
+                  </Text>
+                </Group>
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Realized</Text>
+                  <Text size="xs" fw={500} c={allTimeData.total < 0 ? "red" : "white"} ta="right">
+                    {mask(fmtMoney(allTimeData.total, true))}
+                  </Text>
+                </Group>
+                <Divider mt="auto" />
+                <Group justify="space-between" gap={4} wrap="nowrap">
+                  <Text size="xs" c="dimmed">Total</Text>
+                  <Text fw={700} c={grandTotal != null && grandTotal < 0 ? "red" : "white"} ta="right" className={outfit.className} style={{ fontSize: "1rem" }}>
+                    {grandTotal != null ? mask(fmtMoney(grandTotal, true)) : "—"}
+                  </Text>
+                </Group>
+              </Stack>
+            </Paper>
+          </SimpleGrid>
 
           {allTimeData.years.length === 0 ? (
             <Center h={150}><Text c="dimmed" size="sm">No data.</Text></Center>

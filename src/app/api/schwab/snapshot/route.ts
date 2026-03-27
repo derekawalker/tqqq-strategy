@@ -19,6 +19,7 @@ export interface Snapshot {
   expiredOptionOrders: ExpiredOptionOrder[];
   workingOrders: WorkingOrder[];
   tqqqShares: Record<string, number>;
+  tqqqAvgPrice: Record<string, number>;
   optionPositions: OptionPosition[];
 }
 
@@ -27,7 +28,7 @@ async function fetchAccountData(
   hash: string,
   fromIso: string,
   toIso: string
-): Promise<{ filled: FilledOrder[]; filledOptions: FilledOptionOrder[]; expiredOptions: ExpiredOptionOrder[]; working: WorkingOrder[]; tqqqShares: number; options: OptionPosition[] }> {
+): Promise<{ filled: FilledOrder[]; filledOptions: FilledOptionOrder[]; expiredOptions: ExpiredOptionOrder[]; working: WorkingOrder[]; tqqqShares: number; tqqqAvgPrice: number; options: OptionPosition[] }> {
   const [filledRes, workingRes, positionsRes, txRes] = await Promise.all([
     schwabFetch(
       `/trader/v1/accounts/${hash}/orders?fromEnteredTime=${fromIso}&toEnteredTime=${toIso}&status=FILLED`
@@ -67,6 +68,7 @@ async function fetchAccountData(
   const positions: any[] = positionsData?.securitiesAccount?.positions ?? [];
   const tqqqPosition = positions.find((p: any) => p.instrument?.symbol === "TQQQ");
   const tqqqShares: number = tqqqPosition?.longQuantity ?? 0;
+  const tqqqAvgPrice: number = tqqqPosition?.averagePrice ?? 0;
 
   // Build a map of option symbol → earliest sell-to-open close time from order history
   const optionOpenDates = new Map<string, string>();
@@ -129,7 +131,7 @@ async function fetchAccountData(
     })
     .filter((p): p is OptionPosition => p !== null);
 
-  return { filled, filledOptions, expiredOptions, working, tqqqShares, options };
+  return { filled, filledOptions, expiredOptions, working, tqqqShares, tqqqAvgPrice, options };
 }
 
 export async function GET() {
@@ -168,13 +170,17 @@ export async function GET() {
       accounts.map(([accountNumber], i) => [accountNumber, results[i].tqqqShares])
     );
 
+    const tqqqAvgPrice: Record<string, number> = Object.fromEntries(
+      accounts.map(([accountNumber], i) => [accountNumber, results[i].tqqqAvgPrice])
+    );
+
     const optionPositions: OptionPosition[] = results.flatMap((r) => r.options);
 
     const expiredOptionOrders: ExpiredOptionOrder[] = results
       .flatMap((r) => r.expiredOptions)
       .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
 
-    return Response.json({ filledOrders, filledOptionOrders, expiredOptionOrders, workingOrders, tqqqShares, optionPositions } satisfies Snapshot);
+    return Response.json({ filledOrders, filledOptionOrders, expiredOptionOrders, workingOrders, tqqqShares, tqqqAvgPrice, optionPositions } satisfies Snapshot);
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
     return Response.json({ error: message }, { status: 500 });
