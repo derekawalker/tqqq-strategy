@@ -1,20 +1,3 @@
-/* Animated number transitions */
-@keyframes numSlideUpIn {
-  from { opacity: 0; transform: translateY(40%); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes numSlideUpOut {
-  from { opacity: 1; transform: translateY(0); }
-  to   { opacity: 0; transform: translateY(-40%); }
-}
-@keyframes numSlideDownIn {
-  from { opacity: 0; transform: translateY(-40%); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-@keyframes numSlideDownOut {
-  from { opacity: 1; transform: translateY(0); }
-  to   { opacity: 0; transform: translateY(40%); }
-}
 
 /* Grouped table (date sections with rounded corners) */
 .table-grouped {
