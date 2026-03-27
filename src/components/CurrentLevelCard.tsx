@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
 import { useCardBg } from "@/lib/hooks/useCardBg";
+import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
 
 export function CurrentLevelCard() {
   const { activeAccount } = useApp();
@@ -18,9 +19,9 @@ export function CurrentLevelCard() {
 
   if (!levelsSummary || levelsSummary.currentLevel < 0) {
     return (
-      <Paper p="md" onClick={() => router.push("/levels")} style={{ background: bg, cursor: "pointer", height: "100%" }}>
+      <Paper p="md" radius={CARD_RADIUS} onClick={() => router.push("/levels")} style={{ background: bg, cursor: "pointer", height: "100%" }}>
         <Stack align="center" gap={8}>
-          <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Current Level</Text>
+          <Text c="dimmed" tt="uppercase" fw={600} style={CARD_LABEL_STYLE}>Current Level</Text>
           <Text size="sm" c="dimmed">—</Text>
         </Stack>
       </Paper>
@@ -32,9 +33,9 @@ export function CurrentLevelCard() {
   const end = Math.min(levels.length - 1, currentLevel + window);
 
   return (
-    <Paper p="md" onClick={() => router.push("/levels")} style={{ background: bg, cursor: "pointer", height: "100%" }}>
+    <Paper p="md" radius={CARD_RADIUS} onClick={() => router.push("/levels")} style={{ background: bg, cursor: "pointer", height: "100%" }}>
       <Stack align="center" gap={12} pt={isMobile ? 0 : "md"}>
-        <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Current Level</Text>
+        <Text c="dimmed" tt="uppercase" fw={600} style={CARD_LABEL_STYLE}>Current Level</Text>
         <Group gap={0} wrap="nowrap" justify="center">
           {Array.from({ length: end - start + 1 }, (_, i) => {
             const idx = start + i;

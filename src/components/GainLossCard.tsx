@@ -6,6 +6,7 @@ import { Outfit } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/context/AppContext";
 import { useCardBg } from "@/lib/hooks/useCardBg";
+import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
 import { useBalances } from "@/lib/hooks/useBalances";
 
 const outfit = Outfit({ subsets: ["latin"] });
@@ -46,9 +47,9 @@ export function GainLossCard() {
   const router = useRouter();
 
   return (
-    <Paper p="md" onClick={() => router.push("/profit-tracker")} style={{ background: bg, cursor: "pointer", height: "100%" }}>
+    <Paper p="md" radius={CARD_RADIUS} onClick={() => router.push("/profit-tracker")} style={{ background: bg, cursor: "pointer", height: "100%" }}>
       <Stack gap="md" align="center">
-        <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Gain / Loss</Text>
+        <Text c="dimmed" tt="uppercase" fw={600} style={CARD_LABEL_STYLE}>Gain / Loss</Text>
         <Text
           fw={700}
           lh={1}

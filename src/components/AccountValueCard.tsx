@@ -7,6 +7,7 @@ import { Outfit } from "next/font/google";
 const outfit = Outfit({ subsets: ["latin"] });
 import { useApp } from "@/lib/context/AppContext";
 import { useCardBg } from "@/lib/hooks/useCardBg";
+import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
 import { useBalances } from "@/lib/hooks/useBalances";
 import { useLevels } from "@/lib/hooks/useLevels";
 
@@ -70,10 +71,10 @@ export function AccountValueCard() {
 
   if (loading && !balance) {
     return (
-      <Paper p="md" radius="xl" style={{ background: "var(--mantine-color-dark-8)", height: "100%" }}>
+      <Paper p="md" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-8)", height: "100%" }}>
         <Stack gap="sm">
           <Skeleton height={20} width={140} />
-          <Skeleton height={12} radius="xl" />
+          <Skeleton height={12} radius={CARD_RADIUS} />
           <Skeleton height={60} />
         </Stack>
       </Paper>
@@ -90,11 +91,11 @@ export function AccountValueCard() {
   }));
 
   return (
-    <Paper p="md" radius="xl" style={{ background: bg, height: "100%" }}>
+    <Paper p="md" radius={CARD_RADIUS} style={{ background: bg, height: "100%" }}>
       <Stack gap="md" h="100%">
         {/* Title + total */}
         <Group justify="space-between" align="flex-start">
-          <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5} ta="center" w="100%">Account Value</Text>
+          <Text c="dimmed" tt="uppercase" fw={600} ta="center" w="100%" style={CARD_LABEL_STYLE}>Account Value</Text>
         </Group>
         <Text fw={700} lh={1} ta="center" className={outfit.className} style={{ fontSize: "4rem", width: "100%", color: "light-dark(var(--mantine-color-dark-9), white)" }}>
           {mask(`$${fmt(total)}`)}

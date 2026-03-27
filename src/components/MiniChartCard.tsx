@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
 import { useCardBg } from "@/lib/hooks/useCardBg";
+import { CARD_RADIUS } from "@/lib/cardStyles";
 import type { Candle } from "@/app/api/chart/route";
 
 function CenterLabel({ viewBox, value, color, bg }: {
@@ -51,7 +52,7 @@ export function MiniChartCard() {
 
   if (loading) {
     return (
-      <Paper p={0} radius="xl" style={{ overflow: "hidden", background: bg, height: "100%" }}>
+      <Paper p={0} radius={CARD_RADIUS} style={{ overflow: "hidden", background: bg, height: "100%" }}>
         <Skeleton height={140} radius="md" />
       </Paper>
     );
@@ -77,6 +78,7 @@ export function MiniChartCard() {
   return (
     <Paper
       p={0}
+      radius={CARD_RADIUS}
       onClick={() => router.push("/chart")}
       style={{ overflow: "hidden", background: bg, cursor: "pointer", height: "100%" }}
     >

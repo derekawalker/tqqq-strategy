@@ -16,7 +16,7 @@ const theme = createTheme({
     },
     Paper: {
       defaultProps: {
-        shadow: "sm",
+        shadow: "md",
       },
     },
   },
