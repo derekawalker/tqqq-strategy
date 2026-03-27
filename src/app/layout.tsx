@@ -19,6 +19,12 @@ const theme = createTheme({
         shadow: "md",
       },
     },
+    NumberInput:     { defaultProps: { radius: "sm" } },
+    TextInput:       { defaultProps: { radius: "sm" } },
+    Select:          { defaultProps: { radius: "sm" } },
+    Textarea:        { defaultProps: { radius: "sm" } },
+    DateInput:       { defaultProps: { radius: "sm" } },
+    DatePickerInput: { defaultProps: { radius: "sm" } },
   },
 });
 import { Notifications } from "@mantine/notifications";

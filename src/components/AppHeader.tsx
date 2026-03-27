@@ -60,10 +60,11 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
   );
 
   const aiProps = {
-    variant: "outline" as const,
-    color: "gray.3",
-    styles: { root: { borderColor: "var(--mantine-color-gray-7)" } },
+    variant: "subtle" as const,
+    color: "gray.5",
+    radius: "md" as const,
     size: "input-xs",
+    styles: { root: { background: "rgba(255, 255, 255, 0.05)" } },
   };
 
   const schwabLabel = schwabConnected === null
@@ -104,7 +105,7 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
           {privacyMode ? <IconEyeOff size={14} /> : <IconEye size={14} />}
         </ActionIcon>
       </Tooltip>
-      <Menu position="bottom-end" withinPortal>
+      <Menu position="bottom-end" withinPortal radius="sm">
         <Menu.Target>
           <ActionIcon {...aiProps}>
             <IconRefresh size={14} />
@@ -180,7 +181,8 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
             key={account.accountNumber}
             size="xs"
             color={`${account.color}.7`}
-            variant={activeAccount?.accountNumber === account.accountNumber ? "filled" : "light"}
+            radius={"md"}
+            variant={activeAccount?.accountNumber === account.accountNumber ? "light" : "subtle"}
             onClick={() => setActiveAccount(account)}
           >
             {privacyMode

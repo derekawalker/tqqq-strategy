@@ -1,9 +1,14 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { Outfit } from "next/font/google";
+
+const outfit = Outfit({ subsets: ["latin"] });
 import { Table, ScrollArea, Text, Center, Skeleton, Stack, Tabs, Group, Paper, SimpleGrid, Divider, Accordion, Box } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
+import { useCardBg } from "@/lib/hooks/useCardBg";
+import { CARD_RADIUS } from "@/lib/cardStyles";
 import { dateGroupHeaderCellLeft, dateGroupHeaderCellRight, dateGroupLastCellLeft, dateGroupLastCellRight, dateGroupHeaderBg } from "@/lib/tableStyles";
 
 const fmt = (n: number, decimals = 2) =>
@@ -103,18 +108,17 @@ function DayCard({ day, privacyMode, color }: { day: DaySummary; privacyMode: bo
   const hasActivity = totalTrades > 0 || day.interest !== 0 || day.dividends !== 0;
   const mask = (v: string) => (privacyMode ? "••••" : v);
   const c = (n: number) => n < 0 ? "red" : color;
+  const bg = useCardBg(color);
 
   return (
     <Paper
-      withBorder
-      p="xs"
-
+      p="md"
+      radius={CARD_RADIUS}
       style={{
         minWidth: 110,
         height: "100%",
         opacity: hasActivity ? 1 : 0.5,
-        borderColor: `var(--mantine-color-${color}-5)`,
-        background: `var(--mantine-color-${color}-light)`,
+        background: bg,
       }}
     >
       <Stack gap={4} justify="flex-start">
@@ -122,7 +126,7 @@ function DayCard({ day, privacyMode, color }: { day: DaySummary; privacyMode: bo
           <Text size="xs" c="dimmed" fw={500}>{day.dayOfWeek}</Text>
           <Text size="xs" c="dimmed" fw={500}>{day.label.split(" ")[1]}</Text>
         </Group>
-        <Text size="sm" fw={700} ta="right" c={!hasActivity ? "dimmed" : c(total)}>
+        <Text fw={700} ta="right" c={!hasActivity ? "dimmed" : total < 0 ? "red" : "white"} className={outfit.className} style={{ fontSize: "1rem" }}>
           {hasActivity ? mask(fmtMoney(total, true)) : "—"}
         </Text>
         <Divider />
@@ -154,26 +158,22 @@ function WeekCard({ week, privacyMode, color }: { week: WeekSummary; privacyMode
   const hasActivity = week.equityTrades > 0 || week.options !== 0 || week.interest !== 0 || week.dividends !== 0;
   const mask = (v: string) => (privacyMode ? "••••" : v);
   const c = (n: number) => n < 0 ? "red" : color;
+  const bg = useCardBg(color);
 
   return (
     <Paper
-      withBorder
-      p="xs"
-
+      p="md"
+      radius={CARD_RADIUS}
       style={{
         minWidth: 130,
         flexShrink: 0,
         opacity: hasActivity ? 1 : 0.5,
-        borderColor: `var(--mantine-color-${color}-5)`,
-        background: `var(--mantine-color-${color}-light)`,
+        background: bg,
       }}
     >
       <Stack gap={4} justify="flex-start">
-        <Group justify="space-between" gap={4} wrap="nowrap" align="flex-start">
-          <Text size="xs" c="dimmed" fw={500}>wk</Text>
-          <Text size="xs" c="dimmed" fw={500}>{week.label}</Text>
-        </Group>
-        <Text size="sm" fw={700} ta="right" c={!hasActivity ? "dimmed" : c(total)}>
+        <Text size="xs" c="dimmed" fw={500} ta="right">{week.label}</Text>
+        <Text fw={700} ta="right" c={!hasActivity ? "dimmed" : total < 0 ? "red" : "white"} className={outfit.className} style={{ fontSize: "1rem" }}>
           {hasActivity ? mask(fmtMoney(total, true)) : "—"}
         </Text>
         <Divider />
@@ -205,26 +205,22 @@ function MonthCard({ month, privacyMode, color }: { month: MonthSummary; privacy
   const hasActivity = month.equityTrades > 0 || month.options !== 0 || month.interest !== 0 || month.dividends !== 0;
   const mask = (v: string) => (privacyMode ? "••••" : v);
   const c = (n: number) => n < 0 ? "red" : color;
+  const bg = useCardBg(color);
 
   return (
     <Paper
-      withBorder
-      p="xs"
-
+      p="md"
+      radius={CARD_RADIUS}
       style={{
         minWidth: 130,
         flexShrink: 0,
         opacity: hasActivity ? 1 : 0.5,
-        borderColor: `var(--mantine-color-${color}-5)`,
-        background: `var(--mantine-color-${color}-light)`,
+        background: bg,
       }}
     >
       <Stack gap={4} justify="flex-start">
-        <Group justify="space-between" gap={4} wrap="nowrap" align="flex-start">
-          <Text size="xs" c="dimmed" fw={500}>mo</Text>
-          <Text size="xs" c="dimmed" fw={500}>{month.label}</Text>
-        </Group>
-        <Text size="sm" fw={700} ta="right" c={!hasActivity ? "dimmed" : c(total)}>
+        <Text size="xs" c="dimmed" fw={500} ta="right">{month.label}</Text>
+        <Text fw={700} ta="right" c={!hasActivity ? "dimmed" : total < 0 ? "red" : "white"} className={outfit.className} style={{ fontSize: "1rem" }}>
           {hasActivity ? mask(fmtMoney(total, true)) : "—"}
         </Text>
         <Divider />
@@ -253,6 +249,7 @@ function MonthCard({ month, privacyMode, color }: { month: MonthSummary; privacy
 
 export default function ProfitPage() {
   const { filledOrders, filledOptionOrders, transactions, snapshotLoading, privacyMode, activeAccount } = useApp();
+  const summaryBg = useCardBg(activeAccount?.color ?? "blue");
 
   // Pair each STO with its BTC(s) FIFO; produce one net trade per close event.
   // Unmatched STOs are included only if the option has expired.
@@ -572,7 +569,7 @@ export default function ProfitPage() {
             <Text c="dimmed" size="sm">No activity in this period.</Text>
           </Center>
         ) : (
-          <Accordion multiple defaultValue={[last12Weeks[0]?.weekKey]} variant="separated">
+          <Accordion multiple defaultValue={[last12Weeks[0]?.weekKey]} variant="separated" className="profit-accordion">
             {last12Weeks.map((week) => {
               const weekRows = filteredRows.filter((r) => weekStart(r.date) === week.weekKey);
               const hasActivity = weekRows.length > 0 || week.options !== 0 || week.interest !== 0 || week.dividends !== 0;
@@ -676,7 +673,7 @@ export default function ProfitPage() {
             <Text c="dimmed" size="sm">No activity in this period.</Text>
           </Center>
         ) : (
-          <Accordion multiple defaultValue={[last12Months[0]?.monthKey]} variant="separated">
+          <Accordion multiple defaultValue={[last12Months[0]?.monthKey]} variant="separated" className="profit-accordion">
             {last12Months.map((month) => {
               const monthRows = filteredRows.filter((r) => monthKey(r.date) === month.monthKey);
               const hasActivity = monthRows.length > 0 || month.options !== 0 || month.interest !== 0 || month.dividends !== 0;
@@ -767,23 +764,17 @@ export default function ProfitPage() {
       {period === "year" && (
         <Stack>
           <Paper
-            withBorder
             p="md"
-      
-            style={{
-              borderColor: `var(--mantine-color-${activeAccount?.color ?? "blue"}-5)`,
-              background: `var(--mantine-color-${activeAccount?.color ?? "blue"}-light)`,
-            }}
+            radius={CARD_RADIUS}
+            style={{ background: summaryBg }}
           >
-            <Group justify="space-between">
-              <Stack gap={2}>
-                <Text size="xs" c="dimmed" fw={500}>{yearlyData.year}</Text>
-                <Text size="xl" fw={700} c={yearlyData.total >= 0 ? activeAccount?.color ?? "blue" : "red"}>
-                  {mask(fmtMoney(yearlyData.total, true))}
-                </Text>
-              </Stack>
+            <Stack gap={2} align="center">
+              <Text size="xs" c="dimmed" fw={500}>{yearlyData.year}</Text>
+              <Text size="xl" fw={700} c={yearlyData.total < 0 ? "red" : "white"} className={outfit.className}>
+                {mask(fmtMoney(yearlyData.total, true))}
+              </Text>
               <Text size="sm" c="dimmed">{yearlyData.trades} equity trades</Text>
-            </Group>
+            </Stack>
           </Paper>
 
           <Table>
@@ -822,7 +813,7 @@ export default function ProfitPage() {
                       </Text>
                     </Table.Td>
                     <Table.Td ta="right" className="show-mobile">
-                      <Stack gap={2} align="flex-end">
+                      <Stack gap={2} align="center">
                         {m.equityTrades > 0 && <Text size="sm" c={m.equity >= 0 ? color : "red"}>{mask(fmtMoney(m.equity, true))}</Text>}
                         {m.options !== 0 && <Text size="sm" c={m.options < 0 ? "red" : "orange"}>{mask(fmtMoney(m.options, true))}</Text>}
                         {intDiv !== 0 && <Text size="sm" c="lime">{mask(fmtMoney(intDiv, true))}</Text>}
@@ -845,23 +836,17 @@ export default function ProfitPage() {
       {period === "all" && (
         <Stack>
           <Paper
-            withBorder
             p="md"
-      
-            style={{
-              borderColor: `var(--mantine-color-${activeAccount?.color ?? "blue"}-5)`,
-              background: `var(--mantine-color-${activeAccount?.color ?? "blue"}-light)`,
-            }}
+            radius={CARD_RADIUS}
+            style={{ background: summaryBg }}
           >
-            <Group justify="space-between">
-              <Stack gap={2}>
-                <Text size="xs" c="dimmed" fw={500}>All Time</Text>
-                <Text size="xl" fw={700} c={allTimeData.total >= 0 ? activeAccount?.color ?? "blue" : "red"}>
-                  {mask(fmtMoney(allTimeData.total, true))}
-                </Text>
-              </Stack>
+            <Stack gap={2} align="center">
+              <Text size="xs" c="dimmed" fw={500}>All Time</Text>
+              <Text size="xl" fw={700} c={allTimeData.total < 0 ? "red" : "white"} className={outfit.className}>
+                {mask(fmtMoney(allTimeData.total, true))}
+              </Text>
               <Text size="sm" c="dimmed">{allTimeData.trades} equity trades</Text>
-            </Group>
+            </Stack>
           </Paper>
 
           {allTimeData.years.length === 0 ? (
@@ -902,7 +887,7 @@ export default function ProfitPage() {
                         </Text>
                       </Table.Td>
                       <Table.Td ta="right" className="show-mobile">
-                        <Stack gap={2} align="flex-end">
+                        <Stack gap={2} align="center">
                           {y.equityTrades > 0 && <Text size="sm" c={y.equity >= 0 ? color : "red"}>{mask(fmtMoney(y.equity, true))}</Text>}
                           {y.options !== 0 && <Text size="sm" c={y.options < 0 ? "red" : "orange"}>{mask(fmtMoney(y.options, true))}</Text>}
                           {intDiv !== 0 && <Text size="sm" c="lime">{mask(fmtMoney(intDiv, true))}</Text>}

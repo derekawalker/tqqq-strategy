@@ -4,15 +4,8 @@
   border-spacing: 0 !important;
 }
 
-/* Sticky table header — match page background */
-[data-sticky-header] th {
-  background: var(--mantine-color-dark-8) !important;
-}
+tr[data-with-row-border] { border-bottom: none !important; }
 
-/* Remove table row borders globally */
-tr[data-with-row-border] {
-  border-bottom: none !important;
-}
 
 /* Dashboard grid */
 .dashboard-grid {
@@ -30,6 +23,9 @@ tr[data-with-row-border] {
 @media (min-width: 769px) {
   .show-mobile { display: none; }
 }
+
+.profit-tab { border-radius: 6px 6px 0 0 !important; }
+.profit-accordion { --accordion-radius: 24px !important; }
 
 @media (max-width: 768px) {
   .hide-mobile { display: none; }

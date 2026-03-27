@@ -20,7 +20,7 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
 
   if (!activeAccount) {
     return (
-      <Modal opened={opened} onClose={onClose} title="Settings" size="md">
+      <Modal opened={opened} onClose={onClose} title="Settings" size="md" padding="lg">
         <Text size="sm" c="dimmed">Select an account to configure settings.</Text>
       </Modal>
     );
@@ -29,7 +29,7 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
   const s = activeAccount.settings;
 
   return (
-    <Modal opened={opened} onClose={onClose} title="Settings" size="md">
+    <Modal opened={opened} onClose={onClose} title="Settings" size="md" padding="lg">
       <Stack gap="lg">
         <div>
           <Text size="sm" fw={600} mb="xs">Account Color</Text>

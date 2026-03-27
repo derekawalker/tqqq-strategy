@@ -4,7 +4,7 @@ import { useState, useEffect, ReactNode } from "react";
 import { AppShell, Box } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import AppHeader from "@/components/AppHeader";
-import AlertBar from "@/components/AlertBar";
+import { PageAlertBanner } from "@/components/PageAlertBanner";
 import SettingsModal from "@/components/SettingsModal";
 import { SideNav, BottomNav } from "@/components/AppNav";
 import { useApp } from "@/lib/context/AppContext";
@@ -143,25 +143,8 @@ export default function AppShellLayout({ children }: { children: ReactNode }) {
       </AppShell.Navbar>
 
       <AppShell.Main style={{ background: mainBg, minHeight: "100vh", paddingBottom: isMobile ? 70 : undefined }}>
-        <Box
-          style={{
-            position: "sticky",
-            top: "var(--app-shell-header-height)",
-            zIndex: 50,
-            background: activeAccount
-              ? `color-mix(in srgb, var(--mantine-color-${activeAccount.color}-9) 8%, var(--mantine-color-dark-8))`
-              : "var(--mantine-color-dark-8)",
-            marginInline: "calc(var(--mantine-spacing-md) * -1)",
-            marginTop: "calc(var(--mantine-spacing-md) * -1)",
-            padding: "var(--mantine-spacing-xs) var(--mantine-spacing-md)",
-            marginBottom: "var(--mantine-spacing-md)",
-          }}
-        >
-          <Box maw={1024} mx="auto">
-            <AlertBar />
-          </Box>
-        </Box>
         <Box maw={1024} mx="auto">
+          <PageAlertBanner />
           {children}
         </Box>
       </AppShell.Main>

@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import { useMediaQuery } from "@mantine/hooks";
 import {
   Table, Text, Group, Stack, Skeleton, Paper, Badge, ScrollArea, SimpleGrid,
 } from "@mantine/core";
+import { Outfit } from "next/font/google";
 import { useApp } from "@/lib/context/AppContext";
-import type { Transaction } from "@/app/api/schwab/transactions/route";
+import { useCardBg } from "@/lib/hooks/useCardBg";
+import { CARD_RADIUS } from "@/lib/cardStyles";
+
+const outfit = Outfit({ subsets: ["latin"] });
 
 const fmt = (n: number) =>
   n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -17,30 +21,16 @@ const fmtDate = (iso: string) => {
 };
 
 export default function InterestDividendsPage() {
-  const { activeAccount, privacyMode, refreshTick } = useApp();
+  const { activeAccount, privacyMode, transactions, snapshotLoading } = useApp();
   const color = activeAccount?.color ?? "blue";
+  const bg = useCardBg(color);
   const isMobile = useMediaQuery("(max-width: 768px)");
   const mask = (v: string) => (privacyMode ? "••••" : v);
 
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    fetch("/api/schwab/transactions")
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled && Array.isArray(data)) setTransactions(data);
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
-  }, [refreshTick]);
-
   const accountTransactions = useMemo(() => {
-    if (!activeAccount) return transactions;
-    return transactions.filter((t) => t.accountNumber === activeAccount.accountNumber);
+    const interestAndDividends = transactions.filter((t) => t.category === "interest" || t.category === "dividend");
+    if (!activeAccount) return interestAndDividends;
+    return interestAndDividends.filter((t) => t.accountNumber === activeAccount.accountNumber);
   }, [transactions, activeAccount]);
 
   const totalDividends = useMemo(
@@ -53,7 +43,7 @@ export default function InterestDividendsPage() {
   );
   const total = totalDividends + totalInterest;
 
-  if (loading) {
+  if (snapshotLoading) {
     return (
       <Stack>
         <Skeleton height={80} radius="md" />
@@ -66,27 +56,27 @@ export default function InterestDividendsPage() {
     <Stack gap="md">
       <Text fw={700} size="xl">Interest & Dividends</Text>
       <SimpleGrid cols={3} spacing="md">
-        <Paper p="md">
-          <Stack align={isMobile ? "center" : "flex-start"} gap={4}>
-            <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Total</Text>
-            <Text fw={800} size="2xl" c={total >= 0 ? color : "red"}>
-              {mask(`$${fmt(total)}`)}
-            </Text>
-          </Stack>
-        </Paper>
-        <Paper p="md">
-          <Stack align={isMobile ? "center" : "flex-start"} gap={4}>
+        <Paper p="md" radius={CARD_RADIUS} style={{ background: bg }}>
+          <Stack align="center" gap={4}>
             <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Dividends</Text>
-            <Text fw={800} size="2xl" c={totalDividends >= 0 ? color : "red"}>
+            <Text fw={800} size="xl" c={totalDividends < 0 ? "red" : "white"} className={outfit.className}>
               {mask(`$${fmt(totalDividends)}`)}
             </Text>
           </Stack>
         </Paper>
-        <Paper p="md">
-          <Stack align={isMobile ? "center" : "flex-start"} gap={4}>
+        <Paper p="md" radius={CARD_RADIUS} style={{ background: bg }}>
+          <Stack align="center" gap={4}>
             <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Interest</Text>
-            <Text fw={800} size="2xl" c={totalInterest >= 0 ? color : "red"}>
+            <Text fw={800} size="xl" c={totalInterest < 0 ? "red" : "white"} className={outfit.className}>
               {mask(`$${fmt(totalInterest)}`)}
+            </Text>
+          </Stack>
+        </Paper>
+        <Paper p="md" radius={CARD_RADIUS} style={{ background: bg }}>
+          <Stack align="center" gap={4}>
+            <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Total</Text>
+            <Text fw={800} size="xl" c={total < 0 ? "red" : "white"} className={outfit.className}>
+              {mask(`$${fmt(total)}`)}
             </Text>
           </Stack>
         </Paper>

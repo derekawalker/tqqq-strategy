@@ -72,7 +72,7 @@ export default function LevelsPage() {
       </Alert>
     )}
     <ScrollArea>
-      <Table stickyHeader>
+      <Table>
         <Table.Thead>
           <Table.Tr style={{ verticalAlign: "top" }}>
             <Table.Th w={40} />

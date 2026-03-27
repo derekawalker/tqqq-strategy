@@ -22,4 +22,4 @@ export const dateGroupLastCellRight: CSSProperties = {
   borderBottomRightRadius: RADIUS,
 };
 
-export const dateGroupHeaderBg = "rgba(0,0,0,0.35)";
+export const dateGroupHeaderBg = "rgba(0,0,0,0.15)";

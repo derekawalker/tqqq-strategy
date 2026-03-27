@@ -101,20 +101,6 @@ export default function WorkingOrdersPage() {
     return dupes;
   }, [workingOrders]);
 
-  const ownedLevelIndices = useMemo(() => {
-    if (!levelsSummary) return new Set<number>();
-    return new Set(
-      levelsSummary.ownedLevels.map((l) => levelsSummary.levels.findIndex((ll) => ll.shares === l.shares && ll.buyPrice === l.buyPrice))
-    );
-  }, [levelsSummary]);
-
-  const pendingBuyCost = useMemo(() =>
-    rows.reduce((s, r) => {
-      if (r.buys === 0 || r.buyPrice == null) return s;
-      if (r.levelIndex >= 0 && ownedLevelIndices.has(r.levelIndex)) return s;
-      return s + r.shares * r.buyPrice;
-    }, 0),
-  [rows, ownedLevelIndices]);
 
   if (snapshotLoading) {
     return (
@@ -141,7 +127,7 @@ export default function WorkingOrdersPage() {
           <Group wrap="nowrap" align="flex-end" gap="xs">
             <NumberInput
               key={`warn-${activeAccount?.accountNumber}`}
-              label="Warn below"
+              label="Warn Qty"
               value={warnBelow ?? ""}
               onChange={setWarnBelow}
               min={0}
@@ -160,12 +146,6 @@ export default function WorkingOrdersPage() {
               size="xs"
             />
           </Group>
-          <Stack gap={2} align="flex-end">
-            <Text size="xs" c="dimmed" tt="uppercase" fw={600} lts={0.5}>Pending Buys</Text>
-            <Text size="2xl" fw={800} c={activeAccount?.color ?? "teal"}>
-              {mask(`$${fmt(pendingBuyCost)}`)}
-            </Text>
-          </Stack>
         </Group>
       </Group>
 

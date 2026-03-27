@@ -3,12 +3,12 @@
 import { useMemo, useState } from "react";
 import {
   Table, Text, Group, Stack, Skeleton, Center, NumberInput,
-  SimpleGrid, Badge, Box, SegmentedControl,
+  SimpleGrid, Badge, Box, SegmentedControl, Alert,
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
-import { IconArrowRight } from "@tabler/icons-react";
+import { IconArrowRight, IconTrendingUp, IconTrendingDown } from "@tabler/icons-react";
 import type { OptionPosition } from "@/lib/schwab/parse";
 import type { Level } from "@/lib/levels";
 
@@ -46,18 +46,21 @@ function getPutSentiment(pct: number): SentimentMsg | null {
 
 function SentimentBanner({ msg }: { msg: SentimentMsg | null }) {
   if (!msg) return null;
-  const bgColor     = msg.good ? "rgba(20,184,166,0.08)" : "rgba(239,68,68,0.08)";
-  const borderColor = msg.good ? "var(--mantine-color-teal-6)" : "var(--mantine-color-red-6)";
-  const textColor   = msg.good ? "var(--mantine-color-teal-4)" : "var(--mantine-color-red-4)";
+  const color = msg.good ? "teal" : "red";
+  const bg    = msg.good
+    ? "linear-gradient(135deg, rgba(20,184,166,0.18) 0%, rgba(20,184,166,0.06) 100%)"
+    : "linear-gradient(135deg, rgba(239,68,68,0.18) 0%, rgba(239,68,68,0.06) 100%)";
+  const icon  = msg.good ? <IconTrendingUp size={16} /> : <IconTrendingDown size={16} />;
   return (
-    <Box style={{
-      background: bgColor,
-      border: `1px solid ${borderColor}`,
-      borderRadius: 6,
-      padding: "6px 10px",
-    }}>
-      <Text size="xs" style={{ color: textColor }}>{msg.text}</Text>
-    </Box>
+    <Alert
+      color={color}
+      variant="light"
+      icon={icon}
+      p="md"
+      styles={{ root: { background: bg, boxShadow: "inset 2px 2px 6px rgba(0,0,0,0.5)", border: "none" }, icon: { paddingLeft: 4 } }}
+    >
+      <Text size="sm" fw={600}>{msg.text}</Text>
+    </Alert>
   );
 }
 

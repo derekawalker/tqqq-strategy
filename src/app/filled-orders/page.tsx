@@ -6,14 +6,13 @@ import {
   ScrollArea,
   Text,
   Badge,
-  Select,
   Group,
   Skeleton,
   Stack,
   Pagination,
   ActionIcon,
-  Button,
   Box,
+  Paper,
 } from "@mantine/core";
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import {
@@ -26,6 +25,8 @@ import {
 } from "recharts";
 import { useMantineTheme } from "@mantine/core";
 import { useApp } from "@/lib/context/AppContext";
+import { useCardBg } from "@/lib/hooks/useCardBg";
+import { CARD_RADIUS } from "@/lib/cardStyles";
 import type { FilledOrder } from "@/lib/schwab/parse";
 import { dateGroupHeaderCellLeft, dateGroupLastCellLeft, dateGroupLastCellRight, dateGroupHeaderBg } from "@/lib/tableStyles";
 
@@ -54,12 +55,7 @@ function fmtDateKey(key: string): string {
   return `${mm}/${dd}/${yy}`;
 }
 
-const DAYS_OPTIONS = ["30", "60", "90"].map((d) => ({ value: d, label: `Last ${d} days` }));
 const PAGE_SIZE = 30;
-
-function cutoffMs(days: string) {
-  return Date.now() - parseInt(days) * 24 * 60 * 60 * 1000;
-}
 
 interface ChartPoint {
   timeMs: number;
@@ -166,7 +162,6 @@ function DayChart({ dayOrders, color }: { dayOrders: FilledOrder[]; color: strin
 
 export default function FilledOrdersPage() {
   const { filledOrders, snapshotLoading: loading, activeAccount } = useApp();
-  const [days, setDays] = useState("60");
   const [page, setPage] = useState(1);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
@@ -187,18 +182,13 @@ export default function FilledOrdersPage() {
     return filledOrders.filter((o) => toDateKey(new Date(o.time)) === effectiveDate);
   }, [filledOrders, effectiveDate]);
 
-  const orders = useMemo(() => {
-    const cutoff = cutoffMs(days);
-    return filledOrders.filter((o) => new Date(o.time).getTime() >= cutoff);
-  }, [filledOrders, days]);
-
-  const totalBuys = orders.filter((o) => o.side === "BUY").length;
-  const totalSells = orders.filter((o) => o.side === "SELL").length;
+  const orders = filledOrders;
   const totalPages = Math.ceil(orders.length / PAGE_SIZE);
   const safePage = Math.min(page, totalPages || 1);
   const pageOrders = orders.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const color = activeAccount?.color ?? "blue";
+  const bg = useCardBg(color);
 
   return (
     <Stack gap="md">
@@ -206,7 +196,7 @@ export default function FilledOrdersPage() {
       <Group justify="space-between" align="center">
         <Text fw={700} size="xl">Filled Orders</Text>
         <Group gap={4} align="center">
-          <Button size="xs" variant="subtle" color="gray" disabled={!canBack} onClick={() => setSelectedDate(availableDates[0])}>Oldest</Button>
+          <ActionIcon size="sm" variant="subtle" color="gray" disabled={!canBack} onClick={() => setSelectedDate(availableDates[0])}><Text size="xs">«</Text></ActionIcon>
           <ActionIcon size="sm" variant="light" color="gray" disabled={!canBack} onClick={() => setSelectedDate(availableDates[currentIdx - 1])}>
             <IconChevronLeft size={14} />
           </ActionIcon>
@@ -214,35 +204,18 @@ export default function FilledOrdersPage() {
           <ActionIcon size="sm" variant="light" color="gray" disabled={!canForward} onClick={() => setSelectedDate(availableDates[currentIdx + 1])}>
             <IconChevronRight size={14} />
           </ActionIcon>
-          <Button size="xs" variant="subtle" color="gray" disabled={effectiveDate === availableDates[availableDates.length - 1]} onClick={() => setSelectedDate(availableDates[availableDates.length - 1])}>Latest</Button>
+          <ActionIcon size="sm" variant="subtle" color="gray" disabled={effectiveDate === availableDates[availableDates.length - 1]} onClick={() => setSelectedDate(availableDates[availableDates.length - 1])}><Text size="xs">»</Text></ActionIcon>
         </Group>
       </Group>
 
       {/* Day chart */}
       {loading ? (
-        <Skeleton height={160} radius="sm" />
+        <Skeleton height={160} radius={CARD_RADIUS} />
       ) : (
-        <DayChart dayOrders={dayOrders} color={color} />
+        <Paper radius={CARD_RADIUS} style={{ background: bg, overflow: "hidden", padding: "var(--mantine-spacing-md) var(--mantine-spacing-xl) var(--mantine-spacing-xs) 4px" }}>
+          <DayChart dayOrders={dayOrders} color={color} />
+        </Paper>
       )}
-
-      {/* Table controls */}
-      <Group justify="space-between" align="center">
-        {loading ? (
-          <Skeleton height={14} width={100} radius="sm" />
-        ) : (
-          <Text size="sm" c="dimmed">
-            <Text span fw={600} c="teal">{totalBuys}</Text>{" buys  "}
-            <Text span fw={600} c="red">{totalSells}</Text>{" sells"}
-          </Text>
-        )}
-        <Select
-          size="xs"
-          value={days}
-          onChange={(v) => { setDays(v ?? "60"); setPage(1); }}
-          data={DAYS_OPTIONS}
-          w={130}
-        />
-      </Group>
 
       <ScrollArea>
         <Table className="table-grouped">
