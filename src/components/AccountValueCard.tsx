@@ -10,6 +10,7 @@ import { useCardBg } from "@/lib/hooks/useCardBg";
 import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
 import { useBalances } from "@/lib/hooks/useBalances";
 import { useLevels } from "@/lib/hooks/useLevels";
+import { AnimatedNumber } from "@/components/AnimatedNumber";
 
 const fmt = (n: number) =>
   n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -97,9 +98,11 @@ export function AccountValueCard() {
         <Group justify="space-between" align="flex-start">
           <Text c="dimmed" tt="uppercase" fw={600} ta="center" w="100%" style={CARD_LABEL_STYLE}>Account Value</Text>
         </Group>
-        <Text fw={700} lh={1} ta="center" className={outfit.className} style={{ fontSize: "4rem", width: "100%", color: "white" }}>
-          {mask(`$${fmt(total)}`)}
-        </Text>
+        <AnimatedNumber
+          value={mask(`$${fmt(total)}`)}
+          className={outfit.className}
+          style={{ fontSize: "4rem", fontWeight: 700, lineHeight: 1, color: "white", width: "100%" }}
+        />
 
         {/* Progress bar */}
         <Box>

@@ -526,8 +526,8 @@ export default function ProfitPage() {
       </Group>
 
       {period === "day" && (
-        <ScrollArea type="auto">
-          <Group gap="xs" wrap="nowrap" align="stretch">
+        <ScrollArea type="scroll">
+          <Group gap="xs" wrap="nowrap" pb={4} align="stretch">
             {last7Days.map((day) => (
               <Box key={day.dateKey} style={{ minWidth: 110, flex: "1 0 110px" }}>
                 <DayCard day={day} privacyMode={privacyMode} color={activeAccount?.color ?? "blue"} />

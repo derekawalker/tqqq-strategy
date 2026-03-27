@@ -8,6 +8,7 @@ import { useApp } from "@/lib/context/AppContext";
 import { useCardBg } from "@/lib/hooks/useCardBg";
 import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
 import { useBalances } from "@/lib/hooks/useBalances";
+import { AnimatedNumber } from "@/components/AnimatedNumber";
 
 const outfit = Outfit({ subsets: ["latin"] });
 
@@ -51,12 +52,13 @@ export function GainLossCard() {
       <Stack gap="md" align="center">
         <Text c="dimmed" tt="uppercase" fw={600} style={CARD_LABEL_STYLE}>Gain / Loss</Text>
         <Text
-          fw={700}
-          lh={1}
-          className={outfit.className}
-          style={{ fontSize: "2.75rem", color: gainColor }}
+          component="div"
         >
-          {snapshotLoading || balanceLoading || totalGain == null ? "—" : mask(fmtMoney(totalGain))}
+          <AnimatedNumber
+            value={snapshotLoading || balanceLoading || totalGain == null ? "—" : mask(fmtMoney(totalGain))}
+            className={outfit.className}
+            style={{ fontSize: "2.75rem", fontWeight: 700, lineHeight: 1, color: gainColor }}
+          />
         </Text>
         {(totalGainPct != null || annualROI != null) && (
           <Text size="sm" c="dimmed">

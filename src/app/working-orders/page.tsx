@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { Table, ScrollArea, Text, Center, Skeleton, Stack, Badge, NumberInput, Group, Tooltip } from "@mantine/core";
-import { IconAlertTriangle, IconCopy } from "@tabler/icons-react";
+import { Table, ScrollArea, Text, Center, Skeleton, Stack, Badge, NumberInput, Group, Tooltip, ThemeIcon } from "@mantine/core";
+import { IconAlertTriangle, IconCheck, IconCopy, IconPlayerPlayFilled } from "@tabler/icons-react";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
 
@@ -174,6 +174,7 @@ export default function WorkingOrdersPage() {
               const buyWarn = hasOrders && threshold > 0 && row.buys < threshold;
               const sellWarn = hasOrders && threshold > 0 && row.sells < threshold;
               const isCurrent = row.levelIndex === currentLevel && currentLevel >= 0;
+              const isOwned = row.levelIndex >= 0 && currentLevel >= 0 && row.levelIndex <= currentLevel;
               const hasDuplicate = duplicateShares.has(row.shares);
 
               return (
@@ -182,8 +183,22 @@ export default function WorkingOrdersPage() {
                 bg={hasDuplicate ? "rgba(250,82,82,0.1)" : isCurrent ? "rgba(255,255,255,0.12)" : bufferMissing ? "rgba(251,146,60,0.1)" : undefined}
                 style={{ opacity: !hasOrders && !bufferMissing ? 0.35 : 1, ...(hasDuplicate ? { borderLeft: "5px solid rgba(250,82,82,0.8)" } : bufferMissing ? { borderLeft: "5px solid rgba(251,146,60,0.8)" } : {}) }}
               >
-                  <Table.Td ta="center">
+                  <Table.Td ta="center" style={{ position: "relative" }}>
+                    {isCurrent && (
+                      <Tooltip label="Current price level" withArrow>
+                        <IconPlayerPlayFilled
+                          size={16}
+                          color={`var(--mantine-color-${activeAccount?.color ?? "blue"}-5)`}
+                          style={{ position: "absolute", left: -4, top: "50%", transform: "translateY(-50%)", cursor: "default" }}
+                        />
+                      </Tooltip>
+                    )}
                     <Group justify="center" gap={4} wrap="nowrap">
+                      {isOwned && (
+                        <ThemeIcon variant="subtle" color="teal" size="sm">
+                          <IconCheck size={12} />
+                        </ThemeIcon>
+                      )}
                       {hasDuplicate && (
                         <Tooltip label="Duplicate WORKING orders detected on this level" withArrow>
                           <IconCopy size={14} color="rgba(250,82,82,0.9)" style={{ cursor: "default" }} />
@@ -213,13 +228,13 @@ export default function WorkingOrdersPage() {
                         : <Text size="sm" c="dimmed">—</Text>}
                   </Table.Td>
                   <Table.Td ta="center">
-                    <Text size="sm" c="dimmed">{hasOrders && row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text>
+                    <Text size="sm" c="dimmed">{row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text>
                   </Table.Td>
                   <Table.Td ta="center">
-                    <Text size="sm" c="dimmed">{hasOrders && row.sellPrice != null ? mask(`$${fmt(row.sellPrice)}`) : "—"}</Text>
+                    <Text size="sm" c="dimmed">{row.sellPrice != null ? mask(`$${fmt(row.sellPrice)}`) : "—"}</Text>
                   </Table.Td>
                   <Table.Td ta="center" className="hide-mobile">
-                    <Text size="sm" c="dimmed">{hasOrders && cost != null ? mask(`$${fmt(cost)}`) : "—"}</Text>
+                    <Text size="sm" c="dimmed">{cost != null ? mask(`$${fmt(cost)}`) : "—"}</Text>
                   </Table.Td>
                 </Table.Tr>
               );
