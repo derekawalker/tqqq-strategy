@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const COOKIE_NAME = "tqqq-auth";
-const THIRTY_DAYS = 60 * 60 * 24 * 30;
+const TWENTY_FOUR_HOURS = 60 * 60 * 24;
 
 export async function POST(request: NextRequest) {
   const { password } = await request.json();
@@ -16,7 +16,7 @@ export async function POST(request: NextRequest) {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
-    maxAge: THIRTY_DAYS,
+    maxAge: TWENTY_FOUR_HOURS,
   });
   return response;
 }
