@@ -29,12 +29,15 @@ async function fetchAccountData(
   fromIso: string,
   toIso: string
 ): Promise<{ filled: FilledOrder[]; filledOptions: FilledOptionOrder[]; expiredOptions: ExpiredOptionOrder[]; working: WorkingOrder[]; tqqqShares: number; tqqqAvgPrice: number; options: OptionPosition[] }> {
-  const [filledRes, workingRes, positionsRes, txRes] = await Promise.all([
+  const [filledRes, workingRes, pendingRes, positionsRes, txRes] = await Promise.all([
     schwabFetch(
       `/trader/v1/accounts/${hash}/orders?fromEnteredTime=${fromIso}&toEnteredTime=${toIso}&status=FILLED`
     ),
     schwabFetch(
       `/trader/v1/accounts/${hash}/orders?fromEnteredTime=${fromIso}&toEnteredTime=${toIso}&status=WORKING`
+    ),
+    schwabFetch(
+      `/trader/v1/accounts/${hash}/orders?fromEnteredTime=${fromIso}&toEnteredTime=${toIso}&status=PENDING_ACTIVATION`
     ),
     schwabFetch(`/trader/v1/accounts/${hash}?fields=positions`),
     schwabFetch(
@@ -43,7 +46,10 @@ async function fetchAccountData(
   ]);
 
   const filledRaw = filledRes.ok ? await filledRes.json() : [];
-  const workingRaw = workingRes.ok ? await workingRes.json() : [];
+  const workingRaw = [
+    ...(workingRes.ok ? await workingRes.json() : []),
+    ...(pendingRes.ok ? await pendingRes.json() : []),
+  ];
   const positionsData = positionsRes.ok ? await positionsRes.json() : null;
   const txRaw = txRes.ok ? await txRes.json() : [];
 

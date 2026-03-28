@@ -3,6 +3,7 @@
 import { useState, useEffect, ReactNode } from "react";
 import { AppShell, Box } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
+import { usePathname } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
 import { PageAlertBanner } from "@/components/PageAlertBanner";
 import SettingsModal from "@/components/SettingsModal";
@@ -12,7 +13,7 @@ import { useLevels } from "@/lib/hooks/useLevels";
 
 const NAVBAR_WIDTH = 180;
 
-export default function AppShellLayout({ children }: { children: ReactNode }) {
+function AppShellInner({ children }: { children: ReactNode }) {
   const { activeAccount, setQuote, refreshTick, quoteTick, tickRefresh, tqqqShares, setAlerts, workingOrders, optionPositions, quote, balances } = useApp();
   const levelsSummary = useLevels();
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -145,4 +146,10 @@ export default function AppShellLayout({ children }: { children: ReactNode }) {
       <SettingsModal opened={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </AppShell>
   );
+}
+
+export default function AppShellLayout({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  if (pathname === "/login") return <>{children}</>;
+  return <AppShellInner>{children}</AppShellInner>;
 }
