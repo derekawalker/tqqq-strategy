@@ -3,8 +3,9 @@
 import { useMemo, useState } from "react";
 import {
   Table, Text, Group, Stack, Skeleton, Center, NumberInput,
-  SimpleGrid, Badge, Box, SegmentedControl, Alert,
+  SimpleGrid, Badge, Box, SegmentedControl, Alert, Paper,
 } from "@mantine/core";
+import { CARD_RADIUS } from "@/lib/cardStyles";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
@@ -524,12 +525,14 @@ export default function OptionsPage() {
         <Text fw={700} size="xl">Options</Text>
         <SegmentedControl
           fullWidth
+          color={color}
           value={mobileTab}
           onChange={(v) => setMobileTab(v as "calls" | "puts")}
           data={[
             { label: "Covered Calls", value: "calls" },
             { label: "Cash Secured Puts", value: "puts" },
           ]}
+          styles={{ root: { height: 44 }, label: { lineHeight: "28px" } }}
         />
           {mobileTab === "calls" ? (
             <CallsTable
@@ -560,24 +563,28 @@ export default function OptionsPage() {
     <Stack gap="md">
     <Text fw={700} size="xl">Options</Text>
     <SimpleGrid cols={2} spacing="xl">
-      <CallsTable
-        rows={callRows}
-        color={color}
-        safetyLevels={callSafety}
-        onSafetyChange={handleCallSafety}
-        privacyMode={privacyMode}
-        currentLevel={levelsSummary?.currentLevel ?? -1}
-        changePercent={changePercent}
-      />
-      <PutsTable
-        rows={putRows}
-        color={color}
-        safetyLevels={putSafety}
-        onSafetyChange={handlePutSafety}
-        privacyMode={privacyMode}
-        currentLevel={levelsSummary?.currentLevel ?? -1}
-        changePercent={changePercent}
-      />
+      <Paper p="md" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-7)" }}>
+        <CallsTable
+          rows={callRows}
+          color={color}
+          safetyLevels={callSafety}
+          onSafetyChange={handleCallSafety}
+          privacyMode={privacyMode}
+          currentLevel={levelsSummary?.currentLevel ?? -1}
+          changePercent={changePercent}
+        />
+      </Paper>
+      <Paper p="md" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-7)" }}>
+        <PutsTable
+          rows={putRows}
+          color={color}
+          safetyLevels={putSafety}
+          onSafetyChange={handlePutSafety}
+          privacyMode={privacyMode}
+          currentLevel={levelsSummary?.currentLevel ?? -1}
+          changePercent={changePercent}
+        />
+      </Paper>
     </SimpleGrid>
     </Stack>
   );

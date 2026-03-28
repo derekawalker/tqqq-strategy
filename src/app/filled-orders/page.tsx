@@ -1,18 +1,17 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Table,
-  ScrollArea,
   Text,
   Badge,
   Group,
   Skeleton,
   Stack,
-  Pagination,
   ActionIcon,
   Box,
   Paper,
+  Center,
 } from "@mantine/core";
 import { IconChevronLeft, IconChevronRight } from "@tabler/icons-react";
 import {
@@ -28,7 +27,6 @@ import { useApp } from "@/lib/context/AppContext";
 import { useCardBg } from "@/lib/hooks/useCardBg";
 import { CARD_RADIUS } from "@/lib/cardStyles";
 import type { FilledOrder } from "@/lib/schwab/parse";
-import { dateGroupHeaderCellLeft, dateGroupLastCellLeft, dateGroupLastCellRight, dateGroupHeaderBg } from "@/lib/tableStyles";
 
 const fmt = (n: number, decimals = 2) =>
   n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
@@ -55,7 +53,6 @@ function fmtDateKey(key: string): string {
   return `${mm}/${dd}/${yy}`;
 }
 
-const PAGE_SIZE = 30;
 
 interface ChartPoint {
   timeMs: number;
@@ -162,7 +159,6 @@ function DayChart({ dayOrders, color }: { dayOrders: FilledOrder[]; color: strin
 
 export default function FilledOrdersPage() {
   const { filledOrders, snapshotLoading: loading, activeAccount } = useApp();
-  const [page, setPage] = useState(1);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const availableDates = useMemo(() => {
@@ -182,10 +178,6 @@ export default function FilledOrdersPage() {
     return filledOrders.filter((o) => toDateKey(new Date(o.time)) === effectiveDate);
   }, [filledOrders, effectiveDate]);
 
-  const orders = filledOrders;
-  const totalPages = Math.ceil(orders.length / PAGE_SIZE);
-  const safePage = Math.min(page, totalPages || 1);
-  const pageOrders = orders.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const color = activeAccount?.color ?? "blue";
   const bg = useCardBg(color);
@@ -217,88 +209,37 @@ export default function FilledOrdersPage() {
         </Paper>
       )}
 
-      <ScrollArea>
-        <Table className="table-grouped">
+      {loading ? (
+        <Stack>{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} height={36} radius="sm" />)}</Stack>
+      ) : dayOrders.length === 0 ? (
+        <Center h={150}><Text c="dimmed" size="sm">No filled orders on this date.</Text></Center>
+      ) : (
+        <Table>
           <Table.Thead>
             <Table.Tr>
               <Table.Th>Time</Table.Th>
               <Table.Th>Side</Table.Th>
-              <Table.Th style={{ textAlign: "right" }}>Shares</Table.Th>
-              <Table.Th style={{ textAlign: "right" }}>Fill Price</Table.Th>
-              <Table.Th style={{ textAlign: "right" }} className="hide-mobile">Total</Table.Th>
+              <Table.Th ta="right">Shares</Table.Th>
+              <Table.Th ta="right">Fill Price</Table.Th>
+              <Table.Th ta="right" className="hide-mobile">Total</Table.Th>
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {loading ? (
-              Array.from({ length: 8 }).map((_, i) => (
-                <Table.Tr key={i}>
-                  {Array.from({ length: 5 }).map((_, j) => (
-                    <Table.Td key={j}><Skeleton height={14} radius="sm" /></Table.Td>
-                  ))}
-                </Table.Tr>
-              ))
-            ) : orders.length === 0 ? (
-              <Table.Tr>
-                <Table.Td colSpan={5}>
-                  <Text c="dimmed" ta="center" py="xl" size="sm">No filled TQQQ orders in this period</Text>
+            {dayOrders.map((order) => (
+              <Table.Tr key={order.orderId}>
+                <Table.Td c="dimmed">{fmtTime(order.time)}</Table.Td>
+                <Table.Td>
+                  <Badge color={order.side === "BUY" ? "teal" : "red"} variant="light" size="sm">
+                    {order.side}
+                  </Badge>
                 </Table.Td>
+                <Table.Td ta="right">{order.shares}</Table.Td>
+                <Table.Td ta="right">${fmt(order.fillPrice)}</Table.Td>
+                <Table.Td ta="right" className="hide-mobile">${fmt(order.total)}</Table.Td>
               </Table.Tr>
-            ) : (() => {
-              const grouped = new Map<string, typeof pageOrders>();
-              for (const o of pageOrders) {
-                const key = toDateKey(new Date(o.time));
-                if (!grouped.has(key)) grouped.set(key, []);
-                grouped.get(key)!.push(o);
-              }
-              return [...grouped.entries()].map(([dateKey, dateOrders], gi) => (
-                <React.Fragment key={dateKey}>
-                  {gi > 0 && (
-                    <Table.Tr style={{ height: 10, background: "transparent" }}>
-                      <Table.Td colSpan={5} style={{ padding: 0, border: "none" }} />
-                    </Table.Tr>
-                  )}
-                  <Table.Tr bg={dateGroupHeaderBg}>
-                    <Table.Td colSpan={5} style={dateGroupHeaderCellLeft}>
-                      <Text size="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5}>
-                        {fmtDateKey(dateKey)}
-                      </Text>
-                    </Table.Td>
-                  </Table.Tr>
-                  {dateOrders.map((order, oi) => {
-                    const isLast = oi === dateOrders.length - 1;
-                    return (
-                    <Table.Tr key={order.orderId}>
-                      <Table.Td c="dimmed" style={isLast ? dateGroupLastCellLeft : undefined}>{fmtTime(order.time)}</Table.Td>
-                      <Table.Td>
-                        <Badge
-                          color={order.side === "BUY" ? "teal" : "red"}
-                          variant="light"
-                          size="sm"
-                        >
-                          {order.side}
-                        </Badge>
-                      </Table.Td>
-                      <Table.Td style={{ textAlign: "right" }}>{order.shares}</Table.Td>
-                      <Table.Td style={{ textAlign: "right", ...(isLast ? dateGroupLastCellRight : {}) }}>${fmt(order.fillPrice)}</Table.Td>
-                      <Table.Td style={{ textAlign: "right", ...(isLast ? dateGroupLastCellRight : {}) }} className="hide-mobile">${fmt(order.total)}</Table.Td>
-                    </Table.Tr>
-                    );
-                  })}
-                </React.Fragment>
-              ));
-            })()}
+            ))}
           </Table.Tbody>
         </Table>
-      </ScrollArea>
-
-      {totalPages > 1 && (
-        <Pagination
-          value={safePage}
-          onChange={setPage}
-          total={totalPages}
-          size="sm"
-          color={color}
-        />
       )}
     </Stack>
   );
