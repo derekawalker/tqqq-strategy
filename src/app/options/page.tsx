@@ -3,14 +3,14 @@
 import { useMemo, useState } from "react";
 import {
   Table, Text, Group, Stack, Skeleton, Center, NumberInput,
-  SimpleGrid, Badge, Box, SegmentedControl, Alert, Paper,
+  SimpleGrid, Badge, Box, SegmentedControl, Alert, Paper, Divider,
 } from "@mantine/core";
 import { CARD_RADIUS } from "@/lib/cardStyles";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
 import { IconArrowRight, IconTrendingUp, IconTrendingDown } from "@tabler/icons-react";
-import type { OptionPosition } from "@/lib/schwab/parse";
+import type { OptionPosition, WorkingOrder } from "@/lib/schwab/parse";
 import type { Level } from "@/lib/levels";
 
 // ── sentiment messages ─────────────────────────────────────────────────────
@@ -62,6 +62,43 @@ function SentimentBanner({ msg }: { msg: SentimentMsg | null }) {
     >
       <Text size="sm" fw={600}>{msg.text}</Text>
     </Alert>
+  );
+}
+
+// ── summary stats card ─────────────────────────────────────────────────────
+
+function SummaryStat({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
+  return (
+    <Stack gap={2} style={{ flex: 1, minWidth: 0 }}>
+      <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: "0.04em" }}>{label}</Text>
+      <Text size="sm" fw={700} c={valueColor}>{value}</Text>
+    </Stack>
+  );
+}
+
+function OptionsSummaryCard({
+  totalValue, availableLabel, availableValue, color, privacyMode,
+}: {
+  totalValue: number;
+  availableLabel: string;
+  availableValue: string;
+  color: string;
+  privacyMode: boolean;
+}) {
+  const mask = (v: string) => (privacyMode ? "••••" : v);
+  const valueSign = totalValue >= 0 ? "+" : "";
+  return (
+    <Paper p="sm" radius="md" style={{ background: "var(--mantine-color-dark-6)" }}>
+      <Group gap={0} wrap="nowrap">
+        <SummaryStat
+          label="Open Value"
+          value={mask(`${valueSign}$${totalValue.toFixed(2)}`)}
+          valueColor={totalValue >= 0 ? `var(--mantine-color-${color}-4)` : "var(--mantine-color-red-4)"}
+        />
+        <Divider orientation="vertical" mx="md" />
+        <SummaryStat label={availableLabel} value={availableValue} />
+      </Group>
+    </Paper>
   );
 }
 
@@ -294,6 +331,7 @@ function PositionCells({
 
 function CallsTable({
   rows, color, safetyLevels, onSafetyChange, privacyMode, currentLevel, changePercent,
+  totalValue, callsAvailableLabel,
 }: {
   rows: CallRow[];
   color: string;
@@ -302,6 +340,8 @@ function CallsTable({
   privacyMode: boolean;
   currentLevel: number;
   changePercent: number;
+  totalValue: number;
+  callsAvailableLabel: string;
 }) {
   const mask = (v: string) => (privacyMode ? "••••" : v);
 
@@ -318,6 +358,14 @@ function CallsTable({
           />
         </Group>
       </Group>
+
+      <OptionsSummaryCard
+        totalValue={totalValue}
+        availableLabel="Can Open"
+        availableValue={callsAvailableLabel}
+        color={color}
+        privacyMode={privacyMode}
+      />
 
       <SentimentBanner msg={getCallSentiment(changePercent)} />
 
@@ -385,6 +433,7 @@ function CallsTable({
 
 function PutsTable({
   rows, color, safetyLevels, onSafetyChange, privacyMode, currentLevel, changePercent,
+  totalValue, availableCash,
 }: {
   rows: PutRow[];
   color: string;
@@ -393,6 +442,8 @@ function PutsTable({
   privacyMode: boolean;
   currentLevel: number;
   changePercent: number;
+  totalValue: number;
+  availableCash: number;
 }) {
   const mask = (v: string) => (privacyMode ? "••••" : v);
 
@@ -409,6 +460,14 @@ function PutsTable({
           />
         </Group>
       </Group>
+
+      <OptionsSummaryCard
+        totalValue={totalValue}
+        availableLabel="Cash Available"
+        availableValue={mask(`$${availableCash.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}
+        color={color}
+        privacyMode={privacyMode}
+      />
 
       <SentimentBanner msg={getPutSentiment(changePercent)} />
 
@@ -475,7 +534,7 @@ function PutsTable({
 // ── page ──────────────────────────────────────────────────────────────────
 
 export default function OptionsPage() {
-  const { optionPositions, snapshotLoading, activeAccount, privacyMode, updateAccountSettings, quote } = useApp();
+  const { optionPositions, snapshotLoading, activeAccount, privacyMode, updateAccountSettings, quote, tqqqShares, workingOrders, balances } = useApp();
   const changePercent = quote.loading ? 0 : quote.changePercent;
   const levelsSummary = useLevels();
   const color = activeAccount?.color ?? "blue";
@@ -510,6 +569,39 @@ export default function OptionsPage() {
     return buildPutRows(levels, currentLevel, putSafety, puts);
   }, [levelsSummary, putSafety, puts]);
 
+  const activeBalance = useMemo(
+    () => balances.find((b) => b.accountNumber === activeAccount?.accountNumber) ?? null,
+    [balances, activeAccount],
+  );
+
+  const callsTotalValue = useMemo(
+    () => calls.reduce((sum, p) => sum + p.averagePrice * p.shortQty * 100 - Math.abs(p.marketValue), 0),
+    [calls],
+  );
+
+  const { callsAvailable, callsAvailableShares } = useMemo(() => {
+    const existingCallShares = calls.reduce((sum, p) => sum + p.shortQty * 100, 0);
+    const queuedSellShares = workingOrders
+      .filter((o) => o.side === "SELL" && o.status === "WORKING")
+      .reduce((sum, o) => sum + o.shares, 0);
+    const net = tqqqShares - existingCallShares - queuedSellShares;
+    return {
+      callsAvailable: Math.floor(Math.max(0, net) / 100),
+      callsAvailableShares: net >= 0 ? net % 100 : net,
+    };
+  }, [tqqqShares, calls, workingOrders]);
+
+  const putsTotalValue = useMemo(
+    () => puts.reduce((sum, p) => sum + p.averagePrice * p.shortQty * 100 - Math.abs(p.marketValue), 0),
+    [puts],
+  );
+
+  const putsAvailableCash = activeBalance?.cashAvailableForTrading ?? 0;
+
+  const callsAvailableLabel = callsAvailable > 0
+    ? `${callsAvailable} contract${callsAvailable !== 1 ? "s" : ""}${callsAvailableShares > 0 ? ` (${callsAvailableShares} sh)` : ""}`
+    : `0 contracts${callsAvailableShares !== 0 ? ` (${callsAvailableShares} sh)` : ""}`;
+
   if (snapshotLoading) {
     return (
       <Stack>
@@ -543,6 +635,8 @@ export default function OptionsPage() {
               privacyMode={privacyMode}
               currentLevel={levelsSummary?.currentLevel ?? -1}
               changePercent={changePercent}
+              totalValue={callsTotalValue}
+              callsAvailableLabel={callsAvailableLabel}
             />
           ) : (
             <PutsTable
@@ -553,6 +647,8 @@ export default function OptionsPage() {
               privacyMode={privacyMode}
               currentLevel={levelsSummary?.currentLevel ?? -1}
               changePercent={changePercent}
+              totalValue={putsTotalValue}
+              availableCash={putsAvailableCash}
             />
           )}
       </Stack>
@@ -572,6 +668,8 @@ export default function OptionsPage() {
           privacyMode={privacyMode}
           currentLevel={levelsSummary?.currentLevel ?? -1}
           changePercent={changePercent}
+          totalValue={callsTotalValue}
+          callsAvailableLabel={callsAvailableLabel}
         />
       </Paper>
       <Paper p="md" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-7)" }}>
@@ -583,6 +681,8 @@ export default function OptionsPage() {
           privacyMode={privacyMode}
           currentLevel={levelsSummary?.currentLevel ?? -1}
           changePercent={changePercent}
+          totalValue={putsTotalValue}
+          availableCash={putsAvailableCash}
         />
       </Paper>
     </SimpleGrid>
