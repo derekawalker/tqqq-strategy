@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Table, Text, Group, Stack, Skeleton, Center, NumberInput,
@@ -559,7 +559,7 @@ function PutsTable({
 
 // ── page ──────────────────────────────────────────────────────────────────
 
-export default function OptionsPage() {
+function OptionsPageInner() {
   const { optionPositions, snapshotLoading, activeAccount, privacyMode, updateAccountSettings, quote, tqqqShares, workingOrders, balances } = useApp();
   const changePercent = quote.loading ? 0 : quote.changePercent;
   const levelsSummary = useLevels();
@@ -735,4 +735,8 @@ export default function OptionsPage() {
     </SimpleGrid>
     </Stack>
   );
+}
+
+export default function OptionsPage() {
+  return <Suspense><OptionsPageInner /></Suspense>;
 }
