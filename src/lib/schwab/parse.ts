@@ -15,6 +15,7 @@ export interface OptionPosition {
   strike: number;
   expiry: string;         // "YYYY-MM-DD"
   shortQty: number;
+  longQty: number;        // > 0 means accidental BUY_TO_OPEN
   marketValue: number;    // current mark (negative = liability)
   averagePrice: number;   // credit received per share when opened
   openedAt: string | null;
@@ -23,7 +24,7 @@ export interface OptionPosition {
 export interface FilledOptionOrder {
   orderId: number;
   accountNumber: string;
-  instruction: "SELL_TO_OPEN" | "BUY_TO_CLOSE";
+  instruction: "SELL_TO_OPEN" | "BUY_TO_CLOSE" | "BUY_TO_OPEN" | "SELL_TO_CLOSE";
   symbol: string;
   contracts: number;
   fillPrice: number;  // per share (×100 for total per contract)
@@ -109,8 +110,8 @@ export function parseFilledOptionOrder(order: any, accountNumber: string): Fille
   if (leg.instrument?.underlyingSymbol !== "TQQQ") return null;
 
   const rawInstruction: string = leg.instruction ?? "";
-  if (rawInstruction !== "SELL_TO_OPEN" && rawInstruction !== "BUY_TO_CLOSE") return null;
-  const instruction = rawInstruction as "SELL_TO_OPEN" | "BUY_TO_CLOSE";
+  if (!["SELL_TO_OPEN", "BUY_TO_CLOSE", "BUY_TO_OPEN", "SELL_TO_CLOSE"].includes(rawInstruction)) return null;
+  const instruction = rawInstruction as FilledOptionOrder["instruction"];
 
   const symbol: string = leg.instrument?.symbol ?? "";
   let totalValue = 0;
@@ -126,7 +127,8 @@ export function parseFilledOptionOrder(order: any, accountNumber: string): Fille
 
   const fillPrice = totalValue / totalContracts;
   const gross = fillPrice * totalContracts * 100;
-  const total = instruction === "SELL_TO_OPEN" ? gross : -gross;
+  const isDebit = instruction === "BUY_TO_CLOSE" || instruction === "BUY_TO_OPEN";
+  const total = isDebit ? -gross : gross;
 
   return { orderId: order.orderId, accountNumber, instruction, symbol, contracts: totalContracts, fillPrice, total, time: order.closeTime };
 }

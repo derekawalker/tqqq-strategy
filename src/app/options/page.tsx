@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Table, Text, Group, Stack, Skeleton, Center, NumberInput,
   SimpleGrid, Badge, Box, SegmentedControl, Alert, Paper, Divider,
@@ -9,7 +10,7 @@ import { CARD_RADIUS } from "@/lib/cardStyles";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
-import { IconArrowRight, IconTrendingUp, IconTrendingDown } from "@tabler/icons-react";
+import { IconArrowRight, IconTrendingUp, IconTrendingDown, IconAlertTriangle } from "@tabler/icons-react";
 import type { OptionPosition, WorkingOrder } from "@/lib/schwab/parse";
 import type { Level } from "@/lib/levels";
 
@@ -280,7 +281,12 @@ function PositionCells({
     <>
       <Table.Td ta="right">
         <Group gap={6} justify="flex-end" wrap="nowrap">
-          <Badge size="sm" color={color} variant="light">{position.shortQty}</Badge>
+          {position.longQty > 0 && (
+            <Badge size="sm" color="red" variant="filled" leftSection={<IconAlertTriangle size={10} />}>
+              BTO ×{position.longQty}
+            </Badge>
+          )}
+          {position.shortQty > 0 && <Badge size="sm" color={color} variant="light">{position.shortQty}</Badge>}
           {expiryLabel && <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>{expiryLabel}</Text>}
         </Group>
       </Table.Td>
@@ -331,7 +337,7 @@ function PositionCells({
 
 function CallsTable({
   rows, color, safetyLevels, onSafetyChange, privacyMode, currentLevel, changePercent,
-  totalValue, callsAvailableLabel,
+  totalValue, callsAvailableLabel, btoPositions,
 }: {
   rows: CallRow[];
   color: string;
@@ -342,6 +348,7 @@ function CallsTable({
   changePercent: number;
   totalValue: number;
   callsAvailableLabel: string;
+  btoPositions: OptionPosition[];
 }) {
   const mask = (v: string) => (privacyMode ? "••••" : v);
 
@@ -368,6 +375,15 @@ function CallsTable({
       />
 
       <SentimentBanner msg={getCallSentiment(changePercent)} />
+
+      {btoPositions.length > 0 && (
+        <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
+          <Text size="sm" fw={600}>Accidental BUY TO OPEN detected</Text>
+          <Text size="xs" c="dimmed">
+            {btoPositions.map((p) => `$${p.strike.toFixed(2)} call ×${p.longQty}`).join(", ")} — sell to close ASAP
+          </Text>
+        </Alert>
+      )}
 
       {rows.length === 0 ? (
         <Center h={80}><Text size="sm" c="dimmed">No levels configured.</Text></Center>
@@ -433,7 +449,7 @@ function CallsTable({
 
 function PutsTable({
   rows, color, safetyLevels, onSafetyChange, privacyMode, currentLevel, changePercent,
-  totalValue, availableCash,
+  totalValue, availableCash, btoPositions,
 }: {
   rows: PutRow[];
   color: string;
@@ -444,6 +460,7 @@ function PutsTable({
   changePercent: number;
   totalValue: number;
   availableCash: number;
+  btoPositions: OptionPosition[];
 }) {
   const mask = (v: string) => (privacyMode ? "••••" : v);
 
@@ -470,6 +487,15 @@ function PutsTable({
       />
 
       <SentimentBanner msg={getPutSentiment(changePercent)} />
+
+      {btoPositions.length > 0 && (
+        <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
+          <Text size="sm" fw={600}>Accidental BUY TO OPEN detected</Text>
+          <Text size="xs" c="dimmed">
+            {btoPositions.map((p) => `$${p.strike.toFixed(2)} put ×${p.longQty}`).join(", ")} — sell to close ASAP
+          </Text>
+        </Alert>
+      )}
 
       {rows.length === 0 ? (
         <Center h={80}><Text size="sm" c="dimmed">No levels configured.</Text></Center>
@@ -541,6 +567,9 @@ export default function OptionsPage() {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [mobileTab, setMobileTab] = useState<"calls" | "puts">("calls");
 
+  const searchParams = useSearchParams();
+  const testAlerts = searchParams.has("testalerts");
+
   const callSafety = activeAccount?.settings.callSafetyLevels ?? 6;
   const putSafety  = activeAccount?.settings.putSafetyLevels  ?? 8;
 
@@ -553,6 +582,20 @@ export default function OptionsPage() {
 
   const calls = useMemo(() => optionPositions.filter((p) => p.putCall === "CALL"), [optionPositions]);
   const puts  = useMemo(() => optionPositions.filter((p) => p.putCall === "PUT"),  [optionPositions]);
+  const callBtoPositions = useMemo(() => {
+    if (testAlerts) {
+      const strike = calls.find((p) => p.shortQty > 0)?.strike ?? 60;
+      return [{ accountNumber: "", symbol: "", putCall: "CALL" as const, strike, expiry: "", shortQty: 0, longQty: 2, marketValue: 0, averagePrice: 0, openedAt: null }];
+    }
+    return calls.filter((p) => p.longQty > 0);
+  }, [calls, testAlerts]);
+  const putBtoPositions = useMemo(() => {
+    if (testAlerts) {
+      const strike = puts.find((p) => p.shortQty > 0)?.strike ?? 45;
+      return [{ accountNumber: "", symbol: "", putCall: "PUT" as const, strike, expiry: "", shortQty: 0, longQty: 1, marketValue: 0, averagePrice: 0, openedAt: null }];
+    }
+    return puts.filter((p) => p.longQty > 0);
+  }, [puts, testAlerts]);
 
   const callRows = useMemo(() => {
     const levels = levelsSummary?.levels ?? [];
@@ -637,6 +680,7 @@ export default function OptionsPage() {
               changePercent={changePercent}
               totalValue={callsTotalValue}
               callsAvailableLabel={callsAvailableLabel}
+              btoPositions={callBtoPositions}
             />
           ) : (
             <PutsTable
@@ -649,6 +693,7 @@ export default function OptionsPage() {
               changePercent={changePercent}
               totalValue={putsTotalValue}
               availableCash={putsAvailableCash}
+              btoPositions={putBtoPositions}
             />
           )}
       </Stack>
@@ -670,6 +715,7 @@ export default function OptionsPage() {
           changePercent={changePercent}
           totalValue={callsTotalValue}
           callsAvailableLabel={callsAvailableLabel}
+          btoPositions={callBtoPositions}
         />
       </Paper>
       <Paper p="md" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-7)" }}>
@@ -683,6 +729,7 @@ export default function OptionsPage() {
           changePercent={changePercent}
           totalValue={putsTotalValue}
           availableCash={putsAvailableCash}
+          btoPositions={putBtoPositions}
         />
       </Paper>
     </SimpleGrid>

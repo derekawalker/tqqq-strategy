@@ -96,7 +96,7 @@ async function fetchAccountData(
     .filter((p: any) =>
       p.instrument?.assetType === "OPTION" &&
       p.instrument?.underlyingSymbol === "TQQQ" &&
-      (p.shortQuantity ?? 0) > 0
+      ((p.shortQuantity ?? 0) > 0 || (p.longQuantity ?? 0) > 0)
     )
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .map((p: any): OptionPosition | null => {
@@ -130,6 +130,7 @@ async function fetchAccountData(
         strike,
         expiry,
         shortQty: p.shortQuantity ?? 0,
+        longQty: p.longQuantity ?? 0,
         marketValue: p.marketValue ?? 0,
         averagePrice: p.averagePrice ?? 0,
         openedAt: optionOpenDates.get(sym) ?? null,

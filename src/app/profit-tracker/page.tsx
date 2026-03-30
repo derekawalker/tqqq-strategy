@@ -36,7 +36,7 @@ interface RealizedOptionTrade {
   closePrice: number | null; // BTC fill price per share, null if expired
   net: number;              // net profit
   time: string;             // close time: BTC fill time or expiration time
-  how: "BTC" | "expired";
+  how: "BTC" | "expired" | "STC";
 }
 
 interface ProfitRow {
@@ -259,40 +259,56 @@ export default function ProfitPage() {
   const { filledOrders, filledOptionOrders, expiredOptionOrders, transactions, snapshotLoading, privacyMode, activeAccount, tqqqShares, tqqqAvgPrice, quote } = useApp();
   const summaryBg = useCardBg(activeAccount?.color ?? "blue");
 
-  // Pair each STO with its BTC(s) and expirations FIFO; produce one net trade per close event.
+  // Pair each STO with its BTC(s)/expirations FIFO, and each BTO with its STC(s) FIFO.
   const realizedOptionTrades = useMemo((): RealizedOptionTrade[] => {
     const parseStrike = (symbol: string): number => {
       const m = symbol.match(/^.{6}\d{6}[CP](\d{8})$/);
       return m ? parseInt(m[1], 10) / 1000 : 0;
     };
 
-    type CloseEvent =
+    type StoCloseEvent =
       | { kind: "BTC"; order: typeof filledOptionOrders[number]; contracts: number; time: string }
       | { kind: "expired"; activityId: number; contracts: number; time: string };
+    type BtoCloseEvent = { kind: "STC"; order: typeof filledOptionOrders[number]; contracts: number; time: string };
 
-    const bySymbol = new Map<string, { stos: typeof filledOptionOrders; closes: CloseEvent[] }>();
+    const bySymbol = new Map<string, {
+      stos: typeof filledOptionOrders;
+      stoCloses: StoCloseEvent[];
+      btos: typeof filledOptionOrders;
+      btoCloses: BtoCloseEvent[];
+    }>();
+
+    const getEntry = (sym: string) => {
+      if (!bySymbol.has(sym)) bySymbol.set(sym, { stos: [], stoCloses: [], btos: [], btoCloses: [] });
+      return bySymbol.get(sym)!;
+    };
+
     for (const o of filledOptionOrders) {
-      if (!bySymbol.has(o.symbol)) bySymbol.set(o.symbol, { stos: [], closes: [] });
+      const entry = getEntry(o.symbol);
       if (o.instruction === "SELL_TO_OPEN") {
-        bySymbol.get(o.symbol)!.stos.push(o);
-      } else {
-        bySymbol.get(o.symbol)!.closes.push({ kind: "BTC", order: o, contracts: o.contracts, time: o.time });
+        entry.stos.push(o);
+      } else if (o.instruction === "BUY_TO_CLOSE") {
+        entry.stoCloses.push({ kind: "BTC", order: o, contracts: o.contracts, time: o.time });
+      } else if (o.instruction === "BUY_TO_OPEN") {
+        entry.btos.push(o);
+      } else if (o.instruction === "SELL_TO_CLOSE") {
+        entry.btoCloses.push({ kind: "STC", order: o, contracts: o.contracts, time: o.time });
       }
     }
     for (const e of expiredOptionOrders) {
-      if (!bySymbol.has(e.symbol)) bySymbol.set(e.symbol, { stos: [], closes: [] });
-      bySymbol.get(e.symbol)!.closes.push({ kind: "expired", activityId: e.activityId, contracts: e.contracts, time: e.time });
+      getEntry(e.symbol).stoCloses.push({ kind: "expired", activityId: e.activityId, contracts: e.contracts, time: e.time });
     }
 
     const trades: RealizedOptionTrade[] = [];
-    for (const [symbol, { stos, closes }] of bySymbol) {
-      // Sort oldest-first for FIFO matching
+
+    for (const [symbol, { stos, stoCloses, btos, btoCloses }] of bySymbol) {
+      // ── STO → BTC/expired (normal short premium trades) ───────────────────
       const sortedStos = [...stos].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
       const stoState = sortedStos.map((s) => ({ order: s, remaining: s.contracts }));
-      const sortedCloses = [...closes].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+      const sortedStoCloses = [...stoCloses].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
       let stoIdx = 0;
-      for (const close of sortedCloses) {
+      for (const close of sortedStoCloses) {
         let remaining = close.contracts;
         const btcPer = close.kind === "BTC" ? close.order.total / close.order.contracts : 0;
         while (remaining > 0 && stoIdx < stoState.length) {
@@ -303,8 +319,7 @@ export default function ProfitPage() {
             ? `${close.order.orderId}-${entry.order.orderId}`
             : `exp-${close.activityId}-${entry.order.orderId}`;
           trades.push({
-            id,
-            symbol, contracts: matched,
+            id, symbol, contracts: matched,
             strike: parseStrike(symbol),
             openPrice: entry.order.fillPrice,
             closePrice: close.kind === "BTC" ? close.order.fillPrice : null,
@@ -315,6 +330,35 @@ export default function ProfitPage() {
           remaining -= matched;
           entry.remaining -= matched;
           if (entry.remaining === 0) stoIdx++;
+        }
+      }
+
+      // ── BTO → STC (accidental long trades, typically losses) ──────────────
+      const sortedBtos = [...btos].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+      const btoState = sortedBtos.map((b) => ({ order: b, remaining: b.contracts }));
+      const sortedBtoCloses = [...btoCloses].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+
+      let btoIdx = 0;
+      for (const close of sortedBtoCloses) {
+        let remaining = close.contracts;
+        const stcPer = close.order.total / close.order.contracts;
+        while (remaining > 0 && btoIdx < btoState.length) {
+          const entry = btoState[btoIdx];
+          const matched = Math.min(remaining, entry.remaining);
+          const btoPer = entry.order.total / entry.order.contracts;
+          trades.push({
+            id: `${close.order.orderId}-${entry.order.orderId}`,
+            symbol, contracts: matched,
+            strike: parseStrike(symbol),
+            openPrice: entry.order.fillPrice,
+            closePrice: close.order.fillPrice,
+            net: (btoPer + stcPer) * matched,
+            time: close.time,
+            how: "STC",
+          });
+          remaining -= matched;
+          entry.remaining -= matched;
+          if (entry.remaining === 0) btoIdx++;
         }
       }
     }
