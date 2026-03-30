@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Paper, Skeleton, Text } from "@mantine/core";
+import { Paper, Skeleton, Text, Center } from "@mantine/core";
 import { ResponsiveContainer, AreaChart, Area, Customized, YAxis, ReferenceLine, Tooltip } from "recharts";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/context/AppContext";
@@ -65,6 +65,16 @@ export function MiniChartCard() {
     return (
       <Paper p={0} radius={CARD_RADIUS} style={{ overflow: "hidden", background: bg, height: "100%" }}>
         <Skeleton height={140} radius="md" />
+      </Paper>
+    );
+  }
+
+  if (candles.length === 0) {
+    return (
+      <Paper p={0} radius={CARD_RADIUS} onClick={() => router.push("/chart")} style={{ overflow: "hidden", background: bg, cursor: "pointer", height: "100%" }}>
+        <Center h={140}>
+          <Text size="sm" c="dimmed">Markets closed</Text>
+        </Center>
       </Paper>
     );
   }

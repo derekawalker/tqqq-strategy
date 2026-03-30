@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useMediaQuery } from "@mantine/hooks";
-import { Paper, Stack, Text, Group, Box, Skeleton, SegmentedControl } from "@mantine/core";
+import { Paper, Stack, Text, Group, Box, Skeleton, SegmentedControl, Center } from "@mantine/core";
 import {
   ResponsiveContainer, ComposedChart, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, ReferenceLine, ReferenceDot, Customized,
@@ -165,7 +165,11 @@ export default function ChartPage() {
       <Paper p={isMobile ? "xs" : "md"}>
         <Text fw={600} size="sm" c="dimmed" ta="center" mb="md">TQQQ — {{ "1d": "1 Day (5 min)", "1w": "1 Week (30 min)", "1m": "1 Month (daily)" }[range]}</Text>
 
-        <ResponsiveContainer width="100%" height={isMobile ? 320 : 400}>
+        {displayCandles.length === 0 ? (
+          <Center h={isMobile ? 320 : 400}>
+            <Text size="sm" c="dimmed">Markets closed — no data for this range</Text>
+          </Center>
+        ) : <ResponsiveContainer width="100%" height={isMobile ? 320 : 400}>
           <ComposedChart data={displayCandles} margin={{ top: 20, right: isMobile ? 48 : 60, left: isMobile ? 0 : 10, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" vertical={false} />
             <XAxis
@@ -253,7 +257,7 @@ export default function ChartPage() {
                 label={<PriceTag value={`$${lowPoint.close.toFixed(2)}`} color="var(--mantine-color-indigo-7)" position="bottom" />} />
             )}
           </ComposedChart>
-        </ResponsiveContainer>
+        </ResponsiveContainer>}
 
         <Group gap="xl" mt="sm" justify="center">
           {currentPrice && <Group gap={6}><LegendDash color={currentColor} /><Text size="xs" c="dimmed">Current</Text></Group>}
