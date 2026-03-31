@@ -2,8 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode } from "react";
 import type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition } from "@/lib/schwab/parse";
-import type { Transaction } from "@/app/api/schwab/transactions/route";
-import type { AccountBalance } from "@/app/api/schwab/balances/route";
+import type { Transaction, AccountBalance } from "@/app/api/schwab/data/route";
 export type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition, Transaction, AccountBalance };
 
 export interface AccountSettings {
@@ -256,13 +255,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [allTqqqShares, setAllTqqqShares] = useState<Record<string, number>>({});
   const [allTqqqAvgPrice, setAllTqqqAvgPrice] = useState<Record<string, number>>({});
   const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [allBalances, setAllBalances] = useState<AccountBalance[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     async function load() {
       setSnapshotLoading(true);
       try {
-        const res = await fetch("/api/schwab/snapshot");
+        const res = await fetch("/api/schwab/data");
         const data = await res.json();
         if (cancelled) return;
         if (data.filledOrders) setAllFilledOrders(data.filledOrders);
@@ -272,41 +272,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (data.optionPositions) setAllOptionPositions(data.optionPositions);
         if (data.tqqqShares) setAllTqqqShares(data.tqqqShares);
         if (data.tqqqAvgPrice) setAllTqqqAvgPrice(data.tqqqAvgPrice);
+        if (data.balances) setAllBalances(data.balances);
+        if (data.transactions) setAllTransactions(data.transactions);
       } catch {
         // ignore
       } finally {
         if (!cancelled) setSnapshotLoading(false);
-      }
-    }
-    load();
-    return () => { cancelled = true; };
-  }, [refreshTick]);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/schwab/transactions")
-      .then((r) => r.json())
-      .then((data) => { if (!cancelled && Array.isArray(data)) setAllTransactions(data); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [refreshTick]);
-
-  const [allBalances, setAllBalances] = useState<AccountBalance[]>([]);
-  const [balancesLoading, setBalancesLoading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      setBalancesLoading(true);
-      try {
-        const res = await fetch("/api/schwab/balances");
-        if (!res.ok) return;
-        const data: AccountBalance[] = await res.json();
-        if (!cancelled) setAllBalances(data);
-      } catch {
-        // ignore
-      } finally {
-        if (!cancelled) setBalancesLoading(false);
       }
     }
     load();
@@ -422,7 +393,7 @@ const togglePrivacy = () => setPrivacyMode((p) => !p);
         tqqqAvgPrice,
         snapshotLoading,
         balances: allBalances,
-        balancesLoading,
+        balancesLoading: snapshotLoading,
       }}
     >
       {children}

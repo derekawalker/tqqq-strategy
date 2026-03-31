@@ -646,10 +646,42 @@ function OptionsPageInner() {
     : `0 contracts${callsAvailableShares !== 0 ? ` (${callsAvailableShares} sh)` : ""}`;
 
   if (snapshotLoading) {
+    const optCols = [45, 50, 35, 40, 45, 70];
+    const optRows = [35, 45, 25, 30, 40, 60];
     return (
-      <Stack>
-        <Skeleton height={40} radius="md" />
-        <Skeleton height={200} radius="md" />
+      <Stack gap="md">
+        <Skeleton height={28} width={90} radius="sm" />
+        <SimpleGrid cols={isMobile ? 1 : 2} spacing="xl">
+          {["Covered Calls", "Cash Secured Puts"].map((label, pi) => (
+            <Paper key={label} p="md" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-7)" }}>
+              <Stack gap="md">
+                <Group justify="space-between" align="flex-end">
+                  <Skeleton height={18} width={label.length * 7.5} radius="sm" />
+                  <Skeleton height={30} width={90} radius="sm" />
+                </Group>
+                <Skeleton height={48} radius="md" />
+                <Table>
+                  <Table.Thead>
+                    <Table.Tr>
+                      {optCols.map((w, i) => (
+                        <Table.Th key={i}><Skeleton height={11} width={w} radius="sm" /></Table.Th>
+                      ))}
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {Array.from({ length: 6 }).map((_, i) => (
+                      <Table.Tr key={i} style={{ opacity: i > 4 ? 0.4 : 1 }}>
+                        {optRows.map((w, j) => (
+                          <Table.Td key={j}><Skeleton height={13} width={w + ((i + pi) % 3 === 0 && j > 0 ? 8 : 0)} radius="sm" /></Table.Td>
+                        ))}
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </Stack>
+            </Paper>
+          ))}
+        </SimpleGrid>
       </Stack>
     );
   }

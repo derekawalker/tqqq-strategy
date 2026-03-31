@@ -210,7 +210,26 @@ export default function FilledOrdersPage() {
       )}
 
       {loading ? (
-        <Stack>{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} height={36} radius="sm" />)}</Stack>
+        <Table>
+          <Table.Thead>
+            <Table.Tr>
+              {["Time", "Side", "Shares", "Fill Price", "Total"].map((col) => (
+                <Table.Th key={col}><Skeleton height={11} width={col.length * 6.5} radius="sm" /></Table.Th>
+              ))}
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Table.Tr key={i} style={{ opacity: i > 5 ? 0.4 : 1 }}>
+                <Table.Td><Skeleton height={13} width={52} radius="sm" /></Table.Td>
+                <Table.Td><Skeleton height={20} width={38} radius="xl" /></Table.Td>
+                <Table.Td><Skeleton height={13} width={38 + (i % 2) * 12} radius="sm" /></Table.Td>
+                <Table.Td><Skeleton height={13} width={55} radius="sm" /></Table.Td>
+                <Table.Td className="hide-mobile"><Skeleton height={13} width={65} radius="sm" /></Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
       ) : dayOrders.length === 0 ? (
         <Center h={150}><Text c="dimmed" size="sm">No filled orders on this date.</Text></Center>
       ) : (

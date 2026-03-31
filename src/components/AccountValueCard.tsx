@@ -29,7 +29,7 @@ const SEGMENTS = [
 type SegmentKey = typeof SEGMENTS[number]["key"];
 
 export function AccountValueCard() {
-  const { privacyMode, activeAccount, workingOrders } = useApp();
+  const { privacyMode, activeAccount, workingOrders, optionPositions } = useApp();
   const { balance, loading } = useBalances();
   const levelsSummary = useLevels();
 
@@ -70,6 +70,15 @@ export function AccountValueCard() {
     return total;
   }, [workingOrders, levelsSummary]);
 
+  const cspCollateral = useMemo(() => {
+    const puts = optionPositions.filter((p) => p.putCall === "PUT" && p.shortQty > 0);
+    if (puts.length === 0) return null;
+    return puts.reduce((sum, p) => sum + p.strike * 100 * p.shortQty, 0);
+  }, [optionPositions]);
+
+  const color = activeAccount?.color ?? "teal";
+  const bg = useCardBg(color);
+
   if (loading && !balance) {
     return (
       <Paper p="md" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-8)", height: "100%" }}>
@@ -83,8 +92,6 @@ export function AccountValueCard() {
   }
 
   const total = balance?.totalValue ?? 0;
-  const color = activeAccount?.color ?? "teal";
-  const bg = useCardBg(color);
 
   const segments = SEGMENTS.map((s) => ({
     ...s,
@@ -158,6 +165,14 @@ export function AccountValueCard() {
         {/* Divider + pending / available */}
         <Stack gap={6} mt="auto">
           <Box style={{ height: 1, background: "var(--mantine-color-dark-4)" }} />
+          {cspCollateral != null && (
+            <Group justify="space-between">
+              <Text size="xs" c="dimmed">CSP collateral</Text>
+              <Text size="xs" fw={600} c="grape">
+                {mask(`$${fmt(cspCollateral)}`)}
+              </Text>
+            </Group>
+          )}
           <Group justify="space-between">
             <Text size="xs" c="dimmed">Pending trades</Text>
             <Text size="xs" fw={600} c="orange">

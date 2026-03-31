@@ -103,10 +103,45 @@ export default function WorkingOrdersPage() {
 
 
   if (snapshotLoading) {
+    const colWidths = [40, 55, 30, 30, 70, 70, 60];
     return (
-      <Stack>
-        <Skeleton height={36} width={160} radius="md" />
-        <Skeleton height={300} radius="md" />
+      <Stack gap="md">
+        <Group justify="space-between" wrap="nowrap" align="flex-end">
+          <Skeleton height={28} width={185} radius="sm" />
+          <Group wrap="nowrap" gap="md">
+            {[["Warn Qty", 90], ["Buffer levels", 90]].map(([label, w]) => (
+              <Stack key={label} gap={4}>
+                <Skeleton height={11} width={Number(w) - 10} radius="sm" />
+                <Skeleton height={30} width={Number(w)} radius="sm" />
+              </Stack>
+            ))}
+          </Group>
+        </Group>
+
+        <ScrollArea>
+          <Table>
+            <Table.Thead>
+              <Table.Tr>
+                {["Level", "Qty", "Buys", "Sells", "Buy Price", "Sell Price", "Cost"].map((col) => (
+                  <Table.Th key={col} ta="center">
+                    <Center><Skeleton height={11} width={col.length * 6.5} radius="sm" /></Center>
+                  </Table.Th>
+                ))}
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {Array.from({ length: 10 }).map((_, i) => (
+                <Table.Tr key={i} style={{ opacity: i > 6 ? 0.4 : 1 }}>
+                  {colWidths.map((w, j) => (
+                    <Table.Td key={j} ta="center">
+                      <Center><Skeleton height={13} width={w + (i % 3 === 0 && j > 3 ? 10 : 0)} radius="sm" /></Center>
+                    </Table.Td>
+                  ))}
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </ScrollArea>
       </Stack>
     );
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { Outfit } from "next/font/google";
 
 const outfit = Outfit({ subsets: ["latin"] });
@@ -364,12 +364,11 @@ export default function ProfitPage() {
     }
     return trades;
   }, [filledOptionOrders, expiredOptionOrders]);
-  const [period, setPeriod] = useState<string>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("tqqq-profit-period") ?? "month";
-    }
-    return "month";
-  });
+  const [period, setPeriod] = useState<string>("month");
+  useEffect(() => {
+    const saved = localStorage.getItem("tqqq-profit-period");
+    if (saved) setPeriod(saved);
+  }, []);
 
   const handlePeriodChange = (v: string | null) => {
     const next = v ?? "month";
@@ -567,9 +566,42 @@ export default function ProfitPage() {
 
   if (snapshotLoading) {
     return (
-      <Stack>
-        <Skeleton height={40} radius="md" />
-        <Skeleton height={300} radius="md" />
+      <Stack gap="md">
+        <Group justify="space-between" align="center">
+          <Skeleton height={28} width={155} radius="sm" />
+          <Group gap={4}>
+            {[52, 62, 72, 55, 75].map((w, i) => (
+              <Skeleton key={i} height={30} width={w} radius="sm" />
+            ))}
+          </Group>
+        </Group>
+        <ScrollArea type="scroll">
+          <Group gap="xs" wrap="nowrap" pb={4} pt={2} px={2} align="stretch">
+            {Array.from({ length: 7 }).map((_, i) => (
+              <Box key={i} style={{ minWidth: 110, flex: "1 0 110px", opacity: i > 4 ? 0.45 : 1 }}>
+                <Skeleton height={100} radius="md" />
+              </Box>
+            ))}
+          </Group>
+        </ScrollArea>
+        <Table>
+          <Table.Thead>
+            <Table.Tr>
+              {[85, 45, 65, 65, 55].map((w, i) => (
+                <Table.Th key={i}><Skeleton height={11} width={w} radius="sm" /></Table.Th>
+              ))}
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {Array.from({ length: 8 }).map((_, i) => (
+              <Table.Tr key={i} style={{ opacity: i > 5 ? 0.4 : 1 }}>
+                {[75, 35, 55, 55, 50].map((w, j) => (
+                  <Table.Td key={j}><Skeleton height={13} width={w + (i % 3 === 0 && j === 0 ? 10 : 0)} radius="sm" /></Table.Td>
+                ))}
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
       </Stack>
     );
   }

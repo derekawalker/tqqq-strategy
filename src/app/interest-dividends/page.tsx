@@ -45,9 +45,38 @@ export default function InterestDividendsPage() {
 
   if (snapshotLoading) {
     return (
-      <Stack>
-        <Skeleton height={80} radius="md" />
-        <Skeleton height={300} radius="md" />
+      <Stack gap="md">
+        <Skeleton height={28} width={200} radius="sm" />
+        <SimpleGrid cols={3} spacing="md">
+          {["Dividends", "Interest", "Total"].map((label) => (
+            <Paper key={label} p="md" radius={CARD_RADIUS} style={{ background: bg }}>
+              <Stack align="center" gap={6}>
+                <Skeleton height={11} width={label.length * 7} radius="sm" />
+                <Skeleton height={22} width={80} radius="sm" />
+              </Stack>
+            </Paper>
+          ))}
+        </SimpleGrid>
+        <Table>
+          <Table.Thead>
+            <Table.Tr>
+              {["Date", "Description", "Symbol", "Type", "Amount"].map((col) => (
+                <Table.Th key={col}><Skeleton height={11} width={col.length * 6.5} radius="sm" /></Table.Th>
+              ))}
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {Array.from({ length: 10 }).map((_, i) => (
+              <Table.Tr key={i} style={{ opacity: i > 7 ? 0.4 : 1 }}>
+                <Table.Td><Skeleton height={13} width={52} radius="sm" /></Table.Td>
+                <Table.Td><Skeleton height={13} width={100 + (i % 3) * 25} radius="sm" /></Table.Td>
+                <Table.Td className="hide-mobile"><Skeleton height={13} width={42} radius="sm" /></Table.Td>
+                <Table.Td><Skeleton height={18} width={58} radius="xl" /></Table.Td>
+                <Table.Td><Skeleton height={13} width={55} radius="sm" style={{ marginLeft: "auto" }} /></Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
       </Stack>
     );
   }
