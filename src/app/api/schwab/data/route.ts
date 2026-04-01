@@ -57,14 +57,13 @@ function parseTransaction(t: any, accountNumber: string): Transaction | null {
   if (amount === 0) return null;
 
   const description: string = t.description ?? "";
-  const category: "dividend" | "interest" = description.toUpperCase().includes("DIVIDEND")
-    ? "dividend"
-    : "interest";
+  // Schwab puts all div/interest transactions in DIVIDEND_OR_INTEREST type.
+  // subAccount "MARGIN" means the payment came from a security position (dividend);
+  // subAccount "CASH" means it's money market or bank interest.
+  const category: "dividend" | "interest" = t.subAccount === "MARGIN" ? "dividend" : "interest";
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const symbol: string | null = t.transferItems?.[0]?.instrument?.symbol ?? null;
-
-  return { activityId: t.activityId, accountNumber, time: t.time, description, symbol, amount, category };
+  // transferItems only ever contains CURRENCY_USD — no ticker is available from the API.
+  return { activityId: t.activityId, accountNumber, time: t.time, description, symbol: null, amount, category };
 }
 
 async function fetchAccountData(

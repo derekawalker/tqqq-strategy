@@ -60,7 +60,7 @@ export default function InterestDividendsPage() {
         <Table>
           <Table.Thead>
             <Table.Tr>
-              {["Date", "Description", "Symbol", "Type", "Amount"].map((col) => (
+              {["Date", "Description", "Type", "Amount"].map((col) => (
                 <Table.Th key={col}><Skeleton height={11} width={col.length * 6.5} radius="sm" /></Table.Th>
               ))}
             </Table.Tr>
@@ -70,7 +70,7 @@ export default function InterestDividendsPage() {
               <Table.Tr key={i} style={{ opacity: i > 7 ? 0.4 : 1 }}>
                 <Table.Td><Skeleton height={13} width={52} radius="sm" /></Table.Td>
                 <Table.Td><Skeleton height={13} width={100 + (i % 3) * 25} radius="sm" /></Table.Td>
-                <Table.Td className="hide-mobile"><Skeleton height={13} width={42} radius="sm" /></Table.Td>
+
                 <Table.Td><Skeleton height={18} width={58} radius="xl" /></Table.Td>
                 <Table.Td><Skeleton height={13} width={55} radius="sm" style={{ marginLeft: "auto" }} /></Table.Td>
               </Table.Tr>
@@ -120,7 +120,7 @@ export default function InterestDividendsPage() {
                 <Table.Tr>
                   <Table.Th>Date</Table.Th>
                   <Table.Th>Description</Table.Th>
-                  <Table.Th className="hide-mobile">Symbol</Table.Th>
+
                   <Table.Th>Type</Table.Th>
                   <Table.Th ta="right">Amount</Table.Th>
                 </Table.Tr>
@@ -134,9 +134,7 @@ export default function InterestDividendsPage() {
                     <Table.Td style={{ maxWidth: isMobile ? 120 : undefined }}>
                       <Text size="sm" truncate="end">{t.description}</Text>
                     </Table.Td>
-                    <Table.Td className="hide-mobile">
-                      <Text size="sm" c="dimmed">{t.symbol ?? "—"}</Text>
-                    </Table.Td>
+
                     <Table.Td>
                       <Badge
                         size="sm"
