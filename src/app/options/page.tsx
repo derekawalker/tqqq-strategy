@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, Suspense } from "react";
+import { useMemo, useState, Suspense, Fragment } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Table, Text, Group, Stack, Skeleton, Center, NumberInput,
@@ -47,14 +47,14 @@ function getPutSentiment(pct: number, trend: number): SentimentMsg | null {
     : { text: "Strong down day without a sustained downtrend — likely to bounce, great time to sell puts", good: true };
   if (pct <= -2) return trend === -1
     ? { text: "Down day in a 3-day downtrend — price has momentum, be selective with your strike", good: false }
-    : { text: "Notable down move — good opportunity to sell puts", good: true };
+    : { text: "Notable down move in a 3-day downtrend — good opportunity to sell puts", good: true };
   if (pct <= -1) return trend === -1
     ? { text: "Minor down day in a 3-day downtrend — momentum is working against puts", good: false }
-    : { text: "Minor down move — puts have some premium", good: true };
-  if (pct >= 5)  return { text: "Major up day — do not sell puts", good: false };
-  if (pct >= 3)  return { text: "Strong up day — avoid selling puts", good: false };
-  if (pct >= 2)  return { text: "Up move — wait for a down day to sell puts", good: false };
-  if (pct >= 1)  return { text: "Minor up move — puts have less premium today", good: false };
+    : { text: "Minor down move in a 3-day downtrend — puts have some premium", good: true };
+  if (pct >= 5)  return { text: "Major up day but no sustained uptrend — do not sell puts", good: false };
+  if (pct >= 3)  return { text: "Strong up day but no sustained uptrend — avoid selling puts", good: false };
+  if (pct >= 2)  return { text: "Up move but no sustained uptrend — wait for a down day to sell puts", good: false };
+  if (pct >= 1)  return { text: "Minor up move but no sustained uptrend — puts have less premium today", good: false };
   return null;
 }
 
@@ -154,6 +154,7 @@ interface CallRow {
   contracts: number;
   carryOut: number;
   inSafeZone: boolean;
+  itm: boolean;
   position: OptionPosition | null;
 }
 
@@ -163,6 +164,7 @@ function buildCallRows(
   currentLevel: number,
   safetyLevels: number,
   positions: OptionPosition[],
+  currentPrice: number,
 ): CallRow[] {
   const maxSafe = currentLevel - safetyLevels;
 
@@ -177,14 +179,15 @@ function buildCallRows(
   const lowStrike  = callStrikeForLevel(levels[currentLevel]);
   const safeEdge   = callStrikeForLevel(levels[Math.max(0, maxSafe)]);
 
-  // If any open position is ITM (strike below current price), extend the table down to it
+  // Always show 2 rows below the current price; extend further if an open position is ITM
   const lowestPositionStrike = positions.reduce<number | null>(
     (min, p) => (min === null ? p.strike : Math.min(min, p.strike)),
     null,
   );
-  const extendedLowStrike = lowestPositionStrike !== null && lowestPositionStrike < lowStrike
+  const itmFloor = lowestPositionStrike !== null && lowestPositionStrike < lowStrike
     ? Math.floor(lowestPositionStrike / 0.5) * 0.5
     : lowStrike;
+  const extendedLowStrike = Math.min(itmFloor, lowStrike - 1.0);
 
   const rows: CallRow[] = [];
   let carryIn = 0;
@@ -193,6 +196,7 @@ function buildCallRows(
     const strike = Math.round(s * 100) / 100;
     const levelNums = strikeToLevels.get(strike) ?? [];
     const inSafeZone = strike >= safeEdge;
+    const itm = strike < currentPrice;
 
     const ownedShares = levelNums
       .filter((n) => inSafeZone && n <= maxSafe && ownedSet.has(n))
@@ -202,7 +206,7 @@ function buildCallRows(
     const contracts = inSafeZone ? Math.floor(total / 100) : 0;
     const carryOut  = inSafeZone ? total % 100 : 0;
 
-    rows.push({ strike, levelNums, ownedShares, carryIn, contracts, carryOut, inSafeZone, position: matchPosition(positions, strike) });
+    rows.push({ strike, levelNums, ownedShares, carryIn, contracts, carryOut, inSafeZone, itm, position: matchPosition(positions, strike) });
 
     carryIn = carryOut;
   }
@@ -422,18 +426,26 @@ function CallsTable({
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {rows.map((row) => {
+            {rows.map((row, i) => {
               const dim = !row.position && (!row.inSafeZone || row.contracts === 0);
               const isCurrent = row.levelNums.includes(currentLevel);
+              const isItmBoundary = row.itm && !rows[i - 1]?.itm;
               return (
-                <Table.Tr
-                  key={row.strike}
-                  bg={isCurrent ? "dark.4" : row.inSafeZone ? `var(--mantine-color-${color}-light-hover)` : undefined}
-                  style={{
-                    opacity: dim && !isCurrent ? 0.4 : 1,
-                    ...(isCurrent ? { borderLeft: `3px solid var(--mantine-color-${color}-5)` } : {}),
-                  }}
-                >
+                <Fragment key={row.strike}>
+                  {isItmBoundary && (
+                    <Table.Tr bg="rgba(251,146,60,0.15)">
+                      <Table.Td colSpan={6} py={2} style={{ textAlign: "center" }}>
+                        <Text size="9px" fw={700} c="rgba(251,146,60,0.8)" tt="uppercase" style={{ letterSpacing: "0.08em" }}>▼ ITM ▼</Text>
+                      </Table.Td>
+                    </Table.Tr>
+                  )}
+                  <Table.Tr
+                    bg={isCurrent ? "dark.4" : row.inSafeZone ? `var(--mantine-color-${color}-light-hover)` : undefined}
+                    style={{
+                      opacity: dim && !isCurrent ? 0.4 : 1,
+                      ...(isCurrent ? { borderLeft: `3px solid var(--mantine-color-${color}-5)` } : {}),
+                    }}
+                  >
                   <Table.Td style={{ position: "relative" }}>
                     {isCurrent && (
                       <Tooltip label="Current price level" withArrow>
@@ -467,6 +479,7 @@ function CallsTable({
                   </Table.Td>
                   <PositionCells position={row.position} color={color} privacyMode={privacyMode} inSafeZone={row.inSafeZone} />
                 </Table.Tr>
+                </Fragment>
               );
             })}
           </Table.Tbody>
@@ -644,8 +657,8 @@ function OptionsPageInner() {
     const currentLevel = levelsSummary?.currentLevel ?? -1;
     if (levels.length === 0 || currentLevel < 1) return [];
     const ownedSet = new Set(levelsSummary?.ownedLevels.map((l) => l.n) ?? []);
-    return buildCallRows(levels, ownedSet, currentLevel, callSafety, calls);
-  }, [levelsSummary, callSafety, calls]);
+    return buildCallRows(levels, ownedSet, currentLevel, callSafety, calls, quote.price);
+  }, [levelsSummary, callSafety, calls, quote.price]);
 
   const putRows = useMemo(() => {
     const levels = levelsSummary?.levels ?? [];
