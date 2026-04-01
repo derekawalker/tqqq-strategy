@@ -224,6 +224,7 @@ interface PutRow {
   contracts: number;
   carryOut: number;
   inSafeZone: boolean;
+  itm: boolean;
   position: OptionPosition | null;
 }
 
@@ -232,6 +233,7 @@ function buildPutRows(
   currentLevel: number,
   safetyLevels: number,
   positions: OptionPosition[],
+  currentPrice: number,
 ): PutRow[] {
   const minSafe = currentLevel + safetyLevels;  // first level index in safe zone
 
@@ -247,14 +249,24 @@ function buildPutRows(
   const lowStrike  = putStrikeForLevel(levels[levels.length - 1]);
   const safeEdge   = putStrikeForLevel(levels[Math.min(minSafe, levels.length - 1)]);
 
+  // Always show 2 rows above the normal top; extend further if an open position is ITM
+  const highestPositionStrike = positions.reduce<number | null>(
+    (max, p) => (max === null ? p.strike : Math.max(max, p.strike)),
+    null,
+  );
+  const itmCeiling = highestPositionStrike !== null && highestPositionStrike > highStrike
+    ? Math.ceil(highestPositionStrike / 0.5) * 0.5
+    : highStrike;
+  const extendedHighStrike = Math.max(itmCeiling + 1.0, highStrike + 1.0);
+
   const rows: PutRow[] = [];
   let carryIn = 0;
 
-  for (let s = highStrike; s >= lowStrike - 0.01; s = Math.round((s - 0.5) * 100) / 100) {
+  for (let s = extendedHighStrike; s >= lowStrike - 0.01; s = Math.round((s - 0.5) * 100) / 100) {
     const strike = Math.round(s * 100) / 100;
     const levelNums = strikeToLevels.get(strike) ?? [];
-    // Safe zone for puts: at or below the safe edge price
     const inSafeZone = strike <= safeEdge;
+    const itm = strike > currentPrice;
 
     const levelShares = levelNums
       .filter((n) => inSafeZone && n >= minSafe)
@@ -264,7 +276,7 @@ function buildPutRows(
     const contracts = inSafeZone ? Math.floor(total / 100) : 0;
     const carryOut  = inSafeZone ? total % 100 : 0;
 
-    rows.push({ strike, levelNums, levelShares, carryIn, contracts, carryOut, inSafeZone, position: matchPosition(positions, strike) });
+    rows.push({ strike, levelNums, levelShares, carryIn, contracts, carryOut, inSafeZone, itm, position: matchPosition(positions, strike) });
 
     carryIn = carryOut;
   }
@@ -557,12 +569,20 @@ function PutsTable({
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {rows.map((row) => {
+            {rows.map((row, i) => {
               const dim = !row.position && (!row.inSafeZone || row.contracts === 0);
               const isCurrent = row.levelNums.includes(currentLevel);
+              const isItmBoundary = !row.itm && rows[i - 1]?.itm;
               return (
+                <Fragment key={row.strike}>
+                  {isItmBoundary && (
+                    <Table.Tr bg="rgba(251,146,60,0.15)">
+                      <Table.Td colSpan={6} py={2} style={{ textAlign: "center" }}>
+                        <Text size="9px" fw={700} c="rgba(251,146,60,0.8)" tt="uppercase" style={{ letterSpacing: "0.08em" }}>▲ ITM ▲</Text>
+                      </Table.Td>
+                    </Table.Tr>
+                  )}
                 <Table.Tr
-                  key={row.strike}
                   bg={isCurrent ? "dark.4" : row.inSafeZone ? `var(--mantine-color-${color}-light-hover)` : undefined}
                   style={{
                     opacity: dim && !isCurrent ? 0.4 : 1,
@@ -602,6 +622,7 @@ function PutsTable({
                   </Table.Td>
                   <PositionCells position={row.position} color={color} privacyMode={privacyMode} inSafeZone={row.inSafeZone} />
                 </Table.Tr>
+                </Fragment>
               );
             })}
           </Table.Tbody>
@@ -664,8 +685,8 @@ function OptionsPageInner() {
     const levels = levelsSummary?.levels ?? [];
     const currentLevel = levelsSummary?.currentLevel ?? -1;
     if (levels.length === 0 || currentLevel < 0) return [];
-    return buildPutRows(levels, currentLevel, putSafety, puts);
-  }, [levelsSummary, putSafety, puts]);
+    return buildPutRows(levels, currentLevel, putSafety, puts, quote.price);
+  }, [levelsSummary, putSafety, puts, quote.price]);
 
   const activeBalance = useMemo(
     () => balances.find((b) => b.accountNumber === activeAccount?.accountNumber) ?? null,
