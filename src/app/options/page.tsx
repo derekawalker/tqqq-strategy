@@ -18,29 +18,41 @@ import type { Level } from "@/lib/levels";
 
 interface SentimentMsg { text: string; good: boolean }
 
-function getCallSentiment(pct: number): SentimentMsg | null {
-  if (pct >= 5)  return { text: "Major up day — excellent time to sell calls", good: true };
-  if (pct >= 4)  return { text: "Strong up day — great call premium available", good: true };
-  if (pct >= 3)  return { text: "Up day — good opportunity to sell calls", good: true };
-  if (pct >= 2)  return { text: "Notable up move — consider selling calls", good: true };
-  if (pct >= 1)  return { text: "Minor up move — calls have some premium", good: true };
+function getCallSentiment(pct: number, trend: number): SentimentMsg | null {
+  if (pct >= 5) return trend === 1
+    ? { text: "Major up day in a 3-day uptrend — momentum may continue, be selective with your strike", good: false }
+    : { text: "Major up day without a sustained uptrend — likely to reverse, excellent time to sell calls", good: true };
+  if (pct >= 3) return trend === 1
+    ? { text: "Strong up day in a 3-day uptrend — momentum is against you, choose a conservative strike", good: false }
+    : { text: "Strong up day without a sustained uptrend — likely to pull back, great time to sell calls", good: true };
+  if (pct >= 2) return trend === 1
+    ? { text: "Up day in a 3-day uptrend — price has momentum, be selective with your strike", good: false }
+    : { text: "Notable up move — good opportunity to sell calls", good: true };
+  if (pct >= 1) return trend === 1
+    ? { text: "Minor up day in a 3-day uptrend — momentum is working against calls", good: false }
+    : { text: "Minor up move — calls have some premium", good: true };
   if (pct <= -5) return { text: "Major down day — do not sell calls", good: false };
-  if (pct <= -4) return { text: "Strong down day — avoid selling calls", good: false };
-  if (pct <= -3) return { text: "Down day — hold off on calls", good: false };
+  if (pct <= -3) return { text: "Strong down day — avoid selling calls", good: false };
   if (pct <= -2) return { text: "Down move — wait for a better day to sell calls", good: false };
   if (pct <= -1) return { text: "Minor down move — calls have less premium today", good: false };
   return null;
 }
 
-function getPutSentiment(pct: number): SentimentMsg | null {
-  if (pct <= -5) return { text: "Major down day — prime time to sell puts", good: true };
-  if (pct <= -4) return { text: "Strong down day — excellent put premium", good: true };
-  if (pct <= -3) return { text: "Down day — good opportunity to sell puts", good: true };
-  if (pct <= -2) return { text: "Notable down move — consider selling puts", good: true };
-  if (pct <= -1) return { text: "Minor down move — puts have some premium", good: true };
+function getPutSentiment(pct: number, trend: number): SentimentMsg | null {
+  if (pct <= -5) return trend === -1
+    ? { text: "Major down day in a 3-day downtrend — momentum may continue, be selective with your strike", good: false }
+    : { text: "Major down day without a sustained downtrend — likely to reverse, excellent time to sell puts", good: true };
+  if (pct <= -3) return trend === -1
+    ? { text: "Strong down day in a 3-day downtrend — momentum is against you, choose a conservative strike", good: false }
+    : { text: "Strong down day without a sustained downtrend — likely to bounce, great time to sell puts", good: true };
+  if (pct <= -2) return trend === -1
+    ? { text: "Down day in a 3-day downtrend — price has momentum, be selective with your strike", good: false }
+    : { text: "Notable down move — good opportunity to sell puts", good: true };
+  if (pct <= -1) return trend === -1
+    ? { text: "Minor down day in a 3-day downtrend — momentum is working against puts", good: false }
+    : { text: "Minor down move — puts have some premium", good: true };
   if (pct >= 5)  return { text: "Major up day — do not sell puts", good: false };
-  if (pct >= 4)  return { text: "Strong up day — avoid selling puts", good: false };
-  if (pct >= 3)  return { text: "Up day — hold off on puts", good: false };
+  if (pct >= 3)  return { text: "Strong up day — avoid selling puts", good: false };
   if (pct >= 2)  return { text: "Up move — wait for a down day to sell puts", good: false };
   if (pct >= 1)  return { text: "Minor up move — puts have less premium today", good: false };
   return null;
@@ -165,10 +177,19 @@ function buildCallRows(
   const lowStrike  = callStrikeForLevel(levels[currentLevel]);
   const safeEdge   = callStrikeForLevel(levels[Math.max(0, maxSafe)]);
 
+  // If any open position is ITM (strike below current price), extend the table down to it
+  const lowestPositionStrike = positions.reduce<number | null>(
+    (min, p) => (min === null ? p.strike : Math.min(min, p.strike)),
+    null,
+  );
+  const extendedLowStrike = lowestPositionStrike !== null && lowestPositionStrike < lowStrike
+    ? Math.floor(lowestPositionStrike / 0.5) * 0.5
+    : lowStrike;
+
   const rows: CallRow[] = [];
   let carryIn = 0;
 
-  for (let s = highStrike; s >= lowStrike - 0.01; s = Math.round((s - 0.5) * 100) / 100) {
+  for (let s = highStrike; s >= extendedLowStrike - 0.01; s = Math.round((s - 0.5) * 100) / 100) {
     const strike = Math.round(s * 100) / 100;
     const levelNums = strikeToLevels.get(strike) ?? [];
     const inSafeZone = strike >= safeEdge;
@@ -336,7 +357,7 @@ function PositionCells({
 // ── calls table ───────────────────────────────────────────────────────────
 
 function CallsTable({
-  rows, color, safetyLevels, onSafetyChange, privacyMode, currentLevel, changePercent,
+  rows, color, safetyLevels, onSafetyChange, privacyMode, currentLevel, changePercent, trend,
   totalValue, callsAvailableLabel, btoPositions,
 }: {
   rows: CallRow[];
@@ -346,6 +367,7 @@ function CallsTable({
   privacyMode: boolean;
   currentLevel: number;
   changePercent: number;
+  trend: number;
   totalValue: number;
   callsAvailableLabel: string;
   btoPositions: OptionPosition[];
@@ -374,7 +396,7 @@ function CallsTable({
         privacyMode={privacyMode}
       />
 
-      <SentimentBanner msg={getCallSentiment(changePercent)} />
+      <SentimentBanner msg={getCallSentiment(changePercent, trend)} />
 
       {btoPositions.length > 0 && (
         <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
@@ -457,7 +479,7 @@ function CallsTable({
 // ── puts table ────────────────────────────────────────────────────────────
 
 function PutsTable({
-  rows, color, safetyLevels, onSafetyChange, privacyMode, currentLevel, changePercent,
+  rows, color, safetyLevels, onSafetyChange, privacyMode, currentLevel, changePercent, trend,
   totalValue, availableCash, btoPositions,
 }: {
   rows: PutRow[];
@@ -467,6 +489,7 @@ function PutsTable({
   privacyMode: boolean;
   currentLevel: number;
   changePercent: number;
+  trend: number;
   totalValue: number;
   availableCash: number;
   btoPositions: OptionPosition[];
@@ -495,7 +518,7 @@ function PutsTable({
         privacyMode={privacyMode}
       />
 
-      <SentimentBanner msg={getPutSentiment(changePercent)} />
+      <SentimentBanner msg={getPutSentiment(changePercent, trend)} />
 
       {btoPositions.length > 0 && (
         <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
@@ -580,6 +603,7 @@ function PutsTable({
 function OptionsPageInner() {
   const { optionPositions, snapshotLoading, activeAccount, privacyMode, updateAccountSettings, quote, tqqqShares, workingOrders, balances } = useApp();
   const changePercent = quote.loading ? 0 : quote.changePercent;
+  const trend = quote.loading ? 0 : quote.trend;
   const levelsSummary = useLevels();
   const color = activeAccount?.color ?? "blue";
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -728,6 +752,7 @@ function OptionsPageInner() {
               privacyMode={privacyMode}
               currentLevel={levelsSummary?.currentLevel ?? -1}
               changePercent={changePercent}
+              trend={trend}
               totalValue={callsTotalValue}
               callsAvailableLabel={callsAvailableLabel}
               btoPositions={callBtoPositions}
@@ -741,6 +766,7 @@ function OptionsPageInner() {
               privacyMode={privacyMode}
               currentLevel={levelsSummary?.currentLevel ?? -1}
               changePercent={changePercent}
+              trend={trend}
               totalValue={putsTotalValue}
               availableCash={putsAvailableCash}
               btoPositions={putBtoPositions}
@@ -763,6 +789,7 @@ function OptionsPageInner() {
           privacyMode={privacyMode}
           currentLevel={levelsSummary?.currentLevel ?? -1}
           changePercent={changePercent}
+          trend={trend}
           totalValue={callsTotalValue}
           callsAvailableLabel={callsAvailableLabel}
           btoPositions={callBtoPositions}
@@ -777,6 +804,7 @@ function OptionsPageInner() {
           privacyMode={privacyMode}
           currentLevel={levelsSummary?.currentLevel ?? -1}
           changePercent={changePercent}
+          trend={trend}
           totalValue={putsTotalValue}
           availableCash={putsAvailableCash}
           btoPositions={putBtoPositions}

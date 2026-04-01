@@ -39,6 +39,8 @@ const DEFAULT_SETTINGS: AccountSettings = {
 export interface Quote {
   price: number;
   changePercent: number;
+  /** 1 = 3 consecutive up days, -1 = 3 consecutive down days, 0 = mixed/unknown */
+  trend: number;
   loading: boolean;
 }
 
@@ -239,7 +241,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     init();
     return () => { cancelled = true; };
   }, []);
-  const [quote, setQuote] = useState<Quote>({ price: 0, changePercent: 0, loading: true });
+  const [quote, setQuote] = useState<Quote>({ price: 0, changePercent: 0, trend: 0, loading: true });
   const [refreshTick, setRefreshTick] = useState(0);
   const [quoteTick, setQuoteTick] = useState(0);
   const [allFilledOrders, setAllFilledOrders] = useState<FilledOrder[]>([]);

@@ -141,7 +141,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
         const res = await fetch("/api/quote");
         const data = await res.json();
         if (!cancelled && data.price != null)
-          setQuote({ price: data.price, changePercent: data.changePercent, loading: false });
+          setQuote({ price: data.price, changePercent: data.changePercent, trend: data.trend ?? 0, loading: false });
       } catch {
         if (!cancelled) setQuote((q) => ({ ...q, loading: false }));
       }
