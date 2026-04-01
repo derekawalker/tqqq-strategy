@@ -222,7 +222,7 @@ export default function WorkingOrdersPage() {
                     {isCurrent && (
                       <Tooltip label="Current price level" withArrow>
                         <IconPlayerPlayFilled
-                          size={16}
+                          size={10}
                           color={`var(--mantine-color-${activeAccount?.color ?? "blue"}-5)`}
                           style={{ position: "absolute", left: -4, top: "50%", transform: "translateY(-50%)", cursor: "default" }}
                         />
@@ -239,28 +239,37 @@ export default function WorkingOrdersPage() {
                           <IconCopy size={14} color="rgba(250,82,82,0.9)" style={{ cursor: "default" }} />
                         </Tooltip>
                       )}
-                      {bufferMissing && (
-                        <Tooltip label="Buffer zone — orders should be open on this level" withArrow>
-                          <IconAlertTriangle size={14} color="var(--mantine-color-orange-5)" style={{ cursor: "default" }} />
-                        </Tooltip>
-                      )}
                       <Text size="sm" fw={500}>{row.levelIndex >= 0 ? row.levelIndex : "—"}</Text>
                     </Group>
                   </Table.Td>
                   <Table.Td ta="center"><Text size="sm">{fmt(row.shares, 0)}</Text></Table.Td>
                   <Table.Td ta="center">
-                    {buyWarn
-                      ? <Badge variant="filled" size="md" fw={700} style={{ background: "rgba(251,146,60,0.9)", color: "#fff" }}>{row.buys}</Badge>
-                      : row.buys > 0
-                        ? <Text size="sm" c="teal">{row.buys}</Text>
-                        : <Text size="sm" c="dimmed">—</Text>}
+                    <Group justify="center" gap={4} wrap="nowrap">
+                      {inBuffer && row.buys === 0 && (
+                        <Tooltip label="Buffer zone — buy order should be open on this level" withArrow>
+                          <IconAlertTriangle size={14} color="var(--mantine-color-orange-5)" style={{ cursor: "default" }} />
+                        </Tooltip>
+                      )}
+                      {buyWarn
+                        ? <Badge variant="filled" size="md" fw={700} style={{ background: "rgba(251,146,60,0.9)", color: "#fff" }}>{row.buys}</Badge>
+                        : row.buys > 0
+                          ? <Text size="sm" c="teal">{row.buys}</Text>
+                          : <Text size="sm" c="dimmed">—</Text>}
+                    </Group>
                   </Table.Td>
                   <Table.Td ta="center">
-                    {sellWarn
-                      ? <Badge variant="filled" size="md" fw={700} style={{ background: "rgba(251,146,60,0.9)", color: "#fff" }}>{row.sells}</Badge>
-                      : row.sells > 0
-                        ? <Text size="sm" c="red">{row.sells}</Text>
-                        : <Text size="sm" c="dimmed">—</Text>}
+                    <Group justify="center" gap={4} wrap="nowrap">
+                      {inBuffer && row.sells === 0 && (
+                        <Tooltip label="Buffer zone — sell order should be open on this level" withArrow>
+                          <IconAlertTriangle size={14} color="var(--mantine-color-orange-5)" style={{ cursor: "default" }} />
+                        </Tooltip>
+                      )}
+                      {sellWarn
+                        ? <Badge variant="filled" size="md" fw={700} style={{ background: "rgba(251,146,60,0.9)", color: "#fff" }}>{row.sells}</Badge>
+                        : row.sells > 0
+                          ? <Text size="sm" c="red">{row.sells}</Text>
+                          : <Text size="sm" c="dimmed">—</Text>}
+                    </Group>
                   </Table.Td>
                   <Table.Td ta="center">
                     <Text size="sm" c="dimmed">{row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text>

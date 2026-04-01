@@ -1,8 +1,8 @@
 "use client";
 
 import { Fragment, useRef, useEffect } from "react";
-import { Table, Text, Center, ThemeIcon, Alert, Stack } from "@mantine/core";
-import { IconCheck, IconAlertTriangle } from "@tabler/icons-react";
+import { Table, Text, Center, ThemeIcon, Alert, Stack, Tooltip } from "@mantine/core";
+import { IconCheck, IconAlertTriangle, IconPlayerPlayFilled } from "@tabler/icons-react";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
@@ -117,7 +117,16 @@ export default function LevelsPage() {
               <Fragment key={n}>
                 {inRange && <ProgressRow progress={progress} color={accountColor} paddingTop={6} paddingBottom={0} cols={isMobile ? 5 : 7} />}
                 <Table.Tr ref={inRange ? currentRowRef : undefined} style={inRange ? { background: `color-mix(in srgb, var(--mantine-color-${accountColor}-7) 8%, transparent)` } : undefined}>
-                  <Table.Td>
+                  <Table.Td style={{ position: "relative" }}>
+                    {inRange && (
+                      <Tooltip label="Current price level" withArrow>
+                        <IconPlayerPlayFilled
+                          size={10}
+                          color={`var(--mantine-color-${accountColor}-5)`}
+                          style={{ position: "absolute", left: -4, top: "50%", transform: "translateY(-50%)", cursor: "default" }}
+                        />
+                      </Tooltip>
+                    )}
                     {owned && (
                       <ThemeIcon variant="subtle" color="teal" size="sm">
                         <IconCheck size={12} />

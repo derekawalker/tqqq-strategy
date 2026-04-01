@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { Paper, Text, Stack } from "@mantine/core";
+import { Paper, Text, Stack, Tooltip, Group } from "@mantine/core";
+import { IconInfoCircle } from "@tabler/icons-react";
 import { Outfit } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/context/AppContext";
@@ -50,7 +51,12 @@ export function GainLossCard() {
   return (
     <Paper p="md" radius={CARD_RADIUS} onClick={() => router.push("/profit-tracker")} style={{ background: bg, cursor: "pointer", height: "100%" }}>
       <Stack gap="md" align="center">
-        <Text c="dimmed" tt="uppercase" fw={600} style={CARD_LABEL_STYLE}>Gain / Loss</Text>
+        <Group gap={4} align="center">
+          <Text c="dimmed" tt="uppercase" fw={600} style={CARD_LABEL_STYLE}>Gain / Loss</Text>
+          <Tooltip label="Difference between your starting cash (set in Settings) and current account liquidation value" withArrow multiline w={260} radius="xs">
+            <IconInfoCircle size={13} style={{ color: "var(--mantine-color-dimmed)", cursor: "default", marginTop: 1 }} />
+          </Tooltip>
+        </Group>
         <Text
           component="div"
         >

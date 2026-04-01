@@ -31,6 +31,7 @@ tr[data-with-row-border] { border-bottom: none !important; }
 @media (max-width: 768px) {
   .hide-mobile { display: none; }
   .profit-tab { font-size: var(--mantine-font-size-xs) !important; padding: 6px 10px !important; }
+  th { font-size: var(--mantine-font-size-xs) !important; }
 }
 .dash-chart    { grid-column: span 2; }
 .dash-level    { grid-column: span 3; }

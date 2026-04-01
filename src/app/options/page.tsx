@@ -4,13 +4,13 @@ import { useMemo, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Table, Text, Group, Stack, Skeleton, Center, NumberInput,
-  SimpleGrid, Badge, Box, SegmentedControl, Alert, Paper, Divider,
+  SimpleGrid, Badge, Box, SegmentedControl, Alert, Paper, Divider, Tooltip,
 } from "@mantine/core";
 import { CARD_RADIUS } from "@/lib/cardStyles";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
-import { IconArrowRight, IconTrendingUp, IconTrendingDown, IconAlertTriangle } from "@tabler/icons-react";
+import { IconArrowRight, IconTrendingUp, IconTrendingDown, IconAlertTriangle, IconPlayerPlayFilled } from "@tabler/icons-react";
 import type { OptionPosition, WorkingOrder } from "@/lib/schwab/parse";
 import type { Level } from "@/lib/levels";
 
@@ -265,7 +265,7 @@ function PositionCells({
   }
 
   const expiryLabel = position.expiry?.length >= 10
-    ? new Date(position.expiry.slice(0, 10) + "T00:00:00").toLocaleDateString("en-US", { month: "2-digit", day: "2-digit" })
+    ? new Date(position.expiry.slice(0, 10) + "T00:00:00").toLocaleDateString("en-US", { month: "numeric", day: "numeric" })
     : null;
   const dte = daysUntil(position.expiry);
   const pct = progressPct(position.averagePrice, position.marketValue, position.shortQty);
@@ -279,14 +279,14 @@ function PositionCells({
 
   return (
     <>
-      <Table.Td ta="right">
-        <Group gap={6} justify="flex-end" wrap="nowrap">
+      <Table.Td ta="center">
+        <Group gap={6} justify="center">
           {position.longQty > 0 && (
             <Badge size="sm" color="red" variant="filled" leftSection={<IconAlertTriangle size={10} />}>
               BTO ×{position.longQty}
             </Badge>
           )}
-          {position.shortQty > 0 && <Badge size="sm" color={color} variant="light">{position.shortQty}</Badge>}
+          {position.shortQty > 0 && <Badge size="sm" color={color} variant="light">-{position.shortQty}</Badge>}
           {expiryLabel && <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>{expiryLabel}</Text>}
         </Group>
       </Table.Td>
@@ -304,10 +304,10 @@ function PositionCells({
       </Table.Td>
       <Table.Td style={{ minWidth: 70 }}>
         <Stack gap={2}>
-          <Group justify="space-between">
-            <Text size="xs" c="dimmed">{totalDays}d</Text>
-            <IconArrowRight size={10} style={{ color: "var(--mantine-color-dimmed)" }} />
-            <Text size="xs" style={{ color: dteColor }}>{dte}d</Text>
+          <Group justify="space-between" wrap="nowrap">
+            <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>{totalDays}d</Text>
+            <IconArrowRight size={10} style={{ color: "var(--mantine-color-dimmed)", flexShrink: 0 }} />
+            <Text size="xs" style={{ color: dteColor, whiteSpace: "nowrap" }}>{dte}d</Text>
           </Group>
           <Box style={{ height: 4, borderRadius: 999, background: "var(--mantine-color-dark-4)", overflow: "hidden" }}>
             <Box style={{
@@ -393,8 +393,8 @@ function CallsTable({
             <Table.Tr>
               <Table.Th>Level</Table.Th>
               <Table.Th ta="right">Strike</Table.Th>
-              <Table.Th ta="right">Qty</Table.Th>
-              <Table.Th ta="right">Held</Table.Th>
+              <Table.Th ta="right"><Tooltip label="Recommended contracts to sell" withArrow><span style={{ cursor: "default", borderBottom: "1px dotted" }}>Qty</span></Tooltip></Table.Th>
+              <Table.Th ta="center">Contracts</Table.Th>
               <Table.Th ta="right" className="hide-mobile">Value</Table.Th>
               <Table.Th>Progress</Table.Th>
             </Table.Tr>
@@ -412,7 +412,16 @@ function CallsTable({
                     ...(isCurrent ? { borderLeft: `3px solid var(--mantine-color-${color}-5)` } : {}),
                   }}
                 >
-                  <Table.Td>
+                  <Table.Td style={{ position: "relative" }}>
+                    {isCurrent && (
+                      <Tooltip label="Current price level" withArrow>
+                        <IconPlayerPlayFilled
+                          size={10}
+                          color={`var(--mantine-color-${color}-5)`}
+                          style={{ position: "absolute", left: -4, top: "50%", transform: "translateY(-50%)", cursor: "default" }}
+                        />
+                      </Tooltip>
+                    )}
                     <Group gap={4}>
                       <Text size="xs" c={row.levelNums.length === 0 ? "dimmed" : undefined}>
                         {row.levelNums.length > 0 ? row.levelNums.join(", ") : "—"}
@@ -505,8 +514,8 @@ function PutsTable({
             <Table.Tr>
               <Table.Th>Level</Table.Th>
               <Table.Th ta="right">Strike</Table.Th>
-              <Table.Th ta="right">Qty</Table.Th>
-              <Table.Th ta="right">Held</Table.Th>
+              <Table.Th ta="right"><Tooltip label="Recommended contracts to sell" withArrow><span style={{ cursor: "default", borderBottom: "1px dotted" }}>Qty</span></Tooltip></Table.Th>
+              <Table.Th ta="center">Contracts</Table.Th>
               <Table.Th ta="right" className="hide-mobile">Value</Table.Th>
               <Table.Th>Progress</Table.Th>
             </Table.Tr>
@@ -524,7 +533,16 @@ function PutsTable({
                     ...(isCurrent ? { borderLeft: `3px solid var(--mantine-color-${color}-5)` } : {}),
                   }}
                 >
-                  <Table.Td>
+                  <Table.Td style={{ position: "relative" }}>
+                    {isCurrent && (
+                      <Tooltip label="Current price level" withArrow>
+                        <IconPlayerPlayFilled
+                          size={10}
+                          color={`var(--mantine-color-${color}-5)`}
+                          style={{ position: "absolute", left: -4, top: "50%", transform: "translateY(-50%)", cursor: "default" }}
+                        />
+                      </Tooltip>
+                    )}
                     <Group gap={4}>
                       <Text size="xs" c={row.levelNums.length === 0 ? "dimmed" : undefined}>
                         {row.levelNums.length > 0 ? row.levelNums.join(", ") : "—"}

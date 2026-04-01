@@ -90,9 +90,9 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
           color={schwabConnected ? "teal" : schwabConnected === null ? "gray.5" : "red.6"}
           onClick={handleSchwabClick}
         >
-          {schwabConnected
-            ? <IconPlugConnected size={14} />
-            : <IconPlugConnectedX size={14} />}
+          {schwabConnected === false
+            ? <IconPlugConnectedX size={14} />
+            : <IconPlugConnected size={14} />}
         </ActionIcon>
       </Tooltip>
       <Tooltip label="Settings">
