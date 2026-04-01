@@ -1,8 +1,34 @@
 # TQQQ Strategy Dashboard
 
-A personal dashboard for tracking a TQQQ covered-call / cash-secured-put options strategy. Connects to the Schwab brokerage API to display positions, filled orders, working orders, option positions, balances, and dividend/interest history.
+A personal dashboard for tracking a TQQQ trading strategy. Connects to the Schwab brokerage API to display positions, filled orders, working orders, option positions, balances, and dividend/interest history.
 
 Built with Next.js, Mantine UI, Recharts, and Supabase.
+
+---
+
+## Try the Demo
+
+Want to see it before setting anything up? Deploy a public demo with fake data in one click:
+
+1. Fork this repo on GitHub (click **Fork** in the top-right corner of the repo page).
+2. Go to [vercel.com](https://vercel.com), sign in with GitHub, and click **Add New → Project**.
+3. Import your forked repo.
+4. Under **Environment Variables**, add one variable: `DEMO_MODE` = `true`.
+5. Deploy.
+
+That's it — no Schwab account, no Supabase, no password required. The demo is pre-populated with realistic fake data so you can explore the full UI.
+
+---
+
+## Full Setup (with your real Schwab account)
+
+If you want to run this against your actual Schwab account, you'll need to complete the steps below. The process takes about 30–60 minutes the first time.
+
+**Overview of what you're setting up:**
+1. A Schwab developer app — so this dashboard can read your brokerage data
+2. A Supabase project — a free database to store your Schwab tokens and settings
+3. Your local development environment
+4. (Optional) A Vercel deployment for permanent hosting
 
 ---
 
@@ -13,6 +39,25 @@ You'll need accounts with three services before setting up:
 - **[Schwab Developer Portal](https://developer.schwab.com)** — to create an API app and get OAuth credentials
 - **[Supabase](https://supabase.com)** — to store OAuth tokens and app settings (free tier is fine)
 - **[Vercel](https://vercel.com)** — to deploy (or any platform that runs Next.js)
+
+You'll also need **[Node.js](https://nodejs.org)** (v18 or later) installed on your machine to run the app locally. If you're not sure whether you have it, run `node -v` in your terminal. If it prints a version number, you're good.
+
+> **New to this?** These services are all free at the tier this app needs. "Deploying" just means putting the app on a server so you can access it from anywhere — Vercel handles that automatically when you push code to GitHub.
+
+---
+
+## How It All Fits Together
+
+```
+Your browser
+    ↓ (password-protected)
+This Next.js app  ←→  Schwab API  (reads your brokerage data)
+                  ←→  Supabase    (stores tokens + settings)
+```
+
+- You log in with a password you set yourself (`APP_PASSWORD`)
+- The app calls the Schwab API on your behalf using OAuth tokens stored in Supabase
+- Your settings (account configuration, buy levels, etc.) are also saved in Supabase so they persist across devices
 
 ---
 
@@ -29,6 +74,8 @@ You'll need accounts with three services before setting up:
    ```
    > Schwab requires HTTPS and does not accept `localhost` — use `127.0.0.1`.
 3. After the app is approved, copy your **App Key** (client ID) and **App Secret** (client secret).
+
+> **Note:** Schwab app approval is manual and can take a few business days. You can set up everything else in the meantime — you just won't be able to connect to Schwab until the app is approved.
 
 ---
 
@@ -96,7 +143,7 @@ Fill in `.env.local`:
 | `SUPABASE_URL` | Your Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Your Supabase service role key |
 | `APP_PASSWORD` | Password for the app login page |
-| `APP_SESSION_SECRET` | Random hex string — generate with `openssl rand -hex 32` |
+| `APP_SESSION_SECRET` | Random secret used to sign session cookies — generate one by running `openssl rand -hex 32` in your terminal and pasting the output |
 
 ### Run the dev server
 
