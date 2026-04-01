@@ -8,84 +8,67 @@ Built with Next.js, Mantine UI, Recharts, and Supabase.
 
 ## Try the Demo
 
-Want to see it before setting anything up? Deploy a public demo with fake data in one click:
+Not sure if this is for you? You can spin up a live version with fake data in about 5 minutes — no Schwab account, no coding, no installs.
 
-1. Fork this repo on GitHub (click **Fork** in the top-right corner of the repo page).
+**What you'll need:**
+- A free [GitHub](https://github.com) account
+- A free [Vercel](https://vercel.com) account
+
+**Steps:**
+
+1. Click **Fork** in the top-right corner of this GitHub page to copy the repo to your own account.
 2. Go to [vercel.com](https://vercel.com), sign in with GitHub, and click **Add New → Project**.
-3. Import your forked repo.
-4. Under **Environment Variables**, add one variable: `DEMO_MODE` = `true`.
-5. Deploy.
+3. Find your forked repo and click **Import**.
+4. Before clicking Deploy, open the **Environment Variables** section and add:
+   - Name: `DEMO_MODE` / Value: `true`
+5. Click **Deploy**.
 
-That's it — no Schwab account, no Supabase, no password required. The demo is pre-populated with realistic fake data so you can explore the full UI.
-
----
-
-## Full Setup (with your real Schwab account)
-
-If you want to run this against your actual Schwab account, you'll need to complete the steps below. The process takes about 30–60 minutes the first time.
-
-**Overview of what you're setting up:**
-1. A Schwab developer app — so this dashboard can read your brokerage data
-2. A Supabase project — a free database to store your Schwab tokens and settings
-3. Your local development environment
-4. (Optional) A Vercel deployment for permanent hosting
+In a minute or two you'll have a live URL with a fully working app pre-populated with realistic fake data. No real account data, no password required.
 
 ---
 
-## Prerequisites
+## Run It With Your Real Schwab Account (No Local Setup)
 
-You'll need accounts with three services before setting up:
+This is the recommended path if you've never done software development. Everything runs in the cloud — you only need a web browser.
 
-- **[Schwab Developer Portal](https://developer.schwab.com)** — to create an API app and get OAuth credentials
-- **[Supabase](https://supabase.com)** — to store OAuth tokens and app settings (free tier is fine)
-- **[Vercel](https://vercel.com)** — to deploy (or any platform that runs Next.js)
-
-You'll also need **[Node.js](https://nodejs.org)** (v18 or later) installed on your machine to run the app locally. If you're not sure whether you have it, run `node -v` in your terminal. If it prints a version number, you're good.
-
-> **New to this?** These services are all free at the tier this app needs. "Deploying" just means putting the app on a server so you can access it from anywhere — Vercel handles that automatically when you push code to GitHub.
-
----
-
-## How It All Fits Together
+**How it works:**
+- Your code lives on GitHub (free)
+- The app runs on Vercel (free)
+- Your Schwab tokens and settings are stored in Supabase (free)
+- Every time you push a change to GitHub, Vercel automatically rebuilds and redeploys
 
 ```
 Your browser
     ↓ (password-protected)
-This Next.js app  ←→  Schwab API  (reads your brokerage data)
-                  ←→  Supabase    (stores tokens + settings)
+Vercel (runs the app)  ←→  Schwab API  (reads your brokerage data)
+                       ←→  Supabase    (stores tokens + settings)
 ```
 
-- You log in with a password you set yourself (`APP_PASSWORD`)
-- The app calls the Schwab API on your behalf using OAuth tokens stored in Supabase
-- Your settings (account configuration, buy levels, etc.) are also saved in Supabase so they persist across devices
+### Step 1 — Fork the repo
 
----
+Click **Fork** at the top of this page to copy the repo to your GitHub account. All future changes you make will live in your fork.
 
-## 1. Schwab Developer App
+### Step 2 — Set up Schwab API access
 
-1. Log in at [developer.schwab.com](https://developer.schwab.com) and create a new app.
-2. Set the **Callback URL** to your production URL:
+The dashboard reads your brokerage data through Schwab's official API. You need to register a developer app to get credentials.
+
+1. Go to [developer.schwab.com](https://developer.schwab.com) and sign in with your Schwab account.
+2. Create a new app. When asked for a **Callback URL**, enter:
    ```
-   https://yourdomain.com/api/auth/callback
+   https://your-vercel-url.vercel.app/api/auth/callback
    ```
-   For local development, also add:
-   ```
-   https://127.0.0.1:3000/api/auth/callback
-   ```
-   > Schwab requires HTTPS and does not accept `localhost` — use `127.0.0.1`.
-3. After the app is approved, copy your **App Key** (client ID) and **App Secret** (client secret).
+   You'll get your Vercel URL after deploying in Step 4 — you can come back and update this.
+3. Submit the app for approval. **This takes a few business days** — Schwab reviews all API apps manually. You can complete the remaining steps while you wait.
+4. Once approved, copy your **App Key** and **App Secret** — you'll need these shortly.
 
-> **Note:** Schwab app approval is manual and can take a few business days. You can set up everything else in the meantime — you just won't be able to connect to Schwab until the app is approved.
+### Step 3 — Set up Supabase
 
----
+Supabase is a free database service that stores your Schwab tokens (so you stay logged in) and your app settings (so they sync across devices).
 
-## 2. Supabase Setup
-
-1. Create a new project at [supabase.com](https://supabase.com).
-2. Open the **SQL Editor** and run the following to create the required tables:
+1. Create a free account at [supabase.com](https://supabase.com) and create a new project.
+2. Once the project is ready, click **SQL Editor** in the left sidebar and run this query:
 
 ```sql
--- Stores Schwab OAuth tokens
 create table tokens (
   id int primary key,
   access_token text not null,
@@ -93,125 +76,116 @@ create table tokens (
   expires_at bigint not null
 );
 
--- Stores app settings (e.g. buy levels, display prefs)
 create table settings (
   key text primary key,
   value jsonb not null
 );
 ```
 
-3. Go to **Project Settings → API** and copy:
-   - **Project URL** → `SUPABASE_URL`
-   - **service_role** secret (under "Project API keys") → `SUPABASE_SERVICE_ROLE_KEY`
+3. Go to **Project Settings → API** and copy two values:
+   - **Project URL** — looks like `https://xxxx.supabase.co`
+   - **service_role** key — listed under "Project API keys" (use the `service_role` one, not `anon`)
 
-> The service role key bypasses Row Level Security — it is only used server-side and is never exposed to the browser.
+### Step 4 — Deploy to Vercel
+
+1. Go to [vercel.com](https://vercel.com), sign in with GitHub, and click **Add New → Project**.
+2. Import your forked repo.
+3. Before deploying, add the following **Environment Variables**:
+
+| Variable | Value |
+|---|---|
+| `SCHWAB_CLIENT_ID` | Your Schwab App Key |
+| `SCHWAB_CLIENT_SECRET` | Your Schwab App Secret |
+| `SCHWAB_REDIRECT_URI` | `https://your-vercel-url.vercel.app/api/auth/callback` |
+| `NEXT_PUBLIC_APP_URL` | `https://your-vercel-url.vercel.app` |
+| `SUPABASE_URL` | Your Supabase Project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Your Supabase service_role key |
+| `APP_PASSWORD` | A password of your choosing to protect the app |
+| `APP_SESSION_SECRET` | A long random string — use [this generator](https://generate-secret.vercel.app/64) and paste the result |
+
+4. Click **Deploy**.
+5. Once deployed, copy your Vercel URL and go back to the Schwab Developer Portal to update your app's Callback URL to match.
+
+### Step 5 — Connect to Schwab
+
+1. Open your deployed app and log in with your `APP_PASSWORD`.
+2. You'll see a **Connect to Schwab** button. Click it to go through Schwab's OAuth authorization — this is the same kind of "log in with..." flow you've seen on other apps.
+3. Once authorized, the app starts pulling your real account data. Tokens are stored in Supabase and automatically refreshed.
+
+### Making changes
+
+If you want to tweak the code later, you can edit files directly on GitHub in your browser. Every time you save a change, Vercel will automatically rebuild and deploy. No terminal required.
 
 ---
 
-## 3. Local Development
+## Local Development (For Developers)
 
-### Get the code
+If you're comfortable with the terminal and want to run the app on your own machine for development.
 
-If you haven't already, clone the repo to your machine:
+**Prerequisites:** [Node.js](https://nodejs.org) v18+, [Git](https://git-scm.com)
+
+### Clone and install
 
 ```bash
 git clone https://github.com/derekawalker/tqqq-strategy.git
 cd tqqq-strategy
+npm install
 ```
 
-> **Don't have Git?** Download it at [git-scm.com](https://git-scm.com). On macOS you can also install it by running `xcode-select --install` in your terminal. On Windows, the Git installer from that site also installs Git Bash, which you should use for all terminal commands in this guide.
+### HTTPS (required for Schwab OAuth)
 
-### HTTPS requirement
-
-Schwab's OAuth callback requires HTTPS. The dev server uses Next.js's built-in HTTPS with a local certificate.
-
-**Generate a trusted local certificate using [mkcert](https://github.com/FiloSottile/mkcert):**
+Schwab's OAuth callback requires HTTPS even locally. Use [mkcert](https://github.com/FiloSottile/mkcert) to generate a trusted local cert:
 
 **macOS:**
 ```bash
-brew install mkcert
-mkcert -install
-mkdir -p certs
-mkcert -key-file certs/key.pem -cert-file certs/cert.pem 127.0.0.1 localhost
+brew install mkcert && mkcert -install
+mkdir -p certs && mkcert -key-file certs/key.pem -cert-file certs/cert.pem 127.0.0.1 localhost
 ```
 
-**Windows** (run in PowerShell as Administrator, with [Chocolatey](https://chocolatey.org) installed):
+**Windows** (PowerShell as Administrator, requires [Chocolatey](https://chocolatey.org)):
 ```powershell
-choco install mkcert
-mkcert -install
-mkdir certs
-mkcert -key-file certs/key.pem -cert-file certs/cert.pem 127.0.0.1 localhost
+choco install mkcert; mkcert -install
+mkdir certs; mkcert -key-file certs/key.pem -cert-file certs/cert.pem 127.0.0.1 localhost
 ```
 
 **Linux:**
 ```bash
-# Download the mkcert binary from https://github.com/FiloSottile/mkcert/releases
-# then make it executable and install:
-chmod +x mkcert-*-linux-amd64
-sudo mv mkcert-*-linux-amd64 /usr/local/bin/mkcert
-mkcert -install
-mkdir -p certs
+# Download binary from https://github.com/FiloSottile/mkcert/releases
+chmod +x mkcert-*-linux-amd64 && sudo mv mkcert-*-linux-amd64 /usr/local/bin/mkcert
+mkcert -install && mkdir -p certs
 mkcert -key-file certs/key.pem -cert-file certs/cert.pem 127.0.0.1 localhost
 ```
 
 ### Environment variables
 
-**macOS/Linux:**
 ```bash
-cp .env.local.example .env.local
+cp .env.local.example .env.local  # Windows PowerShell: Copy-Item .env.local.example .env.local
 ```
 
-**Windows (Git Bash):**
-```bash
-cp .env.local.example .env.local
-```
-
-**Windows (PowerShell):**
-```powershell
-Copy-Item .env.local.example .env.local
-```
-
-Fill in `.env.local`:
-
-| Variable | Description |
+| Variable | Value |
 |---|---|
-| `SCHWAB_CLIENT_ID` | App Key from Schwab Developer Portal |
-| `SCHWAB_CLIENT_SECRET` | App Secret from Schwab Developer Portal |
+| `SCHWAB_CLIENT_ID` | Schwab App Key |
+| `SCHWAB_CLIENT_SECRET` | Schwab App Secret |
 | `SCHWAB_REDIRECT_URI` | `https://127.0.0.1:3000/api/auth/callback` |
 | `NEXT_PUBLIC_APP_URL` | `https://localhost:3000` |
-| `SUPABASE_URL` | Your Supabase project URL |
-| `SUPABASE_SERVICE_ROLE_KEY` | Your Supabase service role key |
-| `APP_PASSWORD` | Password for the app login page |
-| `APP_SESSION_SECRET` | Random secret used to sign session cookies — generate one by running `openssl rand -hex 32` in your terminal (macOS/Linux/Git Bash) and pasting the output. On Windows PowerShell: `-join ((1..32) \| % { '{0:x2}' -f (Get-Random -Max 256) })` |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service_role key |
+| `APP_PASSWORD` | Your chosen app password |
+| `APP_SESSION_SECRET` | Random hex string — `openssl rand -hex 32` |
 
-### Run the dev server
+### Run
 
 ```bash
-npm install
 npm run dev
 ```
 
-Open [https://localhost:3000](https://localhost:3000).
-
-### Connect to Schwab
-
-On first run (or after tokens expire), you'll see a **Connect to Schwab** button on the dashboard. Click it to go through the Schwab OAuth flow. Tokens are stored in Supabase and automatically refreshed.
-
----
-
-## 4. Deploy to Vercel
-
-1. Push the repo to GitHub and import it in [Vercel](https://vercel.com/new).
-2. Add all environment variables from `.env.local.example` under **Settings → Environment Variables**, using production values:
-   - `SCHWAB_REDIRECT_URI` → `https://yourdomain.com/api/auth/callback`
-   - `NEXT_PUBLIC_APP_URL` → `https://yourdomain.com`
-   - Everything else same as local, but with production Supabase credentials
-3. Deploy. After the first deploy, complete the Schwab OAuth flow from the live URL to store tokens in Supabase.
+Open [https://localhost:3000](https://localhost:3000). On first run, click **Connect to Schwab** to complete OAuth.
 
 ---
 
 ## Architecture Notes
 
-- **Authentication**: A single password (`APP_PASSWORD`) protects all routes via a session cookie. The session secret is stored server-side in the cookie — no user database needed.
-- **Schwab tokens**: OAuth access/refresh tokens are stored in Supabase (server-side only, never sent to the browser). The access token is automatically refreshed on expiry.
-- **No public API**: All `/api/*` routes require the session cookie. There are no publicly accessible endpoints.
+- **Authentication**: A single password (`APP_PASSWORD`) protects all routes via a session cookie. No user database needed.
+- **Schwab tokens**: OAuth tokens are stored in Supabase server-side and automatically refreshed on expiry. Never sent to the browser.
+- **No public API**: All `/api/*` routes require the session cookie.
+- **Demo mode**: Set `DEMO_MODE=true` to bypass all authentication and serve static fake data. Safe to deploy publicly — no real credentials are used.
