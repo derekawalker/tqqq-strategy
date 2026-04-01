@@ -1,3 +1,4 @@
+import { DEMO_DATA } from "@/lib/demo-data";
 import { schwabFetch } from "@/lib/schwab/client";
 import { getAccountHashes } from "@/lib/schwab/accounts";
 import {
@@ -192,6 +193,10 @@ async function fetchAccountData(
 }
 
 export async function GET() {
+  if (process.env.DEMO_MODE === "true") {
+    return Response.json(DEMO_DATA satisfies SchwabData);
+  }
+
   try {
     const hashes = await getAccountHashes();
     const accounts = Object.entries(hashes);

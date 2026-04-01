@@ -4,6 +4,8 @@ const COOKIE_NAME = "tqqq-auth";
 const PUBLIC_PATHS = ["/login", "/api/auth/password"];
 
 export function proxy(request: NextRequest) {
+  if (process.env.DEMO_MODE === "true") return NextResponse.next();
+
   const { pathname } = request.nextUrl;
 
   if (PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) {

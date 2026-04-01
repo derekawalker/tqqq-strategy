@@ -88,11 +88,7 @@ interface AppContextValue {
 const STORAGE_KEY = "tqqq-accounts";
 const ACTIVE_ACCOUNT_KEY = "tqqq-active-account";
 
-const DEFAULT_ACCOUNTS: Account[] = [
-  { accountNumber: "111111111", accountName: "...", color: "gray", settings: { ...DEFAULT_SETTINGS } },
-  { accountNumber: "222222222", accountName: "...", color: "gray", settings: { ...DEFAULT_SETTINGS } },
-  { accountNumber: "333333333", accountName: "...", color: "gray", settings: { ...DEFAULT_SETTINGS } },
-];
+const DEFAULT_ACCOUNTS: Account[] = [];
 
 function loadAccounts(): Account[] {
   try {

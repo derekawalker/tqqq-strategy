@@ -1,3 +1,4 @@
+import { DEMO_ACCOUNTS } from "@/lib/demo-data";
 import { schwabFetch } from "@/lib/schwab/client";
 
 export interface SchwabAccount {
@@ -6,6 +7,10 @@ export interface SchwabAccount {
 }
 
 export async function GET() {
+  if (process.env.DEMO_MODE === "true") {
+    return Response.json(DEMO_ACCOUNTS satisfies SchwabAccount[]);
+  }
+
   try {
     const res = await schwabFetch("/trader/v1/userPreference");
     if (!res.ok) throw new Error(`Schwab userPreference API: ${res.status}`);

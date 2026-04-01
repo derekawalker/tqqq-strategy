@@ -1,6 +1,9 @@
 import { readTokens, isExpired } from "@/lib/schwab/tokens";
 
 export async function GET() {
+  if (process.env.DEMO_MODE === "true") {
+    return Response.json({ authenticated: true });
+  }
   const tokens = await readTokens();
 
   if (!tokens) {
