@@ -119,7 +119,7 @@ git clone https://github.com/derekawalker/tqqq-strategy.git
 cd tqqq-strategy
 ```
 
-> **Don't have Git?** Download it at [git-scm.com](https://git-scm.com). On macOS you can also install it by running `xcode-select --install` in your terminal.
+> **Don't have Git?** Download it at [git-scm.com](https://git-scm.com). On macOS you can also install it by running `xcode-select --install` in your terminal. On Windows, the Git installer from that site also installs Git Bash, which you should use for all terminal commands in this guide.
 
 ### HTTPS requirement
 
@@ -127,20 +127,48 @@ Schwab's OAuth callback requires HTTPS. The dev server uses Next.js's built-in H
 
 **Generate a trusted local certificate using [mkcert](https://github.com/FiloSottile/mkcert):**
 
+**macOS:**
 ```bash
-# Install mkcert (macOS)
 brew install mkcert
 mkcert -install
+mkdir -p certs
+mkcert -key-file certs/key.pem -cert-file certs/cert.pem 127.0.0.1 localhost
+```
 
-# Generate certs for the project
+**Windows** (run in PowerShell as Administrator, with [Chocolatey](https://chocolatey.org) installed):
+```powershell
+choco install mkcert
+mkcert -install
+mkdir certs
+mkcert -key-file certs/key.pem -cert-file certs/cert.pem 127.0.0.1 localhost
+```
+
+**Linux:**
+```bash
+# Download the mkcert binary from https://github.com/FiloSottile/mkcert/releases
+# then make it executable and install:
+chmod +x mkcert-*-linux-amd64
+sudo mv mkcert-*-linux-amd64 /usr/local/bin/mkcert
+mkcert -install
 mkdir -p certs
 mkcert -key-file certs/key.pem -cert-file certs/cert.pem 127.0.0.1 localhost
 ```
 
 ### Environment variables
 
+**macOS/Linux:**
 ```bash
 cp .env.local.example .env.local
+```
+
+**Windows (Git Bash):**
+```bash
+cp .env.local.example .env.local
+```
+
+**Windows (PowerShell):**
+```powershell
+Copy-Item .env.local.example .env.local
 ```
 
 Fill in `.env.local`:
@@ -154,7 +182,7 @@ Fill in `.env.local`:
 | `SUPABASE_URL` | Your Supabase project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Your Supabase service role key |
 | `APP_PASSWORD` | Password for the app login page |
-| `APP_SESSION_SECRET` | Random secret used to sign session cookies — generate one by running `openssl rand -hex 32` in your terminal and pasting the output |
+| `APP_SESSION_SECRET` | Random secret used to sign session cookies — generate one by running `openssl rand -hex 32` in your terminal (macOS/Linux/Git Bash) and pasting the output. On Windows PowerShell: `-join ((1..32) \| % { '{0:x2}' -f (Get-Random -Max 256) })` |
 
 ### Run the dev server
 
