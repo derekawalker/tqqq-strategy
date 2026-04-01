@@ -110,6 +110,17 @@ create table settings (
 
 ## 3. Local Development
 
+### Get the code
+
+If you haven't already, clone the repo to your machine:
+
+```bash
+git clone https://github.com/derekawalker/tqqq-strategy.git
+cd tqqq-strategy
+```
+
+> **Don't have Git?** Download it at [git-scm.com](https://git-scm.com). On macOS you can also install it by running `xcode-select --install` in your terminal.
+
 ### HTTPS requirement
 
 Schwab's OAuth callback requires HTTPS. The dev server uses Next.js's built-in HTTPS with a local certificate.
