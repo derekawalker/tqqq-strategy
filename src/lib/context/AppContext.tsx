@@ -32,7 +32,7 @@ const DEFAULT_SETTINGS: AccountSettings = {
   reductionFactor: null,
   orderWarnBelow: 3,
   orderBuffer: 5,
-  callSafetyLevels: 6,
+  callSafetyLevels: 8,
   putSafetyLevels: 8,
 };
 

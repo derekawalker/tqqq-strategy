@@ -431,7 +431,7 @@ function CallsTable({
             <Table.Tr>
               <Table.Th>Level</Table.Th>
               <Table.Th ta="right">Strike</Table.Th>
-              <Table.Th ta="right"><Tooltip label="Recommended contracts to sell" withArrow><span style={{ cursor: "default", borderBottom: "1px dotted" }}>Qty</span></Tooltip></Table.Th>
+              <Table.Th ta="right"><Tooltip label="Recommended number of contracts to sell" withArrow><span style={{ cursor: "default", borderBottom: "1px dotted" }}>Qty</span></Tooltip></Table.Th>
               <Table.Th ta="center">Contracts</Table.Th>
               <Table.Th ta="right" className="hide-mobile">Value</Table.Th>
               <Table.Th>Progress</Table.Th>
@@ -562,7 +562,7 @@ function PutsTable({
             <Table.Tr>
               <Table.Th>Level</Table.Th>
               <Table.Th ta="right">Strike</Table.Th>
-              <Table.Th ta="right"><Tooltip label="Recommended contracts to sell" withArrow><span style={{ cursor: "default", borderBottom: "1px dotted" }}>Qty</span></Tooltip></Table.Th>
+              <Table.Th ta="right"><Tooltip label="Recommended number of contracts to sell" withArrow><span style={{ cursor: "default", borderBottom: "1px dotted" }}>Qty</span></Tooltip></Table.Th>
               <Table.Th ta="center">Contracts</Table.Th>
               <Table.Th ta="right" className="hide-mobile">Value</Table.Th>
               <Table.Th>Progress</Table.Th>
@@ -646,7 +646,7 @@ function OptionsPageInner() {
   const searchParams = useSearchParams();
   const testAlerts = searchParams.has("testalerts");
 
-  const callSafety = activeAccount?.settings.callSafetyLevels ?? 6;
+  const callSafety = activeAccount?.settings.callSafetyLevels ?? 8;
   const putSafety  = activeAccount?.settings.putSafetyLevels  ?? 8;
 
   const handleCallSafety = (v: number) => {
