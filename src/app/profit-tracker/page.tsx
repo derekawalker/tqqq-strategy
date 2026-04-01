@@ -66,6 +66,7 @@ interface DaySummary {
   optionsTrades: number;
   interest: number;
   dividends: number;
+  intDivTxns: number;
 }
 
 interface WeekSummary {
@@ -77,6 +78,7 @@ interface WeekSummary {
   optionsTrades: number;
   interest: number;
   dividends: number;
+  intDivTxns: number;
 }
 
 // Returns "YYYY-MM" for a local date string
@@ -93,6 +95,7 @@ interface MonthSummary {
   optionsTrades: number;
   interest: number;
   dividends: number;
+  intDivTxns: number;
 }
 
 function fmtMoney(n: number, showPlus = false) {
@@ -143,11 +146,11 @@ function DayCard({ day, privacyMode, color, selected, onClick }: { day: DaySumma
             <Text span size="xs" c={day.options < 0 ? "red" : "orange"} ml="auto">{mask(fmtMoney(day.options, true))}</Text>
           </Group>
         )}
-        {day.interest !== 0 && (
-          <Text size="xs" ta="right" c="lime">{mask(fmtMoney(day.interest, true))}</Text>
-        )}
-        {day.dividends !== 0 && (
-          <Text size="xs" ta="right" c="lime">{mask(fmtMoney(day.dividends, true))}</Text>
+        {(day.interest !== 0 || day.dividends !== 0) && (
+          <Group justify="space-between" gap={4} wrap="nowrap">
+            <Text span size="xs" c="dimmed" fw={400}>({day.intDivTxns})</Text>
+            <Text span size="xs" c="lime">{mask(fmtMoney(day.interest + day.dividends, true))}</Text>
+          </Group>
         )}
       </Stack>
     </Paper>
@@ -193,11 +196,11 @@ function WeekCard({ week, privacyMode, color, selected, onClick }: { week: WeekS
             <Text span size="xs" c={week.options < 0 ? "red" : "orange"} ml="auto">{mask(fmtMoney(week.options, true))}</Text>
           </Group>
         )}
-        {week.interest !== 0 && (
-          <Text size="xs" ta="right" c="lime">{mask(fmtMoney(week.interest, true))}</Text>
-        )}
-        {week.dividends !== 0 && (
-          <Text size="xs" ta="right" c="lime">{mask(fmtMoney(week.dividends, true))}</Text>
+        {(week.interest !== 0 || week.dividends !== 0) && (
+          <Group justify="space-between" gap={4} wrap="nowrap">
+            <Text span size="xs" c="dimmed" fw={400}>({week.intDivTxns})</Text>
+            <Text span size="xs" c="lime">{mask(fmtMoney(week.interest + week.dividends, true))}</Text>
+          </Group>
         )}
       </Stack>
     </Paper>
@@ -243,11 +246,11 @@ function MonthCard({ month, privacyMode, color, selected, onClick }: { month: Mo
             <Text span size="xs" c={month.options < 0 ? "red" : "orange"} ml="auto">{mask(fmtMoney(month.options, true))}</Text>
           </Group>
         )}
-        {month.interest !== 0 && (
-          <Text size="xs" ta="right" c="lime">{mask(fmtMoney(month.interest, true))}</Text>
-        )}
-        {month.dividends !== 0 && (
-          <Text size="xs" ta="right" c="lime">{mask(fmtMoney(month.dividends, true))}</Text>
+        {(month.interest !== 0 || month.dividends !== 0) && (
+          <Group justify="space-between" gap={4} wrap="nowrap">
+            <Text span size="xs" c="dimmed" fw={400}>({month.intDivTxns})</Text>
+            <Text span size="xs" c="lime">{mask(fmtMoney(month.interest + month.dividends, true))}</Text>
+          </Group>
         )}
       </Stack>
     </Paper>
@@ -435,7 +438,7 @@ export default function ProfitPage() {
         dateKey, label, dayOfWeek,
         equity, equityTrades: dayRows.length,
         options, optionsTrades: dayOptions.length,
-        interest, dividends,
+        interest, dividends, intDivTxns: dayTxns.length,
       });
     }
     return days;
@@ -467,7 +470,7 @@ export default function ProfitPage() {
         weekKey: wKey, label,
         equity, equityTrades: weekRows.length,
         options, optionsTrades: weekOptions.length,
-        interest, dividends,
+        interest, dividends, intDivTxns: weekTxns.length,
       });
     }
     return weeks;
@@ -491,7 +494,7 @@ export default function ProfitPage() {
         monthKey: mKey, label,
         equity, equityTrades: monthRows.length,
         options, optionsTrades: monthOptions.length,
-        interest, dividends,
+        interest, dividends, intDivTxns: monthTxns.length,
       });
     }
     return months;

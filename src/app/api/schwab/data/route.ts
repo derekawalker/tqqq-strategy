@@ -57,10 +57,9 @@ function parseTransaction(t: any, accountNumber: string): Transaction | null {
   if (amount === 0) return null;
 
   const description: string = t.description ?? "";
-  // Schwab puts all div/interest transactions in DIVIDEND_OR_INTEREST type.
-  // subAccount "MARGIN" means the payment came from a security position (dividend);
-  // subAccount "CASH" means it's money market or bank interest.
-  const category: "dividend" | "interest" = t.subAccount === "MARGIN" ? "dividend" : "interest";
+  // Only actual bank interest (1099-INT) is "interest"; everything else — including
+  // money market fund distributions — is a dividend (1099-DIV) for tax purposes.
+  const category: "dividend" | "interest" = description.toUpperCase().startsWith("BANK INT") ? "interest" : "dividend";
 
   // transferItems only ever contains CURRENCY_USD — no ticker is available from the API.
   return { activityId: t.activityId, accountNumber, time: t.time, description, symbol: null, amount, category };
