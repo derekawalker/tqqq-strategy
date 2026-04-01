@@ -155,6 +155,7 @@ interface CallRow {
   carryOut: number;
   inSafeZone: boolean;
   itm: boolean;
+  isCurrent: boolean;
   position: OptionPosition | null;
 }
 
@@ -189,6 +190,14 @@ function buildCallRows(
     : lowStrike;
   const extendedLowStrike = Math.min(itmFloor, lowStrike - 1.0);
 
+  // Level whose buy price is closest to current price — used for the "current" row marker
+  let priceLevelN = 0;
+  let minDiff = Infinity;
+  for (let n = 0; n <= currentLevel; n++) {
+    const diff = Math.abs(levels[n].buyPrice - currentPrice);
+    if (diff < minDiff) { minDiff = diff; priceLevelN = n; }
+  }
+
   const rows: CallRow[] = [];
   let carryIn = 0;
 
@@ -197,6 +206,7 @@ function buildCallRows(
     const levelNums = strikeToLevels.get(strike) ?? [];
     const inSafeZone = strike >= safeEdge;
     const itm = strike < currentPrice;
+    const isCurrent = levelNums.includes(priceLevelN);
 
     const ownedShares = levelNums
       .filter((n) => inSafeZone && n <= maxSafe && ownedSet.has(n))
@@ -206,7 +216,7 @@ function buildCallRows(
     const contracts = inSafeZone ? Math.floor(total / 100) : 0;
     const carryOut  = inSafeZone ? total % 100 : 0;
 
-    rows.push({ strike, levelNums, ownedShares, carryIn, contracts, carryOut, inSafeZone, itm, position: matchPosition(positions, strike) });
+    rows.push({ strike, levelNums, ownedShares, carryIn, contracts, carryOut, inSafeZone, itm, isCurrent, position: matchPosition(positions, strike) });
 
     carryIn = carryOut;
   }
@@ -225,6 +235,7 @@ interface PutRow {
   carryOut: number;
   inSafeZone: boolean;
   itm: boolean;
+  isCurrent: boolean;
   position: OptionPosition | null;
 }
 
@@ -259,6 +270,14 @@ function buildPutRows(
     : highStrike;
   const extendedHighStrike = Math.max(itmCeiling + 1.0, highStrike + 1.0);
 
+  // Level whose buy price is closest to current price — used for the "current" row marker
+  let priceLevelN = currentLevel;
+  let minDiff = Infinity;
+  for (let n = currentLevel; n < levels.length; n++) {
+    const diff = Math.abs(levels[n].buyPrice - currentPrice);
+    if (diff < minDiff) { minDiff = diff; priceLevelN = n; }
+  }
+
   const rows: PutRow[] = [];
   let carryIn = 0;
 
@@ -267,6 +286,7 @@ function buildPutRows(
     const levelNums = strikeToLevels.get(strike) ?? [];
     const inSafeZone = strike <= safeEdge;
     const itm = strike > currentPrice;
+    const isCurrent = levelNums.includes(priceLevelN);
 
     const levelShares = levelNums
       .filter((n) => inSafeZone && n >= minSafe)
@@ -276,7 +296,7 @@ function buildPutRows(
     const contracts = inSafeZone ? Math.floor(total / 100) : 0;
     const carryOut  = inSafeZone ? total % 100 : 0;
 
-    rows.push({ strike, levelNums, levelShares, carryIn, contracts, carryOut, inSafeZone, itm, position: matchPosition(positions, strike) });
+    rows.push({ strike, levelNums, levelShares, carryIn, contracts, carryOut, inSafeZone, itm, isCurrent, position: matchPosition(positions, strike) });
 
     carryIn = carryOut;
   }
@@ -373,7 +393,7 @@ function PositionCells({
 // ── calls table ───────────────────────────────────────────────────────────
 
 function CallsTable({
-  rows, color, safetyLevels, onSafetyChange, privacyMode, currentLevel, changePercent, trend,
+  rows, color, safetyLevels, onSafetyChange, privacyMode, changePercent, trend,
   totalValue, callsAvailableLabel, btoPositions,
 }: {
   rows: CallRow[];
@@ -381,7 +401,6 @@ function CallsTable({
   safetyLevels: number;
   onSafetyChange: (v: number) => void;
   privacyMode: boolean;
-  currentLevel: number;
   changePercent: number;
   trend: number;
   totalValue: number;
@@ -440,7 +459,7 @@ function CallsTable({
           <Table.Tbody>
             {rows.map((row, i) => {
               const dim = !row.position && (!row.inSafeZone || row.contracts === 0);
-              const isCurrent = row.levelNums.includes(currentLevel);
+              const isCurrent = row.isCurrent;
               const isItmBoundary = row.itm && !rows[i - 1]?.itm;
               return (
                 <Fragment key={row.strike}>
@@ -504,7 +523,7 @@ function CallsTable({
 // ── puts table ────────────────────────────────────────────────────────────
 
 function PutsTable({
-  rows, color, safetyLevels, onSafetyChange, privacyMode, currentLevel, changePercent, trend,
+  rows, color, safetyLevels, onSafetyChange, privacyMode, changePercent, trend,
   totalValue, availableCash, btoPositions,
 }: {
   rows: PutRow[];
@@ -512,7 +531,6 @@ function PutsTable({
   safetyLevels: number;
   onSafetyChange: (v: number) => void;
   privacyMode: boolean;
-  currentLevel: number;
   changePercent: number;
   trend: number;
   totalValue: number;
@@ -571,7 +589,7 @@ function PutsTable({
           <Table.Tbody>
             {rows.map((row, i) => {
               const dim = !row.position && (!row.inSafeZone || row.contracts === 0);
-              const isCurrent = row.levelNums.includes(currentLevel);
+              const isCurrent = row.isCurrent;
               const isItmBoundary = !row.itm && rows[i - 1]?.itm;
               return (
                 <Fragment key={row.strike}>
@@ -784,7 +802,6 @@ function OptionsPageInner() {
               safetyLevels={callSafety}
               onSafetyChange={handleCallSafety}
               privacyMode={privacyMode}
-              currentLevel={levelsSummary?.currentLevel ?? -1}
               changePercent={changePercent}
               trend={trend}
               totalValue={callsTotalValue}
@@ -798,7 +815,6 @@ function OptionsPageInner() {
               safetyLevels={putSafety}
               onSafetyChange={handlePutSafety}
               privacyMode={privacyMode}
-              currentLevel={levelsSummary?.currentLevel ?? -1}
               changePercent={changePercent}
               trend={trend}
               totalValue={putsTotalValue}
@@ -821,7 +837,6 @@ function OptionsPageInner() {
           safetyLevels={callSafety}
           onSafetyChange={handleCallSafety}
           privacyMode={privacyMode}
-          currentLevel={levelsSummary?.currentLevel ?? -1}
           changePercent={changePercent}
           trend={trend}
           totalValue={callsTotalValue}
@@ -836,7 +851,6 @@ function OptionsPageInner() {
           safetyLevels={putSafety}
           onSafetyChange={handlePutSafety}
           privacyMode={privacyMode}
-          currentLevel={levelsSummary?.currentLevel ?? -1}
           changePercent={changePercent}
           trend={trend}
           totalValue={putsTotalValue}

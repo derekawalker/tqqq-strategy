@@ -23,7 +23,7 @@ Not sure if this is for you? You can spin up a live version with fake data in ab
    - Name: `DEMO_MODE` / Value: `true`
 5. Click **Deploy**.
 
-In a minute or two you'll have a live URL with a fully working app pre-populated with realistic fake data. No real account data, no password required.
+In a minute or two you'll have a live URL with a fully working app pre-populated with fake data. No real account data, no password required.
 
 ---
 

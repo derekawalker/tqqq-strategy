@@ -137,14 +137,20 @@ function AppShellInner({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      try {
-        const res = await fetch("/api/quote");
-        const data = await res.json();
-        if (!cancelled && data.price != null)
-          setQuote({ price: data.price, changePercent: data.changePercent, trend: data.trend ?? 0, loading: false });
-      } catch {
-        if (!cancelled) setQuote((q) => ({ ...q, loading: false }));
-      }
+      const quotePromise = fetch("/api/quote").then((r) => r.json()).catch(() => null);
+      const trendPromise = fetch("/api/trend").then((r) => r.json()).catch(() => null);
+
+      // Set price immediately when quote resolves — don't wait for trend
+      const quoteData = await quotePromise;
+      if (!cancelled && quoteData?.price != null)
+        setQuote({ price: quoteData.price, changePercent: quoteData.changePercent, trend: 0, loading: false });
+      else if (!cancelled)
+        setQuote((q) => ({ ...q, loading: false }));
+
+      // Update trend when it arrives (already in-flight)
+      const trendData = await trendPromise;
+      if (!cancelled && trendData?.trend != null)
+        setQuote((q) => ({ ...q, trend: trendData.trend }));
     }
     load();
     return () => { cancelled = true; };
