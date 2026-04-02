@@ -170,7 +170,7 @@ function buildCallRows(
   const maxSafe = currentLevel - safetyLevels;
 
   const strikeToLevels = new Map<number, number[]>();
-  for (let n = 0; n <= currentLevel; n++) {
+  for (let n = 0; n < levels.length; n++) {
     const s = callStrikeForLevel(levels[n]);
     if (!strikeToLevels.has(s)) strikeToLevels.set(s, []);
     strikeToLevels.get(s)!.push(n);
@@ -190,14 +190,6 @@ function buildCallRows(
     : lowStrike;
   const extendedLowStrike = Math.min(itmFloor, lowStrike - 1.0);
 
-  // Level whose buy price is closest to current price — used for the "current" row marker
-  let priceLevelN = 0;
-  let minDiff = Infinity;
-  for (let n = 0; n <= currentLevel; n++) {
-    const diff = Math.abs(levels[n].buyPrice - currentPrice);
-    if (diff < minDiff) { minDiff = diff; priceLevelN = n; }
-  }
-
   const rows: CallRow[] = [];
   let carryIn = 0;
 
@@ -206,7 +198,7 @@ function buildCallRows(
     const levelNums = strikeToLevels.get(strike) ?? [];
     const inSafeZone = strike >= safeEdge;
     const itm = strike < currentPrice;
-    const isCurrent = levelNums.includes(priceLevelN);
+    const isCurrent = levelNums.includes(currentLevel);
 
     const ownedShares = levelNums
       .filter((n) => inSafeZone && n <= maxSafe && ownedSet.has(n))
@@ -249,7 +241,7 @@ function buildPutRows(
   const minSafe = currentLevel + safetyLevels;  // first level index in safe zone
 
   const strikeToLevels = new Map<number, number[]>();
-  for (let n = currentLevel; n < levels.length; n++) {
+  for (let n = 0; n < levels.length; n++) {
     const s = putStrikeForLevel(levels[n]);
     if (!strikeToLevels.has(s)) strikeToLevels.set(s, []);
     strikeToLevels.get(s)!.push(n);
@@ -268,15 +260,9 @@ function buildPutRows(
   const itmCeiling = highestPositionStrike !== null && highestPositionStrike > highStrike
     ? Math.ceil(highestPositionStrike / 0.5) * 0.5
     : highStrike;
-  const extendedHighStrike = Math.max(itmCeiling + 1.0, highStrike + 1.0);
-
-  // Level whose buy price is closest to current price — used for the "current" row marker
-  let priceLevelN = currentLevel;
-  let minDiff = Infinity;
-  for (let n = currentLevel; n < levels.length; n++) {
-    const diff = Math.abs(levels[n].buyPrice - currentPrice);
-    if (diff < minDiff) { minDiff = diff; priceLevelN = n; }
-  }
+  // Also ensure at least 2 rows above current price (ITM), so the boundary + 2 rows are always visible
+  const minITMStrike = Math.ceil(currentPrice / 0.5) * 0.5 + 1.0;
+  const extendedHighStrike = Math.max(itmCeiling + 1.0, highStrike + 1.0, minITMStrike);
 
   const rows: PutRow[] = [];
   let carryIn = 0;
@@ -286,7 +272,7 @@ function buildPutRows(
     const levelNums = strikeToLevels.get(strike) ?? [];
     const inSafeZone = strike <= safeEdge;
     const itm = strike > currentPrice;
-    const isCurrent = levelNums.includes(priceLevelN);
+    const isCurrent = levelNums.includes(currentLevel);
 
     const levelShares = levelNums
       .filter((n) => inSafeZone && n >= minSafe)

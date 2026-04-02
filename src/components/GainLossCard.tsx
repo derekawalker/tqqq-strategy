@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Paper, Text, Stack, Tooltip, Group } from "@mantine/core";
+import { Paper, Text, Stack, Tooltip, Group, Skeleton } from "@mantine/core";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { Outfit } from "next/font/google";
 import { useRouter } from "next/navigation";
@@ -57,15 +57,17 @@ export function GainLossCard() {
             <IconInfoCircle size={13} style={{ color: "var(--mantine-color-dimmed)", cursor: "default", marginTop: 1 }} />
           </Tooltip>
         </Group>
-        <Text
-          component="div"
-        >
-          <AnimatedNumber
-            value={snapshotLoading || balanceLoading || totalGain == null ? "—" : mask(fmtMoney(totalGain))}
-            className={outfit.className}
-            style={{ fontSize: "2.75rem", fontWeight: 700, lineHeight: 1, color: gainColor }}
-          />
-        </Text>
+        {snapshotLoading || balanceLoading ? (
+          <Skeleton height={44} width={160} radius="sm" />
+        ) : (
+          <Text component="div">
+            <AnimatedNumber
+              value={totalGain == null ? "—" : mask(fmtMoney(totalGain))}
+              className={outfit.className}
+              style={{ fontSize: "2.75rem", fontWeight: 700, lineHeight: 1, color: gainColor }}
+            />
+          </Text>
+        )}
         {(totalGainPct != null || annualROI != null) && (
           <Text size="sm" c="dimmed">
             {totalGainPct != null && (
