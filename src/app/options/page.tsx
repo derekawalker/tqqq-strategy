@@ -10,7 +10,7 @@ import { CARD_RADIUS } from "@/lib/cardStyles";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
-import { IconArrowRight, IconTrendingUp, IconTrendingDown, IconAlertTriangle, IconPlayerPlayFilled } from "@tabler/icons-react";
+import { IconArrowRight, IconTrendingUp, IconTrendingDown, IconAlertTriangle } from "@tabler/icons-react";
 import type { OptionPosition, WorkingOrder } from "@/lib/schwab/parse";
 import type { Level } from "@/lib/levels";
 
@@ -180,15 +180,16 @@ function buildCallRows(
   const lowStrike  = callStrikeForLevel(levels[currentLevel]);
   const safeEdge   = callStrikeForLevel(levels[Math.max(0, maxSafe)]);
 
-  // Always show 2 rows below the current price; extend further if an open position is ITM
+  // Always show 2 rows below the ITM boundary; extend further if an open position is ITM
+  const itmFirstStrike = Math.floor((currentPrice - 0.001) / 0.5) * 0.5;
   const lowestPositionStrike = positions.reduce<number | null>(
     (min, p) => (min === null ? p.strike : Math.min(min, p.strike)),
     null,
   );
-  const itmFloor = lowestPositionStrike !== null && lowestPositionStrike < lowStrike
+  const itmExtension = lowestPositionStrike !== null && lowestPositionStrike < itmFirstStrike
     ? Math.floor(lowestPositionStrike / 0.5) * 0.5
-    : lowStrike;
-  const extendedLowStrike = Math.min(itmFloor, lowStrike - 1.0);
+    : itmFirstStrike;
+  const extendedLowStrike = Math.min(itmExtension, itmFirstStrike - 0.5);
 
   const rows: CallRow[] = [];
   let carryIn = 0;
@@ -252,17 +253,16 @@ function buildPutRows(
   const lowStrike  = putStrikeForLevel(levels[levels.length - 1]);
   const safeEdge   = putStrikeForLevel(levels[Math.min(minSafe, levels.length - 1)]);
 
-  // Always show 2 rows above the normal top; extend further if an open position is ITM
+  // Always show 2 rows above the ITM boundary; extend further if an open position is ITM
+  const itmNearStrike = Math.ceil((currentPrice + 0.001) / 0.5) * 0.5;
   const highestPositionStrike = positions.reduce<number | null>(
     (max, p) => (max === null ? p.strike : Math.max(max, p.strike)),
     null,
   );
-  const itmCeiling = highestPositionStrike !== null && highestPositionStrike > highStrike
+  const itmCeiling = highestPositionStrike !== null && highestPositionStrike > itmNearStrike + 0.5
     ? Math.ceil(highestPositionStrike / 0.5) * 0.5
-    : highStrike;
-  // Also ensure at least 2 rows above current price (ITM), so the boundary + 2 rows are always visible
-  const minITMStrike = Math.ceil(currentPrice / 0.5) * 0.5 + 1.0;
-  const extendedHighStrike = Math.max(itmCeiling + 1.0, highStrike + 1.0, minITMStrike);
+    : itmNearStrike + 0.5;
+  const extendedHighStrike = itmCeiling;
 
   const rows: PutRow[] = [];
   let carryIn = 0;
@@ -445,7 +445,6 @@ function CallsTable({
           <Table.Tbody>
             {rows.map((row, i) => {
               const dim = !row.position && (!row.inSafeZone || row.contracts === 0);
-              const isCurrent = row.isCurrent;
               const isItmBoundary = row.itm && !rows[i - 1]?.itm;
               return (
                 <Fragment key={row.strike}>
@@ -457,22 +456,10 @@ function CallsTable({
                     </Table.Tr>
                   )}
                   <Table.Tr
-                    bg={isCurrent ? "dark.4" : row.inSafeZone ? `var(--mantine-color-${color}-light-hover)` : undefined}
-                    style={{
-                      opacity: dim && !isCurrent ? 0.4 : 1,
-                      ...(isCurrent ? { borderLeft: `3px solid var(--mantine-color-${color}-5)` } : {}),
-                    }}
+                    bg={row.inSafeZone ? `var(--mantine-color-${color}-light-hover)` : undefined}
+                    style={{ opacity: dim ? 0.4 : 1 }}
                   >
-                  <Table.Td style={{ position: "relative" }}>
-                    {isCurrent && (
-                      <Tooltip label="Current price level" withArrow>
-                        <IconPlayerPlayFilled
-                          size={10}
-                          color={`var(--mantine-color-${color}-5)`}
-                          style={{ position: "absolute", left: -4, top: "50%", transform: "translateY(-50%)", cursor: "default" }}
-                        />
-                      </Tooltip>
-                    )}
+                  <Table.Td>
                     <Group gap={4}>
                       <Text size="xs" c={row.levelNums.length === 0 ? "dimmed" : undefined}>
                         {row.levelNums.length > 0 ? row.levelNums.join(", ") : "—"}
@@ -575,7 +562,6 @@ function PutsTable({
           <Table.Tbody>
             {rows.map((row, i) => {
               const dim = !row.position && (!row.inSafeZone || row.contracts === 0);
-              const isCurrent = row.isCurrent;
               const isItmBoundary = !row.itm && rows[i - 1]?.itm;
               return (
                 <Fragment key={row.strike}>
@@ -587,22 +573,10 @@ function PutsTable({
                     </Table.Tr>
                   )}
                 <Table.Tr
-                  bg={isCurrent ? "dark.4" : row.inSafeZone ? `var(--mantine-color-${color}-light-hover)` : undefined}
-                  style={{
-                    opacity: dim && !isCurrent ? 0.4 : 1,
-                    ...(isCurrent ? { borderLeft: `3px solid var(--mantine-color-${color}-5)` } : {}),
-                  }}
+                  bg={row.inSafeZone ? `var(--mantine-color-${color}-light-hover)` : undefined}
+                  style={{ opacity: dim ? 0.4 : 1 }}
                 >
-                  <Table.Td style={{ position: "relative" }}>
-                    {isCurrent && (
-                      <Tooltip label="Current price level" withArrow>
-                        <IconPlayerPlayFilled
-                          size={10}
-                          color={`var(--mantine-color-${color}-5)`}
-                          style={{ position: "absolute", left: -4, top: "50%", transform: "translateY(-50%)", cursor: "default" }}
-                        />
-                      </Tooltip>
-                    )}
+                  <Table.Td>
                     <Group gap={4}>
                       <Text size="xs" c={row.levelNums.length === 0 ? "dimmed" : undefined}>
                         {row.levelNums.length > 0 ? row.levelNums.join(", ") : "—"}
