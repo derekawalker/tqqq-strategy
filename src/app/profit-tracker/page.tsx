@@ -314,10 +314,12 @@ export default function ProfitPage() {
       for (const close of sortedStoCloses) {
         let remaining = close.contracts;
         const btcPer = close.kind === "BTC" ? close.order.total / close.order.contracts : 0;
+        const btcFeePer = close.kind === "BTC" ? close.order.fees / close.order.contracts : 0;
         while (remaining > 0 && stoIdx < stoState.length) {
           const entry = stoState[stoIdx];
           const matched = Math.min(remaining, entry.remaining);
           const stoPer = entry.order.total / entry.order.contracts;
+          const stoFeePer = entry.order.fees / entry.order.contracts;
           const id = close.kind === "BTC"
             ? `${close.order.orderId}-${entry.order.orderId}`
             : `exp-${close.activityId}-${entry.order.orderId}`;
@@ -326,7 +328,7 @@ export default function ProfitPage() {
             strike: parseStrike(symbol),
             openPrice: entry.order.fillPrice,
             closePrice: close.kind === "BTC" ? close.order.fillPrice : null,
-            net: (stoPer + btcPer) * matched,
+            net: (stoPer + stoFeePer + btcPer + btcFeePer) * matched,
             time: close.time,
             how: close.kind === "BTC" ? "BTC" : "expired",
           });
@@ -345,17 +347,19 @@ export default function ProfitPage() {
       for (const close of sortedBtoCloses) {
         let remaining = close.contracts;
         const stcPer = close.order.total / close.order.contracts;
+        const stcFeePer = close.order.fees / close.order.contracts;
         while (remaining > 0 && btoIdx < btoState.length) {
           const entry = btoState[btoIdx];
           const matched = Math.min(remaining, entry.remaining);
           const btoPer = entry.order.total / entry.order.contracts;
+          const btoFeePer = entry.order.fees / entry.order.contracts;
           trades.push({
             id: `${close.order.orderId}-${entry.order.orderId}`,
             symbol, contracts: matched,
             strike: parseStrike(symbol),
             openPrice: entry.order.fillPrice,
             closePrice: close.order.fillPrice,
-            net: (btoPer + stcPer) * matched,
+            net: (btoPer + btoFeePer + stcPer + stcFeePer) * matched,
             time: close.time,
             how: "STC",
           });
@@ -402,7 +406,9 @@ export default function ProfitPage() {
       if (matchingBuy) usedBuyIds.add(matchingBuy.orderId);
 
       const buyPrice = matchingBuy?.fillPrice ?? null;
-      const profit = buyPrice != null ? (sell.fillPrice - buyPrice) * sell.shares : null;
+      const profit = buyPrice != null
+        ? (sell.fillPrice - buyPrice) * sell.shares + sell.fees + (matchingBuy?.fees ?? 0)
+        : null;
       const date = new Date(sell.time).toLocaleDateString("en-CA");
 
       return { orderId: sell.orderId, date, time: sell.time, shares: sell.shares, buyPrice, sellPrice: sell.fillPrice, profit };

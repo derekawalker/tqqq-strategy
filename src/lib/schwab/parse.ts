@@ -5,6 +5,7 @@ export interface FilledOrder {
   shares: number;
   fillPrice: number;
   total: number;
+  fees: number;  // negative — total regulatory/commission cost for this order
   time: string;
 }
 
@@ -29,6 +30,7 @@ export interface FilledOptionOrder {
   contracts: number;
   fillPrice: number;  // per share (×100 for total per contract)
   total: number;      // positive = credit received, negative = debit paid
+  fees: number;       // negative — prorated share of order fees for this leg
   time: string;
 }
 
@@ -99,7 +101,7 @@ export function parseFilledOrder(order: any, accountNumber: string): FilledOrder
   if (totalShares === 0) return null;
 
   const fillPrice = totalValue / totalShares;
-  return { orderId: order.orderId, accountNumber, side, shares: totalShares, fillPrice, total: fillPrice * totalShares, time: order.closeTime };
+  return { orderId: order.orderId, accountNumber, side, shares: totalShares, fillPrice, total: fillPrice * totalShares, fees: 0, time: order.closeTime };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -156,7 +158,7 @@ export function parseFilledOptionOrder(order: any, accountNumber: string): Fille
     const isDebit = instruction === "BUY_TO_CLOSE" || instruction === "BUY_TO_OPEN";
     const total = isDebit ? -gross : gross;
 
-    result.push({ orderId: order.orderId, accountNumber, instruction, symbol, contracts: totalContracts, fillPrice, total, time: order.closeTime });
+    result.push({ orderId: order.orderId, accountNumber, instruction, symbol, contracts: totalContracts, fillPrice, total, fees: 0, time: order.closeTime });
   }
   return result;
 }

@@ -105,80 +105,82 @@ export const DEMO_DATA: SchwabData = {
   filledOrders: [
     // ── Account A ────────────────────────────────────────────────────────────
     // First pass: accumulated L0–L8 as price declined
-    { orderId: 10000001, accountNumber: A, side: "BUY",  shares: 202, fillPrice: 50.00, total: 10100.00, time: daysAgo(88) },
-    { orderId: 10000002, accountNumber: A, side: "BUY",  shares: 194, fillPrice: 49.50, total:  9603.00, time: daysAgo(81) },
-    { orderId: 10000003, accountNumber: A, side: "BUY",  shares: 186, fillPrice: 49.00, total:  9114.00, time: daysAgo(74) },
-    { orderId: 10000004, accountNumber: A, side: "BUY",  shares: 179, fillPrice: 48.50, total:  8681.50, time: daysAgo(67) },
-    { orderId: 10000005, accountNumber: A, side: "BUY",  shares: 172, fillPrice: 48.00, total:  8256.00, time: daysAgo(60) },
-    { orderId: 10000006, accountNumber: A, side: "BUY",  shares: 165, fillPrice: 47.50, total:  7837.50, time: daysAgo(53) },
-    { orderId: 10000007, accountNumber: A, side: "BUY",  shares: 158, fillPrice: 47.00, total:  7426.00, time: daysAgo(46) },
-    { orderId: 10000008, accountNumber: A, side: "BUY",  shares: 152, fillPrice: 46.50, total:  7068.00, time: daysAgo(39) },
-    { orderId: 10000009, accountNumber: A, side: "BUY",  shares: 146, fillPrice: 46.00, total:  6716.00, time: daysAgo(32) },
-    // Price bounced to ~$52 — sold upper levels
-    { orderId: 10000010, accountNumber: A, side: "SELL", shares: 186, fillPrice: 49.80, total:  9262.80, time: daysAgo(25) },
-    { orderId: 10000011, accountNumber: A, side: "SELL", shares: 194, fillPrice: 50.31, total:  9760.14, time: daysAgo(22) },
-    { orderId: 10000012, accountNumber: A, side: "SELL", shares: 202, fillPrice: 50.82, total: 10265.64, time: daysAgo(19) },
+    // BUY orders: no SEC/TAF fees (only on sells)
+    { orderId: 10000001, accountNumber: A, side: "BUY",  shares: 202, fillPrice: 50.00, total: 10100.00, fees:  0.00, time: daysAgo(88) },
+    { orderId: 10000002, accountNumber: A, side: "BUY",  shares: 194, fillPrice: 49.50, total:  9603.00, fees:  0.00, time: daysAgo(81) },
+    { orderId: 10000003, accountNumber: A, side: "BUY",  shares: 186, fillPrice: 49.00, total:  9114.00, fees:  0.00, time: daysAgo(74) },
+    { orderId: 10000004, accountNumber: A, side: "BUY",  shares: 179, fillPrice: 48.50, total:  8681.50, fees:  0.00, time: daysAgo(67) },
+    { orderId: 10000005, accountNumber: A, side: "BUY",  shares: 172, fillPrice: 48.00, total:  8256.00, fees:  0.00, time: daysAgo(60) },
+    { orderId: 10000006, accountNumber: A, side: "BUY",  shares: 165, fillPrice: 47.50, total:  7837.50, fees:  0.00, time: daysAgo(53) },
+    { orderId: 10000007, accountNumber: A, side: "BUY",  shares: 158, fillPrice: 47.00, total:  7426.00, fees:  0.00, time: daysAgo(46) },
+    { orderId: 10000008, accountNumber: A, side: "BUY",  shares: 152, fillPrice: 46.50, total:  7068.00, fees:  0.00, time: daysAgo(39) },
+    { orderId: 10000009, accountNumber: A, side: "BUY",  shares: 146, fillPrice: 46.00, total:  6716.00, fees:  0.00, time: daysAgo(32) },
+    // Price bounced to ~$52 — sold upper levels (SEC fee ≈ total×$0.0000278, TAF ≈ shares×$0.000166)
+    { orderId: 10000010, accountNumber: A, side: "SELL", shares: 186, fillPrice: 49.80, total:  9262.80, fees: -0.29, time: daysAgo(25) },
+    { orderId: 10000011, accountNumber: A, side: "SELL", shares: 194, fillPrice: 50.31, total:  9760.14, fees: -0.30, time: daysAgo(22) },
+    { orderId: 10000012, accountNumber: A, side: "SELL", shares: 202, fillPrice: 50.82, total: 10265.64, fees: -0.32, time: daysAgo(19) },
     // Price dipped back — re-bought L0 and L1 (duplicate buy orders)
-    { orderId: 10000013, accountNumber: A, side: "BUY",  shares: 202, fillPrice: 50.00, total: 10100.00, time: daysAgo(15) },
-    { orderId: 10000014, accountNumber: A, side: "BUY",  shares: 194, fillPrice: 49.50, total:  9603.00, time: daysAgo(12) },
+    { orderId: 10000013, accountNumber: A, side: "BUY",  shares: 202, fillPrice: 50.00, total: 10100.00, fees:  0.00, time: daysAgo(15) },
+    { orderId: 10000014, accountNumber: A, side: "BUY",  shares: 194, fillPrice: 49.50, total:  9603.00, fees:  0.00, time: daysAgo(12) },
     // Price continued lower — added L9–L11
-    { orderId: 10000015, accountNumber: A, side: "BUY",  shares: 140, fillPrice: 45.50, total:  6370.00, time: daysAgo(8)  },
-    { orderId: 10000016, accountNumber: A, side: "BUY",  shares: 135, fillPrice: 45.00, total:  6075.00, time: daysAgo(5)  },
-    { orderId: 10000017, accountNumber: A, side: "BUY",  shares: 129, fillPrice: 44.50, total:  5740.50, time: daysAgo(2)  },
+    { orderId: 10000015, accountNumber: A, side: "BUY",  shares: 140, fillPrice: 45.50, total:  6370.00, fees:  0.00, time: daysAgo(8)  },
+    { orderId: 10000016, accountNumber: A, side: "BUY",  shares: 135, fillPrice: 45.00, total:  6075.00, fees:  0.00, time: daysAgo(5)  },
+    { orderId: 10000017, accountNumber: A, side: "BUY",  shares: 129, fillPrice: 44.50, total:  5740.50, fees:  0.00, time: daysAgo(2)  },
 
     // ── Account B ────────────────────────────────────────────────────────────
     // Accumulated L0–L6, still holding all — no sells, no duplicates
-    { orderId: 20000001, accountNumber: B, side: "BUY",  shares: 101, fillPrice: 50.00, total:  5050.00, time: daysAgo(60) },
-    { orderId: 20000002, accountNumber: B, side: "BUY",  shares:  97, fillPrice: 49.50, total:  4801.50, time: daysAgo(53) },
-    { orderId: 20000003, accountNumber: B, side: "BUY",  shares:  93, fillPrice: 49.00, total:  4557.00, time: daysAgo(46) },
-    { orderId: 20000004, accountNumber: B, side: "BUY",  shares:  89, fillPrice: 48.50, total:  4316.50, time: daysAgo(39) },
-    { orderId: 20000005, accountNumber: B, side: "BUY",  shares:  86, fillPrice: 48.00, total:  4128.00, time: daysAgo(32) },
-    { orderId: 20000006, accountNumber: B, side: "BUY",  shares:  82, fillPrice: 47.50, total:  3895.00, time: daysAgo(25) },
-    { orderId: 20000007, accountNumber: B, side: "BUY",  shares:  79, fillPrice: 47.00, total:  3713.00, time: daysAgo(18) },
+    { orderId: 20000001, accountNumber: B, side: "BUY",  shares: 101, fillPrice: 50.00, total:  5050.00, fees:  0.00, time: daysAgo(60) },
+    { orderId: 20000002, accountNumber: B, side: "BUY",  shares:  97, fillPrice: 49.50, total:  4801.50, fees:  0.00, time: daysAgo(53) },
+    { orderId: 20000003, accountNumber: B, side: "BUY",  shares:  93, fillPrice: 49.00, total:  4557.00, fees:  0.00, time: daysAgo(46) },
+    { orderId: 20000004, accountNumber: B, side: "BUY",  shares:  89, fillPrice: 48.50, total:  4316.50, fees:  0.00, time: daysAgo(39) },
+    { orderId: 20000005, accountNumber: B, side: "BUY",  shares:  86, fillPrice: 48.00, total:  4128.00, fees:  0.00, time: daysAgo(32) },
+    { orderId: 20000006, accountNumber: B, side: "BUY",  shares:  82, fillPrice: 47.50, total:  3895.00, fees:  0.00, time: daysAgo(25) },
+    { orderId: 20000007, accountNumber: B, side: "BUY",  shares:  79, fillPrice: 47.00, total:  3713.00, fees:  0.00, time: daysAgo(18) },
 
     // ── Account C ────────────────────────────────────────────────────────────
     // First pass: accumulated L0–L8 as price declined
-    { orderId: 30000001, accountNumber: C, side: "BUY",  shares: 303, fillPrice: 50.00, total: 15150.00, time: daysAgo(88) },
-    { orderId: 30000002, accountNumber: C, side: "BUY",  shares: 291, fillPrice: 49.50, total: 14404.50, time: daysAgo(82) },
-    { orderId: 30000003, accountNumber: C, side: "BUY",  shares: 279, fillPrice: 49.00, total: 13671.00, time: daysAgo(76) },
-    { orderId: 30000004, accountNumber: C, side: "BUY",  shares: 268, fillPrice: 48.50, total: 12998.00, time: daysAgo(70) },
-    { orderId: 30000005, accountNumber: C, side: "BUY",  shares: 257, fillPrice: 48.00, total: 12336.00, time: daysAgo(63) },
-    { orderId: 30000006, accountNumber: C, side: "BUY",  shares: 247, fillPrice: 47.50, total: 11732.50, time: daysAgo(56) },
-    { orderId: 30000007, accountNumber: C, side: "BUY",  shares: 237, fillPrice: 47.00, total: 11139.00, time: daysAgo(49) },
-    { orderId: 30000008, accountNumber: C, side: "BUY",  shares: 228, fillPrice: 46.50, total: 10602.00, time: daysAgo(42) },
-    { orderId: 30000009, accountNumber: C, side: "BUY",  shares: 219, fillPrice: 46.00, total: 10074.00, time: daysAgo(35) },
+    { orderId: 30000001, accountNumber: C, side: "BUY",  shares: 303, fillPrice: 50.00, total: 15150.00, fees:  0.00, time: daysAgo(88) },
+    { orderId: 30000002, accountNumber: C, side: "BUY",  shares: 291, fillPrice: 49.50, total: 14404.50, fees:  0.00, time: daysAgo(82) },
+    { orderId: 30000003, accountNumber: C, side: "BUY",  shares: 279, fillPrice: 49.00, total: 13671.00, fees:  0.00, time: daysAgo(76) },
+    { orderId: 30000004, accountNumber: C, side: "BUY",  shares: 268, fillPrice: 48.50, total: 12998.00, fees:  0.00, time: daysAgo(70) },
+    { orderId: 30000005, accountNumber: C, side: "BUY",  shares: 257, fillPrice: 48.00, total: 12336.00, fees:  0.00, time: daysAgo(63) },
+    { orderId: 30000006, accountNumber: C, side: "BUY",  shares: 247, fillPrice: 47.50, total: 11732.50, fees:  0.00, time: daysAgo(56) },
+    { orderId: 30000007, accountNumber: C, side: "BUY",  shares: 237, fillPrice: 47.00, total: 11139.00, fees:  0.00, time: daysAgo(49) },
+    { orderId: 30000008, accountNumber: C, side: "BUY",  shares: 228, fillPrice: 46.50, total: 10602.00, fees:  0.00, time: daysAgo(42) },
+    { orderId: 30000009, accountNumber: C, side: "BUY",  shares: 219, fillPrice: 46.00, total: 10074.00, fees:  0.00, time: daysAgo(35) },
     // Price bounced to ~$52 — sold upper levels
-    { orderId: 30000010, accountNumber: C, side: "SELL", shares: 279, fillPrice: 49.80, total: 13894.20, time: daysAgo(28) },
-    { orderId: 30000011, accountNumber: C, side: "SELL", shares: 291, fillPrice: 50.31, total: 14640.21, time: daysAgo(25) },
-    { orderId: 30000012, accountNumber: C, side: "SELL", shares: 303, fillPrice: 50.82, total: 15398.46, time: daysAgo(22) },
+    { orderId: 30000010, accountNumber: C, side: "SELL", shares: 279, fillPrice: 49.80, total: 13894.20, fees: -0.43, time: daysAgo(28) },
+    { orderId: 30000011, accountNumber: C, side: "SELL", shares: 291, fillPrice: 50.31, total: 14640.21, fees: -0.45, time: daysAgo(25) },
+    { orderId: 30000012, accountNumber: C, side: "SELL", shares: 303, fillPrice: 50.82, total: 15398.46, fees: -0.48, time: daysAgo(22) },
     // Price dipped back — re-bought L0 and L1 (duplicate buy orders)
-    { orderId: 30000013, accountNumber: C, side: "BUY",  shares: 303, fillPrice: 50.00, total: 15150.00, time: daysAgo(18) },
-    { orderId: 30000014, accountNumber: C, side: "BUY",  shares: 291, fillPrice: 49.50, total: 14404.50, time: daysAgo(16) },
+    { orderId: 30000013, accountNumber: C, side: "BUY",  shares: 303, fillPrice: 50.00, total: 15150.00, fees:  0.00, time: daysAgo(18) },
+    { orderId: 30000014, accountNumber: C, side: "BUY",  shares: 291, fillPrice: 49.50, total: 14404.50, fees:  0.00, time: daysAgo(16) },
     // Price continued lower — added L9–L12
-    { orderId: 30000015, accountNumber: C, side: "BUY",  shares: 210, fillPrice: 45.50, total:  9555.00, time: daysAgo(10) },
-    { orderId: 30000016, accountNumber: C, side: "BUY",  shares: 202, fillPrice: 45.00, total:  9090.00, time: daysAgo(7)  },
-    { orderId: 30000017, accountNumber: C, side: "BUY",  shares: 194, fillPrice: 44.50, total:  8633.00, time: daysAgo(4)  },
-    { orderId: 30000018, accountNumber: C, side: "BUY",  shares: 186, fillPrice: 44.00, total:  8184.00, time: daysAgo(1)  },
+    { orderId: 30000015, accountNumber: C, side: "BUY",  shares: 210, fillPrice: 45.50, total:  9555.00, fees:  0.00, time: daysAgo(10) },
+    { orderId: 30000016, accountNumber: C, side: "BUY",  shares: 202, fillPrice: 45.00, total:  9090.00, fees:  0.00, time: daysAgo(7)  },
+    { orderId: 30000017, accountNumber: C, side: "BUY",  shares: 194, fillPrice: 44.50, total:  8633.00, fees:  0.00, time: daysAgo(4)  },
+    { orderId: 30000018, accountNumber: C, side: "BUY",  shares: 186, fillPrice: 44.00, total:  8184.00, fees:  0.00, time: daysAgo(1)  },
   ],
 
   filledOptionOrders: [
+    // Options fees: optRegFee ≈ $0.02955/contract + tafFee ≈ $0.002/contract ≈ ~$0.032/contract
     // ── Account A ────────────────────────────────────────────────────────────
     // Currently open positions
-    { orderId: 10001001, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260417P00055000", contracts: 2, fillPrice: 1.45, total:  290.00, time: daysAgo(30) },
-    { orderId: 10001002, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260515P00045000", contracts: 3, fillPrice: 0.90, total:  270.00, time: daysAgo(14) },
-    { orderId: 10001003, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260417C00050000", contracts: 2, fillPrice: 0.72, total:  144.00, time: daysAgo(10) },
-    { orderId: 10001004, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260515C00062000", contracts: 2, fillPrice: 0.55, total:  110.00, time: daysAgo(30) },
+    { orderId: 10001001, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260417P00055000", contracts: 2, fillPrice: 1.45, total:  290.00, fees: -0.06, time: daysAgo(30) },
+    { orderId: 10001002, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260515P00045000", contracts: 3, fillPrice: 0.90, total:  270.00, fees: -0.10, time: daysAgo(14) },
+    { orderId: 10001003, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260417C00050000", contracts: 2, fillPrice: 0.72, total:  144.00, fees: -0.06, time: daysAgo(10) },
+    { orderId: 10001004, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260515C00062000", contracts: 2, fillPrice: 0.55, total:  110.00, fees: -0.06, time: daysAgo(30) },
     // Expired (March 20 cycle)
-    { orderId: 10001005, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260320P00048000", contracts: 3, fillPrice: 1.15, total:  345.00, time: daysAgo(42) },
-    { orderId: 10001006, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260320C00058000", contracts: 1, fillPrice: 0.80, total:   80.00, time: daysAgo(42) },
+    { orderId: 10001005, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260320P00048000", contracts: 3, fillPrice: 1.15, total:  345.00, fees: -0.10, time: daysAgo(42) },
+    { orderId: 10001006, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260320C00058000", contracts: 1, fillPrice: 0.80, total:   80.00, fees: -0.03, time: daysAgo(42) },
     // ── Account C ────────────────────────────────────────────────────────────
     // Currently open positions
-    { orderId: 30001001, accountNumber: C, instruction: "SELL_TO_OPEN", symbol: "TQQQ260417P00057000", contracts: 3, fillPrice: 0.95, total:  285.00, time: daysAgo(28) },
-    { orderId: 30001002, accountNumber: C, instruction: "SELL_TO_OPEN", symbol: "TQQQ260515P00044000", contracts: 4, fillPrice: 0.85, total:  340.00, time: daysAgo(14) },
-    { orderId: 30001003, accountNumber: C, instruction: "SELL_TO_OPEN", symbol: "TQQQ260515C00064000", contracts: 3, fillPrice: 0.42, total:  126.00, time: daysAgo(28) },
+    { orderId: 30001001, accountNumber: C, instruction: "SELL_TO_OPEN", symbol: "TQQQ260417P00057000", contracts: 3, fillPrice: 0.95, total:  285.00, fees: -0.10, time: daysAgo(28) },
+    { orderId: 30001002, accountNumber: C, instruction: "SELL_TO_OPEN", symbol: "TQQQ260515P00044000", contracts: 4, fillPrice: 0.85, total:  340.00, fees: -0.13, time: daysAgo(14) },
+    { orderId: 30001003, accountNumber: C, instruction: "SELL_TO_OPEN", symbol: "TQQQ260515C00064000", contracts: 3, fillPrice: 0.42, total:  126.00, fees: -0.10, time: daysAgo(28) },
     // Expired (March 20 cycle)
-    { orderId: 30001004, accountNumber: C, instruction: "SELL_TO_OPEN", symbol: "TQQQ260320P00050000", contracts: 4, fillPrice: 1.10, total:  440.00, time: daysAgo(42) },
-    { orderId: 30001005, accountNumber: C, instruction: "SELL_TO_OPEN", symbol: "TQQQ260320C00060000", contracts: 2, fillPrice: 0.65, total:  130.00, time: daysAgo(42) },
+    { orderId: 30001004, accountNumber: C, instruction: "SELL_TO_OPEN", symbol: "TQQQ260320P00050000", contracts: 4, fillPrice: 1.10, total:  440.00, fees: -0.13, time: daysAgo(42) },
+    { orderId: 30001005, accountNumber: C, instruction: "SELL_TO_OPEN", symbol: "TQQQ260320C00060000", contracts: 2, fillPrice: 0.65, total:  130.00, fees: -0.06, time: daysAgo(42) },
   ],
 
   expiredOptionOrders: [

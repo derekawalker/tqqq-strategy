@@ -72,13 +72,14 @@ async function fetchAccountData(
   to: string,
   from365: string,
 ) {
-  const [filledRes, workingRes, pendingRes, positionsRes, rxDeliverRes, divIntRes] = await Promise.all([
+  const [filledRes, workingRes, pendingRes, positionsRes, rxDeliverRes, divIntRes, tradeRes] = await Promise.all([
     schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from90}&toEnteredTime=${to}&status=FILLED`),
     schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from90}&toEnteredTime=${to}&status=WORKING`),
     schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from90}&toEnteredTime=${to}&status=PENDING_ACTIVATION`),
     schwabFetch(`/trader/v1/accounts/${hash}?fields=positions`),
     schwabFetch(`/trader/v1/accounts/${hash}/transactions?startDate=${from90}&endDate=${to}&types=RECEIVE_AND_DELIVER`),
     schwabFetch(`/trader/v1/accounts/${hash}/transactions?startDate=${from365}&endDate=${to}&types=DIVIDEND_OR_INTEREST`),
+    schwabFetch(`/trader/v1/accounts/${hash}/transactions?startDate=${from90}&endDate=${to}&types=TRADE`),
   ]);
 
   const filledRaw = filledRes.ok ? await filledRes.json() : [];
@@ -89,13 +90,44 @@ async function fetchAccountData(
   const positionsData = positionsRes.ok ? await positionsRes.json() : null;
   const rxDeliverRaw = rxDeliverRes.ok ? await rxDeliverRes.json() : [];
   const divIntRaw = divIntRes.ok ? await divIntRes.json() : [];
+  const tradeRaw = tradeRes.ok ? await tradeRes.json() : [];
+
+  // Build orderId → total fees (negative) from TRADE transactions
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const feeByOrderId = new Map<number, number>();
+  for (const tx of Array.isArray(tradeRaw) ? tradeRaw : []) {
+    const rawId = tx.orderId;
+    const orderId = typeof rawId === "string" ? parseInt(rawId, 10) : (rawId as number);
+    if (!orderId || isNaN(orderId)) continue;
+    const f = tx.fees ?? {};
+    const total = -(
+      (f.commission     ?? 0) +
+      (f.secFee         ?? 0) +
+      (f.tafFee         ?? 0) +
+      (f.optRegFee      ?? 0) +
+      (f.additionalFee  ?? 0)
+    );
+    feeByOrderId.set(orderId, (feeByOrderId.get(orderId) ?? 0) + total);
+  }
 
   // --- Orders ---
   const flatFilled = flattenOrders(Array.isArray(filledRaw) ? filledRaw : []);
   const filled = flatFilled
     .map((o) => parseFilledOrder(o, accountNumber))
-    .filter((o): o is FilledOrder => o !== null);
-  const filledOptions = flatFilled.flatMap((o) => parseFilledOptionOrder(o, accountNumber));
+    .filter((o): o is FilledOrder => o !== null)
+    .map((o) => ({ ...o, fees: feeByOrderId.get(o.orderId) ?? 0 }));
+
+  const filledOptionsRaw = flatFilled.flatMap((o) => parseFilledOptionOrder(o, accountNumber));
+  // Prorate fees across legs of the same order by contracts
+  const optionOrderContracts = new Map<number, number>();
+  for (const o of filledOptionsRaw) {
+    optionOrderContracts.set(o.orderId, (optionOrderContracts.get(o.orderId) ?? 0) + o.contracts);
+  }
+  const filledOptions = filledOptionsRaw.map((o) => {
+    const orderFees = feeByOrderId.get(o.orderId) ?? 0;
+    const totalContracts = optionOrderContracts.get(o.orderId) ?? o.contracts;
+    return { ...o, fees: orderFees * (o.contracts / totalContracts) };
+  });
   const working = flattenOrders(Array.isArray(workingRaw) ? workingRaw : [])
     .map((o) => parseWorkingOrder(o, accountNumber))
     .filter((o): o is WorkingOrder => o !== null);
