@@ -103,34 +103,62 @@ export function parseFilledOrder(order: any, accountNumber: string): FilledOrder
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function parseFilledOptionOrder(order: any, accountNumber: string): FilledOptionOrder | null {
-  if (order.status !== "FILLED") return null;
-  const leg = order.orderLegCollection?.[0];
-  if (!leg || leg.orderLegType !== "OPTION") return null;
-  if (leg.instrument?.underlyingSymbol !== "TQQQ") return null;
+export function parseFilledOptionOrder(order: any, accountNumber: string): FilledOptionOrder[] {
+  if (order.status !== "FILLED") return [];
 
-  const rawInstruction: string = leg.instruction ?? "";
-  if (!["SELL_TO_OPEN", "BUY_TO_CLOSE", "BUY_TO_OPEN", "SELL_TO_CLOSE"].includes(rawInstruction)) return null;
-  const instruction = rawInstruction as FilledOptionOrder["instruction"];
+  const legs: any[] = order.orderLegCollection ?? [];
+  const optionLegs = legs.filter((leg) =>
+    leg.orderLegType === "OPTION" &&
+    leg.instrument?.underlyingSymbol === "TQQQ" &&
+    ["SELL_TO_OPEN", "BUY_TO_CLOSE", "BUY_TO_OPEN", "SELL_TO_CLOSE"].includes(leg.instruction ?? "")
+  );
+  if (optionLegs.length === 0) return [];
 
-  const symbol: string = leg.instrument?.symbol ?? "";
-  let totalValue = 0;
-  let totalContracts = 0;
+  // Build per-legId fill totals from execution legs
+  const legFills = new Map<number, { totalValue: number; totalContracts: number }>();
   for (const activity of order.orderActivityCollection ?? []) {
     if (activity.executionType !== "FILL") continue;
     for (const execLeg of activity.executionLegs ?? []) {
-      totalValue += execLeg.price * execLeg.quantity;
-      totalContracts += execLeg.quantity;
+      const legId: number = execLeg.legId;
+      if (!legFills.has(legId)) legFills.set(legId, { totalValue: 0, totalContracts: 0 });
+      const fill = legFills.get(legId)!;
+      fill.totalValue += execLeg.price * execLeg.quantity;
+      fill.totalContracts += execLeg.quantity;
     }
   }
-  if (totalContracts === 0) return null;
 
-  const fillPrice = totalValue / totalContracts;
-  const gross = fillPrice * totalContracts * 100;
-  const isDebit = instruction === "BUY_TO_CLOSE" || instruction === "BUY_TO_OPEN";
-  const total = isDebit ? -gross : gross;
+  const result: FilledOptionOrder[] = [];
+  for (const leg of optionLegs) {
+    const instruction = leg.instruction as FilledOptionOrder["instruction"];
+    const symbol: string = leg.instrument?.symbol ?? "";
+    const fill = legFills.get(leg.legId);
 
-  return { orderId: order.orderId, accountNumber, instruction, symbol, contracts: totalContracts, fillPrice, total, time: order.closeTime };
+    let totalValue = 0;
+    let totalContracts = 0;
+    if (fill) {
+      totalValue = fill.totalValue;
+      totalContracts = fill.totalContracts;
+    } else if (optionLegs.length === 1) {
+      // Single-leg order without legId matching — sum all execution legs (fallback)
+      for (const activity of order.orderActivityCollection ?? []) {
+        if (activity.executionType !== "FILL") continue;
+        for (const execLeg of activity.executionLegs ?? []) {
+          totalValue += execLeg.price * execLeg.quantity;
+          totalContracts += execLeg.quantity;
+        }
+      }
+    }
+
+    if (totalContracts === 0) continue;
+
+    const fillPrice = totalValue / totalContracts;
+    const gross = fillPrice * totalContracts * 100;
+    const isDebit = instruction === "BUY_TO_CLOSE" || instruction === "BUY_TO_OPEN";
+    const total = isDebit ? -gross : gross;
+
+    result.push({ orderId: order.orderId, accountNumber, instruction, symbol, contracts: totalContracts, fillPrice, total, time: order.closeTime });
+  }
+  return result;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

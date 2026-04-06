@@ -95,9 +95,7 @@ async function fetchAccountData(
   const filled = flatFilled
     .map((o) => parseFilledOrder(o, accountNumber))
     .filter((o): o is FilledOrder => o !== null);
-  const filledOptions = flatFilled
-    .map((o) => parseFilledOptionOrder(o, accountNumber))
-    .filter((o): o is FilledOptionOrder => o !== null);
+  const filledOptions = flatFilled.flatMap((o) => parseFilledOptionOrder(o, accountNumber));
   const working = flattenOrders(Array.isArray(workingRaw) ? workingRaw : [])
     .map((o) => parseWorkingOrder(o, accountNumber))
     .filter((o): o is WorkingOrder => o !== null);
