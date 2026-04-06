@@ -34,7 +34,8 @@ interface RealizedOptionTrade {
   contracts: number;
   openPrice: number;        // STO fill price per share
   closePrice: number | null; // BTC fill price per share, null if expired
-  net: number;              // net profit
+  net: number;              // net profit (after fees)
+  fees: number;             // total fees for this trade (negative)
   time: string;             // close time: BTC fill time or expiration time
   how: "BTC" | "expired" | "STC";
 }
@@ -46,6 +47,7 @@ interface ProfitRow {
   shares: number;
   buyPrice: number | null;
   sellPrice: number;
+  fees: number;   // combined sell + buy fees (negative)
   profit: number | null;
 }
 
@@ -329,6 +331,7 @@ export default function ProfitPage() {
             openPrice: entry.order.fillPrice,
             closePrice: close.kind === "BTC" ? close.order.fillPrice : null,
             net: (stoPer + stoFeePer + btcPer + btcFeePer) * matched,
+            fees: (stoFeePer + btcFeePer) * matched,
             time: close.time,
             how: close.kind === "BTC" ? "BTC" : "expired",
           });
@@ -360,6 +363,7 @@ export default function ProfitPage() {
             openPrice: entry.order.fillPrice,
             closePrice: close.order.fillPrice,
             net: (btoPer + btoFeePer + stcPer + stcFeePer) * matched,
+            fees: (btoFeePer + stcFeePer) * matched,
             time: close.time,
             how: "STC",
           });
@@ -406,12 +410,13 @@ export default function ProfitPage() {
       if (matchingBuy) usedBuyIds.add(matchingBuy.orderId);
 
       const buyPrice = matchingBuy?.fillPrice ?? null;
+      const combinedFees = sell.fees + (matchingBuy?.fees ?? 0);
       const profit = buyPrice != null
-        ? (sell.fillPrice - buyPrice) * sell.shares + sell.fees + (matchingBuy?.fees ?? 0)
+        ? (sell.fillPrice - buyPrice) * sell.shares + combinedFees
         : null;
       const date = new Date(sell.time).toLocaleDateString("en-CA");
 
-      return { orderId: sell.orderId, date, time: sell.time, shares: sell.shares, buyPrice, sellPrice: sell.fillPrice, profit };
+      return { orderId: sell.orderId, date, time: sell.time, shares: sell.shares, buyPrice, sellPrice: sell.fillPrice, fees: combinedFees, profit };
     }).sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
   }, [filledOrders]);
 
@@ -693,6 +698,9 @@ export default function ProfitPage() {
                 <Table.Td ta="right"><Text size="sm">{fmt(row.shares, 0)}</Text></Table.Td>
                 <Table.Td ta="right" className="hide-mobile"><Text size="sm">{row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text></Table.Td>
                 <Table.Td ta="right" className="hide-mobile"><Text size="sm">{mask(`$${fmt(row.sellPrice)}`)}</Text></Table.Td>
+                <Table.Td ta="right" className="hide-mobile">
+                  {row.fees !== 0 ? <Text size="sm" c="dimmed">{mask(fmtMoney(row.fees))}</Text> : <Text size="sm" c="dimmed">—</Text>}
+                </Table.Td>
                 <Table.Td ta="right">
                   <Text size="sm" fw={600} c={row.profit != null ? (row.profit >= 0 ? activeAccount?.color ?? "blue" : "red") : "dimmed"}>
                     {row.profit != null ? mask(`${row.profit >= 0 ? "+" : ""}$${fmt(row.profit)}`) : "—"}
@@ -707,7 +715,7 @@ export default function ProfitPage() {
               <Table.Tr key={`opt-${o.id}`}>
                 <Table.Td><Text size="sm" c="dimmed">{fmtDate(o.time)}</Text></Table.Td>
                 <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}</Text></Table.Td>
-                <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} · ${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
+                <Table.Td colSpan={3} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} · ${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
                 <Table.Td ta="right">
                   <Text size="sm" fw={600} c={o.net < 0 ? "red" : "orange"}>{mask(fmtMoney(o.net, true))}</Text>
                 </Table.Td>
@@ -720,7 +728,7 @@ export default function ProfitPage() {
               <Table.Tr key={`txn-${t.activityId}`}>
                 <Table.Td><Text size="sm" c="dimmed">{fmtDate(t.time)}</Text></Table.Td>
                 <Table.Td />
-                <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">{t.description}</Text></Table.Td>
+                <Table.Td colSpan={3} className="hide-mobile"><Text size="sm" c="dimmed">{t.description}</Text></Table.Td>
                 <Table.Td ta="right">
                   <Text size="sm" fw={600} c="lime">{mask(fmtMoney(t.amount, true))}</Text>
                 </Table.Td>
@@ -736,6 +744,7 @@ export default function ProfitPage() {
                 <Table.Th ta="right">Qty</Table.Th>
                 <Table.Th ta="right" className="hide-mobile">Buy Price</Table.Th>
                 <Table.Th ta="right" className="hide-mobile">Sell Price</Table.Th>
+                <Table.Th ta="right" className="hide-mobile">Fees</Table.Th>
                 <Table.Th ta="right">Profit</Table.Th>
               </Table.Tr>
             </Table.Thead>
@@ -763,6 +772,9 @@ export default function ProfitPage() {
                 <Table.Td ta="right"><Text size="sm">{fmt(row.shares, 0)}</Text></Table.Td>
                 <Table.Td ta="right" className="hide-mobile"><Text size="sm">{row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text></Table.Td>
                 <Table.Td ta="right" className="hide-mobile"><Text size="sm">{mask(`$${fmt(row.sellPrice)}`)}</Text></Table.Td>
+                <Table.Td ta="right" className="hide-mobile">
+                  {row.fees !== 0 ? <Text size="sm" c="dimmed">{mask(fmtMoney(row.fees))}</Text> : <Text size="sm" c="dimmed">—</Text>}
+                </Table.Td>
                 <Table.Td ta="right">
                   <Text size="sm" fw={600} c={row.profit != null ? (row.profit >= 0 ? activeAccount?.color ?? "blue" : "red") : "dimmed"}>
                     {row.profit != null ? mask(`${row.profit >= 0 ? "+" : ""}$${fmt(row.profit)}`) : "—"}
@@ -777,7 +789,7 @@ export default function ProfitPage() {
               <Table.Tr key={`opt-${o.id}`}>
                 <Table.Td><Text size="sm" c="dimmed">{fmtDate(o.time)}</Text></Table.Td>
                 <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}</Text></Table.Td>
-                <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} · ${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
+                <Table.Td colSpan={3} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} · ${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
                 <Table.Td ta="right">
                   <Text size="sm" fw={600} c={o.net < 0 ? "red" : "orange"}>{mask(fmtMoney(o.net, true))}</Text>
                 </Table.Td>
@@ -790,7 +802,7 @@ export default function ProfitPage() {
               <Table.Tr key={`txn-${t.activityId}`}>
                 <Table.Td><Text size="sm" c="dimmed">{fmtDate(t.time)}</Text></Table.Td>
                 <Table.Td />
-                <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">{t.description}</Text></Table.Td>
+                <Table.Td colSpan={3} className="hide-mobile"><Text size="sm" c="dimmed">{t.description}</Text></Table.Td>
                 <Table.Td ta="right">
                   <Text size="sm" fw={600} c="lime">{mask(fmtMoney(t.amount, true))}</Text>
                 </Table.Td>
@@ -806,6 +818,7 @@ export default function ProfitPage() {
                 <Table.Th ta="right">Qty</Table.Th>
                 <Table.Th ta="right" className="hide-mobile">Buy Price</Table.Th>
                 <Table.Th ta="right" className="hide-mobile">Sell Price</Table.Th>
+                <Table.Th ta="right" className="hide-mobile">Fees</Table.Th>
                 <Table.Th ta="right">Profit</Table.Th>
               </Table.Tr>
             </Table.Thead>
@@ -853,6 +866,9 @@ export default function ProfitPage() {
                 <Table.Td ta="right"><Text size="sm">{fmt(row.shares, 0)}</Text></Table.Td>
                 <Table.Td ta="right" className="hide-mobile"><Text size="sm">{row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text></Table.Td>
                 <Table.Td ta="right" className="hide-mobile"><Text size="sm">{mask(`$${fmt(row.sellPrice)}`)}</Text></Table.Td>
+                <Table.Td ta="right" className="hide-mobile">
+                  {row.fees !== 0 ? <Text size="sm" c="dimmed">{mask(fmtMoney(row.fees))}</Text> : <Text size="sm" c="dimmed">—</Text>}
+                </Table.Td>
                 <Table.Td ta="right">
                   <Text size="sm" fw={600} c={row.profit != null ? (row.profit >= 0 ? activeAccount?.color ?? "blue" : "red") : "dimmed"}>
                     {row.profit != null ? mask(`${row.profit >= 0 ? "+" : ""}$${fmt(row.profit)}`) : "—"}
@@ -867,7 +883,7 @@ export default function ProfitPage() {
               <Table.Tr key={`opt-${o.id}`}>
                 <Table.Td><Text size="sm" c="dimmed">{fmtDate(o.time)}</Text></Table.Td>
                 <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}</Text></Table.Td>
-                <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} · ${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
+                <Table.Td colSpan={3} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} · ${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
                 <Table.Td ta="right">
                   <Text size="sm" fw={600} c={o.net < 0 ? "red" : "orange"}>{mask(fmtMoney(o.net, true))}</Text>
                 </Table.Td>
@@ -880,7 +896,7 @@ export default function ProfitPage() {
               <Table.Tr key={`txn-${t.activityId}`}>
                 <Table.Td><Text size="sm" c="dimmed">{fmtDate(t.time)}</Text></Table.Td>
                 <Table.Td />
-                <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">{t.description}</Text></Table.Td>
+                <Table.Td colSpan={3} className="hide-mobile"><Text size="sm" c="dimmed">{t.description}</Text></Table.Td>
                 <Table.Td ta="right">
                   <Text size="sm" fw={600} c="lime">{mask(fmtMoney(t.amount, true))}</Text>
                 </Table.Td>
@@ -896,6 +912,7 @@ export default function ProfitPage() {
                 <Table.Th ta="right">Qty</Table.Th>
                 <Table.Th ta="right" className="hide-mobile">Buy Price</Table.Th>
                 <Table.Th ta="right" className="hide-mobile">Sell Price</Table.Th>
+                <Table.Th ta="right" className="hide-mobile">Fees</Table.Th>
                 <Table.Th ta="right">Profit</Table.Th>
               </Table.Tr>
             </Table.Thead>
