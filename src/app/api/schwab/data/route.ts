@@ -92,10 +92,13 @@ async function fetchAccountData(
   const divIntRaw = divIntRes.ok ? await divIntRes.json() : [];
   const tradeRaw = tradeRes.ok ? await tradeRes.json() : [];
 
-  // Build orderId → total fees (negative) from TRADE transactions.
-  // Fees are transferItems entries that have a feeType field (COMMISSION, OPT_REG_FEE, SEC_FEE, TAF_FEE, etc.)
+  // Build fee maps from TRADE transactions.
+  // Fees are transferItems entries with a feeType field (COMMISSION, OPT_REG_FEE, SEC_FEE, TAF_FEE, etc.)
+  // For equity orders: keyed by orderId alone (single instrument per order).
+  // For option orders: keyed by "orderId_symbol" so each leg gets its own exact fees.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const feeByOrderId = new Map<number, number>();
+  const feeByOrderId = new Map<number, number>();          // equity
+  const feeByOrderIdSymbol = new Map<string, number>();    // options
   for (const tx of Array.isArray(tradeRaw) ? tradeRaw : []) {
     const orderId: number = tx.orderId;
     if (!orderId) continue;
@@ -105,7 +108,13 @@ async function fetchAccountData(
         txFees += item.amount;
       }
     }
-    if (txFees > 0) {
+    if (txFees === 0) continue;
+    const optionItem = tx.transferItems?.find((i: any) => i.instrument?.assetType === "OPTION");
+    if (optionItem) {
+      const symbol: string = (optionItem.instrument.symbol as string).trim();
+      const key = `${orderId}_${symbol}`;
+      feeByOrderIdSymbol.set(key, (feeByOrderIdSymbol.get(key) ?? 0) - txFees);
+    } else {
       feeByOrderId.set(orderId, (feeByOrderId.get(orderId) ?? 0) - txFees);
     }
   }
@@ -118,16 +127,11 @@ async function fetchAccountData(
     .map((o) => ({ ...o, fees: feeByOrderId.get(o.orderId) ?? 0 }));
 
   const filledOptionsRaw = flatFilled.flatMap((o) => parseFilledOptionOrder(o, accountNumber));
-  // Prorate fees across legs of the same order by contracts
-  const optionOrderContracts = new Map<number, number>();
-  for (const o of filledOptionsRaw) {
-    optionOrderContracts.set(o.orderId, (optionOrderContracts.get(o.orderId) ?? 0) + o.contracts);
-  }
-  const filledOptions = filledOptionsRaw.map((o) => {
-    const orderFees = feeByOrderId.get(o.orderId) ?? 0;
-    const totalContracts = optionOrderContracts.get(o.orderId) ?? o.contracts;
-    return { ...o, fees: orderFees * (o.contracts / totalContracts) };
-  });
+  // Look up fees per leg by orderId+symbol (exact match, no proration needed)
+  const filledOptions = filledOptionsRaw.map((o) => ({
+    ...o,
+    fees: feeByOrderIdSymbol.get(`${o.orderId}_${o.symbol.trim()}`) ?? 0,
+  }));
   const working = flattenOrders(Array.isArray(workingRaw) ? workingRaw : [])
     .map((o) => parseWorkingOrder(o, accountNumber))
     .filter((o): o is WorkingOrder => o !== null);
