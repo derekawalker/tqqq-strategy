@@ -715,7 +715,10 @@ export default function ProfitPage() {
               <Table.Tr key={`opt-${o.id}`}>
                 <Table.Td><Text size="sm" c="dimmed">{fmtDate(o.time)}</Text></Table.Td>
                 <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}</Text></Table.Td>
-                <Table.Td colSpan={3} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} · ${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
+                <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} · ${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
+                <Table.Td ta="right" className="hide-mobile">
+                  {o.fees !== 0 ? <Text size="sm" c="dimmed">{mask(fmtMoney(o.fees))}</Text> : <Text size="sm" c="dimmed">—</Text>}
+                </Table.Td>
                 <Table.Td ta="right">
                   <Text size="sm" fw={600} c={o.net < 0 ? "red" : "orange"}>{mask(fmtMoney(o.net, true))}</Text>
                 </Table.Td>
@@ -789,7 +792,10 @@ export default function ProfitPage() {
               <Table.Tr key={`opt-${o.id}`}>
                 <Table.Td><Text size="sm" c="dimmed">{fmtDate(o.time)}</Text></Table.Td>
                 <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}</Text></Table.Td>
-                <Table.Td colSpan={3} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} · ${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
+                <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} · ${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
+                <Table.Td ta="right" className="hide-mobile">
+                  {o.fees !== 0 ? <Text size="sm" c="dimmed">{mask(fmtMoney(o.fees))}</Text> : <Text size="sm" c="dimmed">—</Text>}
+                </Table.Td>
                 <Table.Td ta="right">
                   <Text size="sm" fw={600} c={o.net < 0 ? "red" : "orange"}>{mask(fmtMoney(o.net, true))}</Text>
                 </Table.Td>
@@ -883,7 +889,10 @@ export default function ProfitPage() {
               <Table.Tr key={`opt-${o.id}`}>
                 <Table.Td><Text size="sm" c="dimmed">{fmtDate(o.time)}</Text></Table.Td>
                 <Table.Td ta="right"><Text size="sm" c="orange">{o.contracts}</Text></Table.Td>
-                <Table.Td colSpan={3} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} · ${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
+                <Table.Td colSpan={2} className="hide-mobile"><Text size="sm" c="dimmed">${fmt(o.strike)} · ${fmt(o.openPrice)} → {o.closePrice != null ? `$${fmt(o.closePrice)}` : "Expired"}</Text></Table.Td>
+                <Table.Td ta="right" className="hide-mobile">
+                  {o.fees !== 0 ? <Text size="sm" c="dimmed">{mask(fmtMoney(o.fees))}</Text> : <Text size="sm" c="dimmed">—</Text>}
+                </Table.Td>
                 <Table.Td ta="right">
                   <Text size="sm" fw={600} c={o.net < 0 ? "red" : "orange"}>{mask(fmtMoney(o.net, true))}</Text>
                 </Table.Td>
