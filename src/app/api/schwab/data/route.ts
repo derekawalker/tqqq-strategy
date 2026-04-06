@@ -92,22 +92,22 @@ async function fetchAccountData(
   const divIntRaw = divIntRes.ok ? await divIntRes.json() : [];
   const tradeRaw = tradeRes.ok ? await tradeRes.json() : [];
 
-  // Build orderId → total fees (negative) from TRADE transactions
+  // Build orderId → total fees (negative) from TRADE transactions.
+  // Fees are transferItems entries that have a feeType field (COMMISSION, OPT_REG_FEE, SEC_FEE, TAF_FEE, etc.)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const feeByOrderId = new Map<number, number>();
   for (const tx of Array.isArray(tradeRaw) ? tradeRaw : []) {
-    const rawId = tx.orderId;
-    const orderId = typeof rawId === "string" ? parseInt(rawId, 10) : (rawId as number);
-    if (!orderId || isNaN(orderId)) continue;
-    const f = tx.fees ?? {};
-    const total = -(
-      (f.commission     ?? 0) +
-      (f.secFee         ?? 0) +
-      (f.tafFee         ?? 0) +
-      (f.optRegFee      ?? 0) +
-      (f.additionalFee  ?? 0)
-    );
-    feeByOrderId.set(orderId, (feeByOrderId.get(orderId) ?? 0) + total);
+    const orderId: number = tx.orderId;
+    if (!orderId) continue;
+    let txFees = 0;
+    for (const item of tx.transferItems ?? []) {
+      if (item.feeType && typeof item.amount === "number" && item.amount > 0) {
+        txFees += item.amount;
+      }
+    }
+    if (txFees > 0) {
+      feeByOrderId.set(orderId, (feeByOrderId.get(orderId) ?? 0) - txFees);
+    }
   }
 
   // --- Orders ---
