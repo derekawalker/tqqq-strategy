@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import { Table, ScrollArea, Text, Center, Skeleton, Stack, Badge, NumberInput, Group, Tooltip, ThemeIcon } from "@mantine/core";
+import { useMemo, useState } from "react";
+import { Table, ScrollArea, Text, Center, Skeleton, Stack, Badge, NumberInput, Group, Tooltip, ThemeIcon, Modal, Code, Button, CopyButton } from "@mantine/core";
 import { IconAlertTriangle, IconCheck, IconCopy, IconPlayerPlayFilled } from "@tabler/icons-react";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
@@ -18,9 +18,34 @@ interface LevelRow {
   sells: number;
 }
 
+function buildTosText(side: "BUY" | "SELL", shares: number, buyPrice: number, sellPrice: number, count: number): string {
+  const lines: string[] = [];
+  const pair = side === "BUY"
+    ? [
+        `BUY +${shares} TQQQ @${buyPrice.toFixed(2)} LMT GTC+EXTENDED OVERNIGHT`,
+        `SELL -${shares} TQQQ @${sellPrice.toFixed(2)} LMT GTC+EXTENDED OVERNIGHT TRG BY`,
+      ]
+    : [
+        `SELL -${shares} TQQQ @${sellPrice.toFixed(2)} LMT GTC+EXTENDED OVERNIGHT`,
+        `BUY +${shares} TQQQ @${buyPrice.toFixed(2)} LMT GTC+EXTENDED OVERNIGHT TRG BY`,
+      ];
+
+  for (let i = 0; i < count; i++) {
+    if (i === 0) {
+      lines.push(pair[0]);
+      lines.push(pair[1]);
+    } else {
+      lines.push(pair[0] + " TRG BY");
+      lines.push(pair[1]);
+    }
+  }
+  return lines.join("\n");
+}
+
 export default function WorkingOrdersPage() {
   const { workingOrders, snapshotLoading, privacyMode, activeAccount, updateAccountSettings } = useApp();
   const levelsSummary = useLevels();
+  const [tosModal, setTosModal] = useState<{ text: string } | null>(null);
 
   const warnBelow = activeAccount?.settings.orderWarnBelow ?? 3;
   const buffer = activeAccount?.settings.orderBuffer ?? 5;
@@ -155,6 +180,31 @@ export default function WorkingOrdersPage() {
   }
 
   return (
+    <>
+    <Modal
+      opened={tosModal !== null}
+      onClose={() => setTosModal(null)}
+      title="ThinkorSwim Order Text"
+      size="lg"
+    >
+      <Stack gap="md">
+        <Code block style={{ whiteSpace: "pre", fontFamily: "monospace", fontSize: 13, lineHeight: 1.6 }}>
+          {tosModal?.text}
+        </Code>
+        <CopyButton value={tosModal?.text ?? ""}>
+          {({ copied, copy }) => (
+            <Button
+              leftSection={<IconCopy size={16} />}
+              variant={copied ? "filled" : "light"}
+              color={copied ? "teal" : "blue"}
+              onClick={copy}
+            >
+              {copied ? "Copied!" : "Copy to clipboard"}
+            </Button>
+          )}
+        </CopyButton>
+      </Stack>
+    </Modal>
     <Stack gap="md">
       <Group justify="space-between" wrap="nowrap" align="flex-end">
         <Text fw={700} size="xl">Working Orders</Text>
@@ -251,7 +301,9 @@ export default function WorkingOrdersPage() {
                         </Tooltip>
                       )}
                       {buyWarn
-                        ? <Badge variant="filled" size="md" fw={700} style={{ background: "rgba(251,146,60,0.9)", color: "#fff" }}>{row.buys}</Badge>
+                        ? <Badge variant="filled" size="md" fw={700} style={{ background: "rgba(251,146,60,0.9)", color: "#fff", cursor: "pointer" }}
+                            onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("BUY", row.shares, row.buyPrice, row.sellPrice, threshold) })}
+                          >{row.buys}</Badge>
                         : row.buys > 0
                           ? <Text size="sm" c="teal">{row.buys}</Text>
                           : <Text size="sm" c="dimmed">—</Text>}
@@ -265,7 +317,9 @@ export default function WorkingOrdersPage() {
                         </Tooltip>
                       )}
                       {sellWarn
-                        ? <Badge variant="filled" size="md" fw={700} style={{ background: "rgba(251,146,60,0.9)", color: "#fff" }}>{row.sells}</Badge>
+                        ? <Badge variant="filled" size="md" fw={700} style={{ background: "rgba(251,146,60,0.9)", color: "#fff", cursor: "pointer" }}
+                            onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("SELL", row.shares, row.buyPrice, row.sellPrice, threshold) })}
+                          >{row.sells}</Badge>
                         : row.sells > 0
                           ? <Text size="sm" c="red">{row.sells}</Text>
                           : <Text size="sm" c="dimmed">—</Text>}
@@ -287,6 +341,7 @@ export default function WorkingOrdersPage() {
         </Table>
       </ScrollArea>
     </Stack>
+    </>
   );
 
 }

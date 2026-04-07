@@ -42,7 +42,7 @@ const PAGE_ALERT_MAP: Record<string, AlertDef[]> = {
     {
       title: "Idle Cash",
       triggered: (a) => a.idleCash != null && a.idleCash > 1000,
-      description: ({ alerts: a }) => `${fmtCash(a.idleCash!)} is sitting uninvested. Consider moving it to SGOV or SWVXX.`,
+      description: ({ alerts: a }) => `${fmtCash(a.idleCash!)} is sitting uninvested. Consider moving it to SGOV or SWVXX or selling puts.`,
     },
   ],
   "/levels": [
