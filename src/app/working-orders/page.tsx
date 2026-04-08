@@ -309,8 +309,9 @@ export default function WorkingOrdersPage() {
                 && row.levelIndex !== currentLevel
                 && Math.abs(row.levelIndex - currentLevel) <= bufferSize;
               const bufferMissing = inBuffer && (row.buys === 0 || row.sells === 0);
-              const buyWarn = hasOrders && threshold > 0 && row.buys < threshold;
-              const sellWarn = hasOrders && threshold > 0 && row.sells < threshold;
+              const rowWarn = hasOrders && threshold > 0 && (row.buys < threshold || row.sells < threshold);
+              const buyWarn = rowWarn;
+              const sellWarn = rowWarn;
               const isCurrent = row.levelIndex === currentLevel && currentLevel >= 0;
               const priceInRange = !quote.loading && row.buyPrice != null && row.sellPrice != null
                 && quote.price >= row.buyPrice && quote.price <= row.sellPrice;
