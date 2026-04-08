@@ -394,30 +394,51 @@ export default function ProfitPage() {
   const mask = (val: string) => (privacyMode ? "••••" : val);
 
   const rows = useMemo<ProfitRow[]>(() => {
-    const sells = filledOrders.filter((o) => o.side === "SELL")
-      .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-    const availableBuys = filledOrders.filter((o) => o.side === "BUY")
-      .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-    const usedBuyIds = new Set<number>();
+    // FIFO cost-basis matching: process all orders chronologically, queue buy lots,
+    // dequeue them as sells come in. Handles partial fills and quantity mismatches.
+    const chronological = [...filledOrders].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
 
-    return sells.map((sell) => {
-      const sellTime = new Date(sell.time).getTime();
-      const matchingBuy = [...availableBuys]
-        .reverse()
-        .find((b) => !usedBuyIds.has(b.orderId) && b.shares === sell.shares && new Date(b.time).getTime() < sellTime)
-        ?? null;
+    // Queue of buy lots with remaining shares
+    const buyQueue: { orderId: number; fillPrice: number; fees: number; totalShares: number; remaining: number }[] = [];
+    const result: ProfitRow[] = [];
 
-      if (matchingBuy) usedBuyIds.add(matchingBuy.orderId);
+    for (const order of chronological) {
+      if (order.side === "BUY") {
+        buyQueue.push({ orderId: order.orderId, fillPrice: order.fillPrice, fees: order.fees, totalShares: order.shares, remaining: order.shares });
+      } else {
+        // SELL: dequeue FIFO lots to cover sell.shares
+        let sharesNeeded = order.shares;
+        let weightedBuyCost = 0;
+        let proratedBuyFees = 0;
+        let fullyCovered = true;
 
-      const buyPrice = matchingBuy?.fillPrice ?? null;
-      const combinedFees = sell.fees + (matchingBuy?.fees ?? 0);
-      const profit = buyPrice != null
-        ? (sell.fillPrice - buyPrice) * sell.shares + combinedFees
-        : null;
-      const date = new Date(sell.time).toLocaleDateString("en-CA");
+        for (const lot of buyQueue) {
+          if (sharesNeeded <= 0) break;
+          const take = Math.min(lot.remaining, sharesNeeded);
+          weightedBuyCost += take * lot.fillPrice;
+          proratedBuyFees += lot.fees * (take / lot.totalShares);
+          lot.remaining -= take;
+          sharesNeeded -= take;
+        }
 
-      return { orderId: sell.orderId, date, time: sell.time, shares: sell.shares, buyPrice, sellPrice: sell.fillPrice, fees: combinedFees, profit };
-    }).sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+        // Remove fully consumed lots
+        while (buyQueue.length > 0 && buyQueue[0].remaining === 0) buyQueue.shift();
+
+        if (sharesNeeded > 0) fullyCovered = false;
+
+        const date = new Date(order.time).toLocaleDateString("en-CA");
+        if (fullyCovered) {
+          const avgBuyPrice = weightedBuyCost / order.shares;
+          const combinedFees = order.fees + proratedBuyFees;
+          const profit = (order.fillPrice - avgBuyPrice) * order.shares + combinedFees;
+          result.push({ orderId: order.orderId, date, time: order.time, shares: order.shares, buyPrice: avgBuyPrice, sellPrice: order.fillPrice, fees: combinedFees, profit });
+        } else {
+          result.push({ orderId: order.orderId, date, time: order.time, shares: order.shares, buyPrice: null, sellPrice: order.fillPrice, fees: order.fees, profit: null });
+        }
+      }
+    }
+
+    return result.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
   }, [filledOrders]);
 
   const filteredRows = useMemo(() => {
