@@ -20,16 +20,16 @@ interface SentimentMsg { text: string; good: boolean }
 
 function getCallSentiment(pct: number, trend: number): SentimentMsg | null {
   if (pct >= 5) return trend === 1
-    ? { text: "Major up day in a 3-day uptrend — momentum may continue, be selective with your strike", good: false }
+    ? { text: "Major up day in a 5-day uptrend — don't sell calls if you think trend will continue", good: false }
     : { text: "Major up day without a sustained uptrend — likely to reverse, excellent time to sell calls", good: true };
   if (pct >= 3) return trend === 1
-    ? { text: "Strong up day in a 3-day uptrend — momentum is against you, choose a conservative strike", good: false }
+    ? { text: "Strong up day in a 5-day uptrend — don't sell calls if you think trend will continue", good: false }
     : { text: "Strong up day without a sustained uptrend — likely to pull back, great time to sell calls", good: true };
   if (pct >= 2) return trend === 1
-    ? { text: "Up day in a 3-day uptrend — price has momentum, be selective with your strike", good: false }
-    : { text: "Notable up move — good opportunity to sell calls", good: true };
+    ? { text: "Decent up day in a 5-day uptrend — don't sell calls if you think trend will continue", good: false }
+    : { text: "Decent up move — good opportunity to sell calls", good: true };
   if (pct >= 1) return trend === 1
-    ? { text: "Minor up day in a 3-day uptrend — momentum is working against calls", good: false }
+    ? { text: "Minor up day in a 5-day uptrend — don't sell calls if you think trend will continue", good: false }
     : { text: "Minor up move — calls have some premium", good: true };
   if (pct <= -5) return { text: "Major down day — do not sell calls", good: false };
   if (pct <= -3) return { text: "Strong down day — avoid selling calls", good: false };
@@ -40,17 +40,17 @@ function getCallSentiment(pct: number, trend: number): SentimentMsg | null {
 
 function getPutSentiment(pct: number, trend: number): SentimentMsg | null {
   if (pct <= -5) return trend === -1
-    ? { text: "Major down day in a 3-day downtrend — momentum may continue, be selective with your strike", good: false }
+    ? { text: "Major down day in a 5-day downtrend — don't sell puts if you think trend will continue", good: false }
     : { text: "Major down day without a sustained downtrend — likely to reverse, excellent time to sell puts", good: true };
   if (pct <= -3) return trend === -1
-    ? { text: "Strong down day in a 3-day downtrend — momentum is against you, choose a conservative strike", good: false }
+    ? { text: "Strong down day in a 5-day downtrend — don't sell puts if you think trend will continue", good: false }
     : { text: "Strong down day without a sustained downtrend — likely to bounce, great time to sell puts", good: true };
   if (pct <= -2) return trend === -1
-    ? { text: "Down day in a 3-day downtrend — price has momentum, be selective with your strike", good: false }
-    : { text: "Notable down move in a 3-day downtrend — good opportunity to sell puts", good: true };
+    ? { text: "Decent down day in a 5-day downtrend — don't sell puts if you think trend will continue", good: false }
+    : { text: "Decent down move in a 5-day downtrend — good opportunity to sell puts", good: true };
   if (pct <= -1) return trend === -1
-    ? { text: "Minor down day in a 3-day downtrend — momentum is working against puts", good: false }
-    : { text: "Minor down move in a 3-day downtrend — puts have some premium", good: true };
+    ? { text: "Minor down day in a 5-day downtrend — don't sell puts if you think trend will continue", good: false }
+    : { text: "Minor down move in a 5-day downtrend — puts have some premium", good: true };
   if (pct >= 5)  return { text: "Major up day but no sustained uptrend — do not sell puts", good: false };
   if (pct >= 3)  return { text: "Strong up day but no sustained uptrend — avoid selling puts", good: false };
   if (pct >= 2)  return { text: "Up move but no sustained uptrend — wait for a down day to sell puts", good: false };

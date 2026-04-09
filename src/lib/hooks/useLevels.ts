@@ -8,10 +8,10 @@ export interface LevelsSummary {
   ownedLevels: Level[];
 }
 
-/** Match a fill (shares + price) to the closest level index. Returns -1 if no share match. */
+/** Match a fill (shares + price) to the closest level index, checking both buy and sell prices. Returns -1 if no share match. */
 function matchLevel(levels: Level[], shares: number, price: number): number {
   const candidates = levels
-    .map((l, i) => ({ i, diff: Math.abs(l.buyPrice - price) }))
+    .map((l, i) => ({ i, diff: Math.min(Math.abs(l.buyPrice - price), Math.abs(l.sellPrice - price)) }))
     .filter((_, i) => levels[i].shares === shares);
   if (candidates.length === 0) return -1;
   return candidates.reduce((best, c) => (c.diff < best.diff ? c : best)).i;
@@ -47,8 +47,21 @@ export function useLevels(): LevelsSummary | null {
     );
 
     // currentLevel = highest owned level index
-    const currentLevel = ownedIndices.size > 0 ? Math.max(...ownedIndices) : -1;
-    const ownedLevels = levels.filter((_, i) => ownedIndices.has(i));
+    let currentLevel = ownedIndices.size > 0 ? Math.max(...ownedIndices) : -1;
+
+    // Sell-based cap: the most recent sell tells us which level was just exited.
+    // currentLevel can't be higher than that level index - 1.
+    // filledOrders is sorted newest first, so find the first SELL that matches a level.
+    for (const o of filledOrders) {
+      if (o.side !== "SELL") continue;
+      const idx = matchLevel(levels, o.shares, o.fillPrice);
+      if (idx === -1) continue;
+      if (currentLevel >= idx) currentLevel = idx - 1;
+      break;
+    }
+
+
+    const ownedLevels = levels.filter((_, i) => ownedIndices.has(i) && i <= currentLevel);
 
     return { levels, currentLevel, ownedLevels };
   }, [levels, filledOrders]);

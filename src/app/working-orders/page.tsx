@@ -314,7 +314,7 @@ export default function WorkingOrdersPage() {
                 <Table.Tr
                 key={row.shares}
                 bg={hasDuplicate ? "rgba(250,82,82,0.1)" : isCurrent ? "rgba(255,255,255,0.12)" : bufferMissing ? "rgba(251,146,60,0.1)" : undefined}
-                style={{ opacity: !hasOrders && !bufferMissing && !isBottomPlus && !isTopPlus ? 0.35 : 1, ...(hasDuplicate ? { borderLeft: "5px solid rgba(250,82,82,0.8)" } : bufferMissing ? { borderLeft: "5px solid rgba(251,146,60,0.8)" } : {}) }}
+                style={{ opacity: 1, ...(hasDuplicate ? { borderLeft: "5px solid rgba(250,82,82,0.8)" } : bufferMissing ? { borderLeft: "5px solid rgba(251,146,60,0.8)" } : {}) }}
               >
                   <Table.Td ta="center" style={{ position: "relative" }}>
                     {priceInRange && (
@@ -354,11 +354,9 @@ export default function WorkingOrdersPage() {
                           >{row.buys}</Badge>
                         : row.buys > 0
                           ? <Text size="sm" c="teal">{row.buys}</Text>
-                          : isBottomPlus || isTopPlus
-                            ? <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-teal-7)", color: "#fff", cursor: row.buyPrice != null && row.sellPrice != null ? "pointer" : "default" }}
-                                onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("BUY", row.shares, row.buyPrice, row.sellPrice, Math.max(threshold, 1)) })}
-                              >+</Badge>
-                            : <Text size="sm" c="dimmed">—</Text>}
+                          : <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-teal-7)", color: "#fff", cursor: row.buyPrice != null && row.sellPrice != null ? "pointer" : "default" }}
+                              onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("BUY", row.shares, row.buyPrice, row.sellPrice, Math.max(threshold, 1)) })}
+                            >+</Badge>}
                     </Group>
                   </Table.Td>
                   <Table.Td ta="center">
@@ -374,11 +372,9 @@ export default function WorkingOrdersPage() {
                           >{row.sells}</Badge>
                         : row.sells > 0
                           ? <Text size="sm" c="red">{row.sells}</Text>
-                          : isBottomPlus || isTopPlus
-                            ? <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-red-7)", color: "#fff", cursor: row.buyPrice != null && row.sellPrice != null ? "pointer" : "default" }}
-                                onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("SELL", row.shares, row.buyPrice, row.sellPrice, Math.max(threshold, 1)) })}
-                              >+</Badge>
-                            : <Text size="sm" c="dimmed">—</Text>}
+                          : <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-red-7)", color: "#fff", cursor: row.buyPrice != null && row.sellPrice != null ? "pointer" : "default" }}
+                              onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("SELL", row.shares, row.buyPrice, row.sellPrice, Math.max(threshold, 1)) })}
+                            >+</Badge>}
                     </Group>
                   </Table.Td>
                   <Table.Td ta="center">
