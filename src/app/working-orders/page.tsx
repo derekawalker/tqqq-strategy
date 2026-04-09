@@ -249,60 +249,52 @@ export default function WorkingOrdersPage() {
           </Table.Thead>
           <Table.Tbody>
             {(() => {
-              const rowsWithOrdersTop = rows.filter((r) => r.buys > 0 || r.sells > 0);
-              const maxOrderIdx = rowsWithOrdersTop.length > 0
-                ? Math.max(...rowsWithOrdersTop.map((r) => r.levelIndex).filter((i) => i >= 0))
-                : -1;
-              const nextIdx = levelsSummary && maxOrderIdx >= 0 ? maxOrderIdx + 1 : -1;
-              const nextLevel = levelsSummary?.levels[nextIdx] ?? null;
-              if (!nextLevel) return null;
-              const cost = nextLevel.buyPrice != null ? nextLevel.shares * nextLevel.buyPrice : null;
-              const count = Math.max(threshold, 1);
-              return (
-                <Table.Tr key="next-level" style={{ borderBottom: "2px solid rgba(255,255,255,0.08)" }}>
-                  <Table.Td ta="center">
-                    <Text size="sm" fw={500} c="dimmed">{nextIdx}</Text>
-                  </Table.Td>
-                  <Table.Td ta="center"><Text size="sm" c="dimmed">{fmt(nextLevel.shares, 0)}</Text></Table.Td>
-                  <Table.Td ta="center">
-                    <Badge
-                      variant="filled"
-                      size="md"
-                      fw={700}
-                      style={{ background: "rgba(251,146,60,0.9)", color: "#fff", cursor: nextLevel.buyPrice != null && nextLevel.sellPrice != null ? "pointer" : "default" }}
-                      onClick={() => nextLevel.buyPrice != null && nextLevel.sellPrice != null && setTosModal({ text: buildTosText("BUY", nextLevel.shares, nextLevel.buyPrice!, nextLevel.sellPrice!, count) })}
-                    >+</Badge>
-                  </Table.Td>
-                  <Table.Td ta="center">
-                    <Badge
-                      variant="filled"
-                      size="md"
-                      fw={700}
-                      style={{ background: "rgba(251,146,60,0.9)", color: "#fff", cursor: nextLevel.buyPrice != null && nextLevel.sellPrice != null ? "pointer" : "default" }}
-                      onClick={() => nextLevel.buyPrice != null && nextLevel.sellPrice != null && setTosModal({ text: buildTosText("SELL", nextLevel.shares, nextLevel.buyPrice!, nextLevel.sellPrice!, count) })}
-                    >+</Badge>
-                  </Table.Td>
-                  <Table.Td ta="center">
-                    <Text size="sm" c="dimmed">{nextLevel.buyPrice != null ? mask(`$${fmt(nextLevel.buyPrice)}`) : "—"}</Text>
-                  </Table.Td>
-                  <Table.Td ta="center">
-                    <Text size="sm" c="dimmed">{nextLevel.sellPrice != null ? mask(`$${fmt(nextLevel.sellPrice)}`) : "—"}</Text>
-                  </Table.Td>
-                  <Table.Td ta="center" className="hide-mobile">
-                    <Text size="sm" c="dimmed">{cost != null ? mask(`$${fmt(cost)}`) : "—"}</Text>
-                  </Table.Td>
-                </Table.Tr>
-              );
-            })()}
-            {(() => {
               const rowsWithOrders = rows.filter((r) => r.buys > 0 || r.sells > 0);
-              const minActiveIdx = rowsWithOrders.length > 0
-                ? Math.min(...rowsWithOrders.map((r) => r.levelIndex).filter((i) => i >= 0))
-                : -1;
+              const activeIndices = rowsWithOrders.map((r) => r.levelIndex).filter((i) => i >= 0);
+              const maxOrderIdx = activeIndices.length > 0 ? Math.max(...activeIndices) : -1;
+              const minActiveIdx = activeIndices.length > 0 ? Math.min(...activeIndices) : -1;
+              const topPlusIdx = levelsSummary && maxOrderIdx >= 0 ? maxOrderIdx + 1 : -1;
               const bottomPlusIdx = minActiveIdx > 0 ? minActiveIdx - 1 : -1;
-              return rows.map((row) => {
+              const topPlusInRows = rows.some((r) => r.levelIndex === topPlusIdx);
+              const topLevel = !topPlusInRows && topPlusIdx >= 0 ? (levelsSummary?.levels[topPlusIdx] ?? null) : null;
+              return (<>
+              {topLevel && (() => {
+                const cost = topLevel.buyPrice != null ? topLevel.shares * topLevel.buyPrice : null;
+                const count = Math.max(threshold, 1);
+                return (
+                  <Table.Tr key="next-level" style={{ borderBottom: "2px solid rgba(255,255,255,0.08)" }}>
+                    <Table.Td ta="center">
+                      <Text size="sm" fw={500} c="dimmed">{topPlusIdx}</Text>
+                    </Table.Td>
+                    <Table.Td ta="center"><Text size="sm" c="dimmed">{fmt(topLevel.shares, 0)}</Text></Table.Td>
+                    <Table.Td ta="center">
+                      <Badge variant="filled" size="md" fw={700}
+                        style={{ background: "var(--mantine-color-teal-7)", color: "#fff", cursor: topLevel.buyPrice != null && topLevel.sellPrice != null ? "pointer" : "default" }}
+                        onClick={() => topLevel.buyPrice != null && topLevel.sellPrice != null && setTosModal({ text: buildTosText("BUY", topLevel.shares, topLevel.buyPrice!, topLevel.sellPrice!, count) })}
+                      >+</Badge>
+                    </Table.Td>
+                    <Table.Td ta="center">
+                      <Badge variant="filled" size="md" fw={700}
+                        style={{ background: "var(--mantine-color-red-7)", color: "#fff", cursor: topLevel.buyPrice != null && topLevel.sellPrice != null ? "pointer" : "default" }}
+                        onClick={() => topLevel.buyPrice != null && topLevel.sellPrice != null && setTosModal({ text: buildTosText("SELL", topLevel.shares, topLevel.buyPrice!, topLevel.sellPrice!, count) })}
+                      >+</Badge>
+                    </Table.Td>
+                    <Table.Td ta="center">
+                      <Text size="sm" c="dimmed">{topLevel.buyPrice != null ? mask(`$${fmt(topLevel.buyPrice)}`) : "—"}</Text>
+                    </Table.Td>
+                    <Table.Td ta="center">
+                      <Text size="sm" c="dimmed">{topLevel.sellPrice != null ? mask(`$${fmt(topLevel.sellPrice)}`) : "—"}</Text>
+                    </Table.Td>
+                    <Table.Td ta="center" className="hide-mobile">
+                      <Text size="sm" c="dimmed">{cost != null ? mask(`$${fmt(cost)}`) : "—"}</Text>
+                    </Table.Td>
+                  </Table.Tr>
+                );
+              })()}
+              {rows.map((row) => {
               const hasOrders = row.buys > 0 || row.sells > 0;
               const isBottomPlus = row.levelIndex === bottomPlusIdx;
+              const isTopPlus = row.levelIndex === topPlusIdx;
               const cost = row.buyPrice != null ? row.shares * row.buyPrice : null;
               const currentLevel = levelsSummary?.currentLevel ?? -1;
               const inBuffer = bufferSize > 0 && row.levelIndex >= 0
@@ -322,7 +314,7 @@ export default function WorkingOrdersPage() {
                 <Table.Tr
                 key={row.shares}
                 bg={hasDuplicate ? "rgba(250,82,82,0.1)" : isCurrent ? "rgba(255,255,255,0.12)" : bufferMissing ? "rgba(251,146,60,0.1)" : undefined}
-                style={{ opacity: !hasOrders && !bufferMissing && !isBottomPlus ? 0.35 : 1, ...(hasDuplicate ? { borderLeft: "5px solid rgba(250,82,82,0.8)" } : bufferMissing ? { borderLeft: "5px solid rgba(251,146,60,0.8)" } : {}) }}
+                style={{ opacity: !hasOrders && !bufferMissing && !isBottomPlus && !isTopPlus ? 0.35 : 1, ...(hasDuplicate ? { borderLeft: "5px solid rgba(250,82,82,0.8)" } : bufferMissing ? { borderLeft: "5px solid rgba(251,146,60,0.8)" } : {}) }}
               >
                   <Table.Td ta="center" style={{ position: "relative" }}>
                     {priceInRange && (
@@ -362,8 +354,8 @@ export default function WorkingOrdersPage() {
                           >{row.buys}</Badge>
                         : row.buys > 0
                           ? <Text size="sm" c="teal">{row.buys}</Text>
-                          : isBottomPlus
-                            ? <Badge variant="filled" size="md" fw={700} style={{ background: "rgba(251,146,60,0.9)", color: "#fff", cursor: row.buyPrice != null && row.sellPrice != null ? "pointer" : "default" }}
+                          : isBottomPlus || isTopPlus
+                            ? <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-teal-7)", color: "#fff", cursor: row.buyPrice != null && row.sellPrice != null ? "pointer" : "default" }}
                                 onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("BUY", row.shares, row.buyPrice, row.sellPrice, Math.max(threshold, 1)) })}
                               >+</Badge>
                             : <Text size="sm" c="dimmed">—</Text>}
@@ -382,8 +374,8 @@ export default function WorkingOrdersPage() {
                           >{row.sells}</Badge>
                         : row.sells > 0
                           ? <Text size="sm" c="red">{row.sells}</Text>
-                          : isBottomPlus
-                            ? <Badge variant="filled" size="md" fw={700} style={{ background: "rgba(251,146,60,0.9)", color: "#fff", cursor: row.buyPrice != null && row.sellPrice != null ? "pointer" : "default" }}
+                          : isBottomPlus || isTopPlus
+                            ? <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-red-7)", color: "#fff", cursor: row.buyPrice != null && row.sellPrice != null ? "pointer" : "default" }}
                                 onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("SELL", row.shares, row.buyPrice, row.sellPrice, Math.max(threshold, 1)) })}
                               >+</Badge>
                             : <Text size="sm" c="dimmed">—</Text>}
@@ -400,7 +392,8 @@ export default function WorkingOrdersPage() {
                   </Table.Td>
                 </Table.Tr>
               );
-            });
+            })}
+            </>);
             })()}
           </Table.Tbody>
         </Table>
