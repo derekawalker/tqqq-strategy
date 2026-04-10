@@ -8,6 +8,7 @@ import { Table, ScrollArea, Text, Center, Skeleton, Stack, Tabs, Group, Paper, S
 import { useApp } from "@/lib/context/AppContext";
 import { useCardBg } from "@/lib/hooks/useCardBg";
 import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
+import { computeLevels } from "@/lib/levels";
 
 const fmt = (n: number, decimals = 2) =>
   n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
@@ -394,52 +395,27 @@ export default function ProfitPage() {
   const mask = (val: string) => (privacyMode ? "••••" : val);
 
   const rows = useMemo<ProfitRow[]>(() => {
-    // FIFO cost-basis matching: process all orders chronologically, queue buy lots,
-    // dequeue them as sells come in. Handles partial fills and quantity mismatches.
-    const chronological = [...filledOrders].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    const { startingCash, initialLotPrice, sellPercentage, reductionFactor } = activeAccount?.settings ?? {};
+    const sells = filledOrders.filter((o) => o.side === "SELL");
 
-    // Queue of buy lots with remaining shares
-    const buyQueue: { orderId: number; fillPrice: number; fees: number; totalShares: number; remaining: number }[] = [];
-    const result: ProfitRow[] = [];
-
-    for (const order of chronological) {
-      if (order.side === "BUY") {
-        buyQueue.push({ orderId: order.orderId, fillPrice: order.fillPrice, fees: order.fees, totalShares: order.shares, remaining: order.shares });
-      } else {
-        // SELL: dequeue FIFO lots to cover sell.shares
-        let sharesNeeded = order.shares;
-        let weightedBuyCost = 0;
-        let proratedBuyFees = 0;
-        let fullyCovered = true;
-
-        for (const lot of buyQueue) {
-          if (sharesNeeded <= 0) break;
-          const take = Math.min(lot.remaining, sharesNeeded);
-          weightedBuyCost += take * lot.fillPrice;
-          proratedBuyFees += lot.fees * (take / lot.totalShares);
-          lot.remaining -= take;
-          sharesNeeded -= take;
-        }
-
-        // Remove fully consumed lots
-        while (buyQueue.length > 0 && buyQueue[0].remaining === 0) buyQueue.shift();
-
-        if (sharesNeeded > 0) fullyCovered = false;
-
-        const date = new Date(order.time).toLocaleDateString("en-CA");
-        if (fullyCovered) {
-          const avgBuyPrice = weightedBuyCost / order.shares;
-          const combinedFees = order.fees + proratedBuyFees;
-          const profit = (order.fillPrice - avgBuyPrice) * order.shares + combinedFees;
-          result.push({ orderId: order.orderId, date, time: order.time, shares: order.shares, buyPrice: avgBuyPrice, sellPrice: order.fillPrice, fees: combinedFees, profit });
-        } else {
-          result.push({ orderId: order.orderId, date, time: order.time, shares: order.shares, buyPrice: null, sellPrice: order.fillPrice, fees: order.fees, profit: null });
-        }
-      }
+    if (!startingCash || !initialLotPrice || !sellPercentage || !reductionFactor) {
+      return sells
+        .map((o) => ({ orderId: o.orderId, date: new Date(o.time).toLocaleDateString("en-CA"), time: o.time, shares: o.shares, buyPrice: null, sellPrice: o.fillPrice, fees: o.fees, profit: null }))
+        .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
     }
 
-    return result.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
-  }, [filledOrders]);
+    const levels = computeLevels(startingCash, initialLotPrice, sellPercentage, reductionFactor);
+
+    return sells
+      .map((o) => {
+        const level = levels.reduce((best, l) =>
+          Math.abs(l.sellPrice - o.fillPrice) < Math.abs(best.sellPrice - o.fillPrice) ? l : best
+        );
+        const profit = (o.fillPrice - level.buyPrice) * o.shares + o.fees;
+        return { orderId: o.orderId, date: new Date(o.time).toLocaleDateString("en-CA"), time: o.time, shares: o.shares, buyPrice: level.buyPrice, sellPrice: o.fillPrice, fees: o.fees, profit };
+      })
+      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+  }, [filledOrders, activeAccount]);
 
   const filteredRows = useMemo(() => {
     const p = PERIODS.find((p) => p.value === period);

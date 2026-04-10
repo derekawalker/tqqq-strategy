@@ -68,18 +68,17 @@ function parseTransaction(t: any, accountNumber: string): Transaction | null {
 async function fetchAccountData(
   accountNumber: string,
   hash: string,
-  from90: string,
-  to: string,
   from365: string,
+  to: string,
 ) {
   const [filledRes, workingRes, pendingRes, positionsRes, rxDeliverRes, divIntRes, tradeRes] = await Promise.all([
-    schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from90}&toEnteredTime=${to}&status=FILLED`),
-    schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from90}&toEnteredTime=${to}&status=WORKING`),
-    schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from90}&toEnteredTime=${to}&status=PENDING_ACTIVATION`),
+    schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from365}&toEnteredTime=${to}&status=FILLED`),
+    schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from365}&toEnteredTime=${to}&status=WORKING`),
+    schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from365}&toEnteredTime=${to}&status=PENDING_ACTIVATION`),
     schwabFetch(`/trader/v1/accounts/${hash}?fields=positions`),
-    schwabFetch(`/trader/v1/accounts/${hash}/transactions?startDate=${from90}&endDate=${to}&types=RECEIVE_AND_DELIVER`),
+    schwabFetch(`/trader/v1/accounts/${hash}/transactions?startDate=${from365}&endDate=${to}&types=RECEIVE_AND_DELIVER`),
     schwabFetch(`/trader/v1/accounts/${hash}/transactions?startDate=${from365}&endDate=${to}&types=DIVIDEND_OR_INTEREST`),
-    schwabFetch(`/trader/v1/accounts/${hash}/transactions?startDate=${from90}&endDate=${to}&types=TRADE`),
+    schwabFetch(`/trader/v1/accounts/${hash}/transactions?startDate=${from365}&endDate=${to}&types=TRADE`),
   ]);
 
   const filledRaw = filledRes.ok ? await filledRes.json() : [];
@@ -235,11 +234,10 @@ export async function GET() {
 
     const now = new Date();
     const to = now.toISOString().split(".")[0] + "Z";
-    const from90 = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().split(".")[0] + "Z";
     const from365 = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().split(".")[0] + "Z";
 
     const results = await Promise.all(
-      accounts.map(([accountNumber, hash]) => fetchAccountData(accountNumber, hash, from90, to, from365))
+      accounts.map(([accountNumber, hash]) => fetchAccountData(accountNumber, hash, from365, to))
     );
 
     const filledOrders: FilledOrder[] = results
