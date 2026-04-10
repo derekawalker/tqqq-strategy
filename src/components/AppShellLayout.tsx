@@ -150,7 +150,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
       // Update trend when it arrives (already in-flight)
       const trendData = await trendPromise;
       if (!cancelled && trendData?.trend != null)
-        setQuote((q) => ({ ...q, trend: trendData.trend }));
+        setQuote((q) => ({ ...q, trend: trendData.trend, closes30: trendData.closes30 ?? [], dates30: trendData.dates30 ?? [], daysOfWeek30: trendData.daysOfWeek30 ?? [] }));
     }
     load();
     return () => { cancelled = true; };

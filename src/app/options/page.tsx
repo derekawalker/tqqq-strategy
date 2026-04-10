@@ -10,71 +10,208 @@ import { CARD_RADIUS } from "@/lib/cardStyles";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
-import { IconArrowRight, IconTrendingUp, IconTrendingDown, IconAlertTriangle } from "@tabler/icons-react";
+import { IconArrowRight, IconAlertTriangle, IconPlayerPlayFilled } from "@tabler/icons-react";
+import { LineChart, Line, LabelList, XAxis, YAxis, ReferenceArea, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
 import type { OptionPosition, WorkingOrder } from "@/lib/schwab/parse";
 import type { Level } from "@/lib/levels";
 
-// ── sentiment messages ─────────────────────────────────────────────────────
+// ── day change + sparkline banner ──────────────────────────────────────────
 
-interface SentimentMsg { text: string; good: boolean }
-
-function getCallSentiment(pct: number, trend: number): SentimentMsg | null {
-  if (pct >= 5) return trend === 1
-    ? { text: "Major up day in a 5-day uptrend — don't sell calls if you think trend will continue", good: false }
-    : { text: "Major up day without a sustained uptrend — likely to reverse, excellent time to sell calls", good: true };
-  if (pct >= 3) return trend === 1
-    ? { text: "Strong up day in a 5-day uptrend — don't sell calls if you think trend will continue", good: false }
-    : { text: "Strong up day without a sustained uptrend — likely to pull back, great time to sell calls", good: true };
-  if (pct >= 2) return trend === 1
-    ? { text: "Decent up day in a 5-day uptrend — don't sell calls if you think trend will continue", good: false }
-    : { text: "Decent up move — good opportunity to sell calls", good: true };
-  if (pct >= 1) return trend === 1
-    ? { text: "Minor up day in a 5-day uptrend — don't sell calls if you think trend will continue", good: false }
-    : { text: "Minor up move — calls have some premium", good: true };
-  if (pct <= -5) return { text: "Major down day — do not sell calls", good: false };
-  if (pct <= -3) return { text: "Strong down day — avoid selling calls", good: false };
-  if (pct <= -2) return { text: "Down move — wait for a better day to sell calls", good: false };
-  if (pct <= -1) return { text: "Minor down move — calls have less premium today", good: false };
-  return null;
+function linReg(vals: number[]): { slope: number; intercept: number } {
+  const n = vals.length;
+  const sumX  = (n * (n - 1)) / 2;
+  const sumX2 = (n * (n - 1) * (2 * n - 1)) / 6;
+  const sumY  = vals.reduce((a, b) => a + b, 0);
+  const sumXY = vals.reduce((s, v, i) => s + i * v, 0);
+  const slope     = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+  const intercept = (sumY - slope * sumX) / n;
+  return { slope, intercept };
 }
 
-function getPutSentiment(pct: number, trend: number): SentimentMsg | null {
-  if (pct <= -5) return trend === -1
-    ? { text: "Major down day in a 5-day downtrend — don't sell puts if you think trend will continue", good: false }
-    : { text: "Major down day without a sustained downtrend — likely to reverse, excellent time to sell puts", good: true };
-  if (pct <= -3) return trend === -1
-    ? { text: "Strong down day in a 5-day downtrend — don't sell puts if you think trend will continue", good: false }
-    : { text: "Strong down day without a sustained downtrend — likely to bounce, great time to sell puts", good: true };
-  if (pct <= -2) return trend === -1
-    ? { text: "Decent down day in a 5-day downtrend — don't sell puts if you think trend will continue", good: false }
-    : { text: "Decent down move in a 5-day downtrend — good opportunity to sell puts", good: true };
-  if (pct <= -1) return trend === -1
-    ? { text: "Minor down day in a 5-day downtrend — don't sell puts if you think trend will continue", good: false }
-    : { text: "Minor down move in a 5-day downtrend — puts have some premium", good: true };
-  if (pct >= 5)  return { text: "Major up day but no sustained uptrend — do not sell puts", good: false };
-  if (pct >= 3)  return { text: "Strong up day but no sustained uptrend — avoid selling puts", good: false };
-  if (pct >= 2)  return { text: "Up move but no sustained uptrend — wait for a down day to sell puts", good: false };
-  if (pct >= 1)  return { text: "Minor up move but no sustained uptrend — puts have less premium today", good: false };
-  return null;
-}
+function DayChangeBanner({ closes30, dates30, daysOfWeek30 }: { closes30: number[]; dates30: string[]; daysOfWeek30: number[] }) {
+  const hasHistory = closes30.length > 1;
 
-function SentimentBanner({ msg }: { msg: SentimentMsg | null }) {
-  if (!msg) return null;
-  const color = msg.good ? "teal" : "red";
-  const bg    = msg.good
-    ? "linear-gradient(135deg, rgba(20,184,166,0.18) 0%, rgba(20,184,166,0.06) 100%)"
-    : "linear-gradient(135deg, rgba(239,68,68,0.18) 0%, rgba(239,68,68,0.06) 100%)";
-  const icon  = msg.good ? <IconTrendingUp size={16} /> : <IconTrendingDown size={16} />;
+  // 30-day trendline
+  const { slope, intercept } = linReg(closes30);
+
+  // 2-week (last 10 days) trendline — offset to align with global indices
+  const n2 = Math.min(10, closes30.length);
+  const offset2 = closes30.length - n2;
+  const { slope: slope2, intercept: intercept2 } = linReg(closes30.slice(-n2));
+
+  const chartData = closes30.map((v, i) => ({
+    date: dates30[i] ?? "",
+    v,
+    trend:  parseFloat((intercept  + slope  * i).toFixed(2)),
+    trend2: i >= offset2 ? parseFloat((intercept2 + slope2 * (i - offset2)).toFixed(2)) : null,
+  }));
+
+  const trendUp = closes30[closes30.length - 1] > closes30[0];
+  const highIdx = closes30.reduce((best, v, i) => v > closes30[best] ? i : best, 0);
+  const lowIdx  = closes30.reduce((best, v, i) => v < closes30[best] ? i : best, 0);
+
+  // Week chunks from day-of-week data
+  const weekChunks: { x1: string; x2: string }[] = [];
+  let weekStart = 0;
+  for (let i = 1; i < dates30.length; i++) {
+    if (daysOfWeek30[i] === 1) {
+      weekChunks.push({ x1: dates30[weekStart], x2: dates30[i - 1] });
+      weekStart = i;
+    }
+  }
+  if (weekStart < dates30.length) {
+    weekChunks.push({ x1: dates30[weekStart], x2: dates30[dates30.length - 1] });
+  }
+
+  // Actual weekly (Mon→end-of-week) moves for stats
+  const weeklyMoves = weekChunks.map((chunk) => {
+    const si = dates30.indexOf(chunk.x1);
+    const ei = dates30.indexOf(chunk.x2);
+    return { dollar: closes30[ei] - closes30[si] };
+  });
+  const avg5Move = weeklyMoves.length ? weeklyMoves.reduce((s, w) => s + Math.abs(w.dollar), 0) / weeklyMoves.length : 0;
+  const max5Up   = weeklyMoves.length ? weeklyMoves.reduce((b, w) => w.dollar > b.dollar ? w : b) : { dollar: 0 };
+  const max5Down = weeklyMoves.length ? weeklyMoves.reduce((b, w) => w.dollar < b.dollar ? w : b) : { dollar: 0 };
+
+  const trend2Up = slope2 >= 0;
+  const trendLineColor = trendUp ? "rgba(20,184,166,0.45)" : "rgba(239,68,68,0.45)";
+  const bg = trendUp && trend2Up
+    ? "linear-gradient(135deg, rgba(20,184,166,0.15) 0%, rgba(20,184,166,0.05) 100%)"
+    : !trendUp && !trend2Up
+      ? "linear-gradient(135deg, rgba(239,68,68,0.15) 0%, rgba(239,68,68,0.05) 100%)"
+      : "linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)";
+
+  const statLabel = { letterSpacing: "0.04em", fontSize: 9 } as const;
+
   return (
-    <Alert
-      color={color}
-      variant="light"
-      icon={icon}
-      p="md"
-      styles={{ root: { background: bg, boxShadow: "inset 2px 2px 6px rgba(0,0,0,0.5)", border: "none" }, icon: { paddingLeft: 4 } }}
-    >
-      <Text size="sm" fw={600}>{msg.text}</Text>
-    </Alert>
+    <Paper p="md" radius="md" style={{ background: bg, boxShadow: "inset 2px 2px 6px rgba(0,0,0,0.4)", border: "none" }}>
+      <Stack gap="xs">
+        {hasHistory && (() => {
+          if (trendUp && trend2Up) return (
+            <Stack gap={2} align="center">
+              <Text size="xs" fw={700} ta="center" style={{ color: "rgba(20,184,166,1)" }}>Trending Up — Favor selling puts.</Text>
+              <Text size="xs" c="dimmed" ta="center">For best premium, wait for a down day before opening a new position.</Text>
+            </Stack>
+          );
+          if (!trendUp && !trend2Up) return (
+            <Stack gap={2} align="center">
+              <Text size="xs" fw={700} ta="center" style={{ color: "rgba(239,68,68,1)" }}>Trending Down — Favor selling calls.</Text>
+              <Text size="xs" c="dimmed" ta="center">For best premium, sell on a down day when IV is elevated.</Text>
+            </Stack>
+          );
+          return (
+            <Stack gap={2} align="center">
+              <Text size="xs" fw={700} c="dimmed" ta="center">Trend is Neutral — Either side is viable.</Text>
+              <Text size="xs" c="dimmed" ta="center">Try to sell puts on down days and calls on up days for better premium.</Text>
+            </Stack>
+          );
+        })()}
+        {hasHistory && (
+          <Box style={{ height: 120 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{ top: 20, right: 16, bottom: 20, left: 16 }}>
+                <defs>
+                  <linearGradient id="priceLineGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="rgba(20,184,166,1)" />
+                    <stop offset="100%" stopColor="rgba(239,68,68,1)" />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="date" hide />
+                <YAxis domain={["dataMin", "dataMax"]} hide />
+                {weekChunks.map((chunk, i) => (
+                  <ReferenceArea
+                    key={chunk.x1}
+                    x1={chunk.x1}
+                    x2={chunk.x2}
+                    fill={i % 2 === 0 ? "rgba(255,255,255,0.03)" : "rgba(255,255,255,0.07)"}
+                    stroke="none"
+                  />
+                ))}
+                <RechartsTooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const entry = payload.find((p) => p.dataKey === "v") ?? payload[0];
+                    const val  = entry.value as number;
+                    const date = entry.payload.date as string;
+                    const idx  = chartData.findIndex((d) => d.date === date);
+                    const pct  = idx > 0 ? ((val - chartData[idx - 1].v) / chartData[idx - 1].v) * 100 : null;
+                    return (
+                      <Box style={{ background: "var(--mantine-color-dark-7)", border: "1px solid var(--mantine-color-dark-4)", borderRadius: 6, padding: "4px 8px" }}>
+                        <Text size="xs" c="dimmed">{date}</Text>
+                        <Text size="xs">${val.toFixed(2)}</Text>
+                        {pct !== null && (
+                          <Text size="xs" style={{ color: pct >= 0 ? "rgba(20,184,166,1)" : "rgba(239,68,68,1)" }}>
+                            {pct >= 0 ? "+" : ""}{pct.toFixed(2)}%
+                          </Text>
+                        )}
+                      </Box>
+                    );
+                  }}
+                />
+                <Line type="monotone" dataKey="trend" dot={false} activeDot={false} stroke={trendLineColor} strokeWidth={1.5} strokeDasharray="5 3" isAnimationActive={false} />
+                <Line type="monotone" dataKey="trend2" dot={false} activeDot={false} stroke={slope2 >= 0 ? "rgba(20,184,166,0.7)" : "rgba(239,68,68,0.7)"} strokeWidth={1.5} strokeDasharray="3 2" connectNulls={false} isAnimationActive={false} />
+                <Line
+                  type="monotone"
+                  dataKey="v"
+                  stroke="url(#priceLineGradient)"
+                  strokeWidth={2}
+                  dot={(props) => {
+                    const { cx, cy, index } = props as { cx: number; cy: number; index: number };
+                    const isUp = index === 0 || closes30[index] >= closes30[index - 1];
+                    return <circle key={index} cx={cx ?? 0} cy={cy ?? 0} r={2} fill={isUp ? "rgba(20,184,166,1)" : "rgba(239,68,68,1)"} stroke="var(--mantine-color-dark-7)" strokeWidth={1} />;
+                  }}
+                  activeDot={{ r: 3 }}
+                  isAnimationActive={false}
+                >
+                  <LabelList
+                    dataKey="v"
+                    content={(props) => {
+                      const { x, y, index, value } = props as { x: number; y: number; index: number; value: number };
+                      const isHigh = index === highIdx;
+                      const isLow  = index === lowIdx;
+                      if (!isHigh && !isLow) return null;
+                      return (
+                        <text key={`hl-${index}`} x={x} y={isHigh ? y - 8 : y + 14} textAnchor="middle" fontSize={9} fontWeight={700} fill={isHigh ? "rgba(20,184,166,1)" : "rgba(239,68,68,1)"}>
+                          ${value.toFixed(2)}
+                        </text>
+                      );
+                    }}
+                  />
+                </Line>
+              </LineChart>
+            </ResponsiveContainer>
+          </Box>
+        )}
+        {hasHistory && (
+          <>
+            <Divider label={<Text size="xs" c="dimmed" fw={600} style={{ fontSize: 9, letterSpacing: "0.04em" }}>5 DTE</Text>} labelPosition="left" />
+            <Group grow gap="xs">
+              <Stack gap={0} align="center">
+                <Group gap={4} align="center">
+                  <IconPlayerPlayFilled size={7} style={{ color: "rgba(239,68,68,1)" }} />
+                  <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={statLabel}>Max Down</Text>
+                </Group>
+                <Text size="xs" fw={700} style={{ color: "rgba(239,68,68,1)" }}>${max5Down.dollar.toFixed(2)}</Text>
+              </Stack>
+              <Stack gap={0} align="center">
+                <Group gap={4} align="center">
+                  <IconPlayerPlayFilled size={7} style={{ color: "rgba(255,255,255,0.6)" }} />
+                  <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={statLabel}>Avg Move</Text>
+                </Group>
+                <Text size="xs" fw={700}>${avg5Move.toFixed(2)}</Text>
+              </Stack>
+              <Stack gap={0} align="center">
+                <Group gap={4} align="center">
+                  <IconPlayerPlayFilled size={7} style={{ color: "rgba(20,184,166,1)" }} />
+                  <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={statLabel}>Max Up</Text>
+                </Group>
+                <Text size="xs" fw={700} style={{ color: "rgba(20,184,166,1)" }}>+${max5Up.dollar.toFixed(2)}</Text>
+              </Stack>
+            </Group>
+          </>
+        )}
+      </Stack>
+    </Paper>
   );
 }
 
@@ -379,19 +516,19 @@ function PositionCells({
 // ── calls table ───────────────────────────────────────────────────────────
 
 function CallsTable({
-  rows, color, safetyLevels, onSafetyChange, privacyMode, changePercent, trend,
-  totalValue, callsAvailableLabel, btoPositions,
+  rows, color, safetyLevels, onSafetyChange, privacyMode,
+  totalValue, callsAvailableLabel, btoPositions, riskStrike, riskStrikeAvg,
 }: {
   rows: CallRow[];
   color: string;
   safetyLevels: number;
   onSafetyChange: (v: number) => void;
   privacyMode: boolean;
-  changePercent: number;
-  trend: number;
   totalValue: number;
   callsAvailableLabel: string;
   btoPositions: OptionPosition[];
+  riskStrike: number | null;
+  riskStrikeAvg: number | null;
 }) {
   const mask = (v: string) => (privacyMode ? "••••" : v);
 
@@ -417,7 +554,6 @@ function CallsTable({
         privacyMode={privacyMode}
       />
 
-      <SentimentBanner msg={getCallSentiment(changePercent, trend)} />
 
       {btoPositions.length > 0 && (
         <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
@@ -443,7 +579,16 @@ function CallsTable({
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {rows.map((row, i) => {
+            {(() => {
+              const lo = rows.length > 0 ? rows[rows.length - 1].strike : 0;
+              const hi = rows.length > 0 ? rows[0].strike : 0;
+              const closest = (target: number | null) =>
+                target != null && rows.length > 0 && target >= lo && target <= hi
+                  ? rows.reduce((best, row, i) => Math.abs(row.strike - target) < Math.abs(rows[best].strike - target) ? i : best, 0)
+                  : -1;
+              const riskIdx = closest(riskStrike);
+              const avgIdx  = closest(riskStrikeAvg);
+              return rows.map((row, i) => {
               const dim = !row.position && (!row.inSafeZone || row.contracts === 0);
               const isItmBoundary = row.itm && !rows[i - 1]?.itm;
               return (
@@ -459,7 +604,16 @@ function CallsTable({
                     bg={row.inSafeZone ? `var(--mantine-color-${color}-light-hover)` : undefined}
                     style={{ opacity: dim ? 0.4 : 1 }}
                   >
-                  <Table.Td>
+                  <Table.Td style={{ position: "relative" }}>
+                    {i === riskIdx && (
+                      <IconPlayerPlayFilled size={8} style={{ position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)", color: "rgba(20,184,166,1)" }} />
+                    )}
+                    {i === avgIdx && i !== riskIdx && (
+                      <IconPlayerPlayFilled size={8} style={{ position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)", color: "rgba(255,255,255,0.6)" }} />
+                    )}
+                    {i === avgIdx && i === riskIdx && (
+                      <IconPlayerPlayFilled size={8} style={{ position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)", color: "rgba(20,184,166,1)" }} />
+                    )}
                     <Group gap={4}>
                       <Text size="xs" c={row.levelNums.length === 0 ? "dimmed" : undefined}>
                         {row.levelNums.length > 0 ? row.levelNums.join(", ") : "—"}
@@ -485,7 +639,8 @@ function CallsTable({
                 </Table.Tr>
                 </Fragment>
               );
-            })}
+            });
+            })()}
           </Table.Tbody>
         </Table>
       )}
@@ -496,19 +651,19 @@ function CallsTable({
 // ── puts table ────────────────────────────────────────────────────────────
 
 function PutsTable({
-  rows, color, safetyLevels, onSafetyChange, privacyMode, changePercent, trend,
-  totalValue, availableCash, btoPositions,
+  rows, color, safetyLevels, onSafetyChange, privacyMode,
+  totalValue, availableCash, btoPositions, riskStrike, riskStrikeAvg,
 }: {
   rows: PutRow[];
   color: string;
   safetyLevels: number;
   onSafetyChange: (v: number) => void;
   privacyMode: boolean;
-  changePercent: number;
-  trend: number;
   totalValue: number;
   availableCash: number;
   btoPositions: OptionPosition[];
+  riskStrike: number | null;
+  riskStrikeAvg: number | null;
 }) {
   const mask = (v: string) => (privacyMode ? "••••" : v);
 
@@ -534,7 +689,6 @@ function PutsTable({
         privacyMode={privacyMode}
       />
 
-      <SentimentBanner msg={getPutSentiment(changePercent, trend)} />
 
       {btoPositions.length > 0 && (
         <Alert color="red" variant="light" icon={<IconAlertTriangle size={16} />}>
@@ -560,7 +714,16 @@ function PutsTable({
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {rows.map((row, i) => {
+            {(() => {
+              const lo = rows.length > 0 ? rows[rows.length - 1].strike : 0;
+              const hi = rows.length > 0 ? rows[0].strike : 0;
+              const closest = (target: number | null) =>
+                target != null && rows.length > 0 && target >= lo && target <= hi
+                  ? rows.reduce((best, row, i) => Math.abs(row.strike - target) < Math.abs(rows[best].strike - target) ? i : best, 0)
+                  : -1;
+              const riskIdx = closest(riskStrike);
+              const avgIdx  = closest(riskStrikeAvg);
+              return rows.map((row, i) => {
               const dim = !row.position && (!row.inSafeZone || row.contracts === 0);
               const isItmBoundary = !row.itm && rows[i - 1]?.itm;
               return (
@@ -576,7 +739,16 @@ function PutsTable({
                   bg={row.inSafeZone ? `var(--mantine-color-${color}-light-hover)` : undefined}
                   style={{ opacity: dim ? 0.4 : 1 }}
                 >
-                  <Table.Td>
+                  <Table.Td style={{ position: "relative" }}>
+                    {i === riskIdx && (
+                      <IconPlayerPlayFilled size={8} style={{ position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)", color: "rgba(239,68,68,1)" }} />
+                    )}
+                    {i === avgIdx && i !== riskIdx && (
+                      <IconPlayerPlayFilled size={8} style={{ position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)", color: "rgba(255,255,255,0.6)" }} />
+                    )}
+                    {i === avgIdx && i === riskIdx && (
+                      <IconPlayerPlayFilled size={8} style={{ position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)", color: "rgba(239,68,68,1)" }} />
+                    )}
                     <Group gap={4}>
                       <Text size="xs" c={row.levelNums.length === 0 ? "dimmed" : undefined}>
                         {row.levelNums.length > 0 ? row.levelNums.join(", ") : "—"}
@@ -602,7 +774,8 @@ function PutsTable({
                 </Table.Tr>
                 </Fragment>
               );
-            })}
+            });
+            })()}
           </Table.Tbody>
         </Table>
       )}
@@ -614,8 +787,7 @@ function PutsTable({
 
 function OptionsPageInner() {
   const { optionPositions, snapshotLoading, activeAccount, privacyMode, updateAccountSettings, quote, tqqqShares, workingOrders, balances } = useApp();
-  const changePercent = quote.loading ? 0 : quote.changePercent;
-  const trend = quote.loading ? 0 : quote.trend;
+
   const levelsSummary = useLevels();
   const color = activeAccount?.color ?? "blue";
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -695,6 +867,27 @@ function OptionsPageInner() {
 
   const putsAvailableCash = activeBalance?.cashAvailableForTrading ?? 0;
 
+  const { riskStrikeCall, riskStrikeAvgCall, riskStrikePut, riskStrikeAvgPut } = useMemo(() => {
+    const { closes30, dates30, daysOfWeek30, price } = quote;
+    if (closes30.length < 2 || price <= 0) return { riskStrikeCall: null, riskStrikeAvgCall: null, riskStrikePut: null, riskStrikeAvgPut: null };
+    const weekChunks: { x1: string; x2: string }[] = [];
+    let ws = 0;
+    for (let i = 1; i < dates30.length; i++) {
+      if (daysOfWeek30[i] === 1) { weekChunks.push({ x1: dates30[ws], x2: dates30[i - 1] }); ws = i; }
+    }
+    if (ws < dates30.length) weekChunks.push({ x1: dates30[ws], x2: dates30[dates30.length - 1] });
+    const moves = weekChunks.map((c) => closes30[dates30.indexOf(c.x2)] - closes30[dates30.indexOf(c.x1)]);
+    const maxUp   = moves.length ? Math.max(...moves) : 0;
+    const maxDown = moves.length ? Math.min(...moves) : 0;
+    const avgAbs  = moves.length ? moves.reduce((s, m) => s + Math.abs(m), 0) / moves.length : 0;
+    return {
+      riskStrikeCall: price + maxUp,
+      riskStrikeAvgCall: price + avgAbs,
+      riskStrikePut: price + maxDown,
+      riskStrikeAvgPut: price - avgAbs,
+    };
+  }, [quote]);
+
   const callsAvailableLabel = callsAvailable > 0
     ? `${callsAvailable} contract${callsAvailable !== 1 ? "s" : ""}${callsAvailableShares > 0 ? ` (${callsAvailableShares} sh)` : ""}`
     : `0 contracts${callsAvailableShares !== 0 ? ` (${callsAvailableShares} sh)` : ""}`;
@@ -744,6 +937,7 @@ function OptionsPageInner() {
     return (
       <Stack gap="md">
         <Text fw={700} size="xl">Options</Text>
+        <DayChangeBanner closes30={quote.closes30} dates30={quote.dates30} daysOfWeek30={quote.daysOfWeek30} />
         <SegmentedControl
           fullWidth
           color={color}
@@ -762,11 +956,11 @@ function OptionsPageInner() {
               safetyLevels={callSafety}
               onSafetyChange={handleCallSafety}
               privacyMode={privacyMode}
-              changePercent={changePercent}
-              trend={trend}
               totalValue={callsTotalValue}
               callsAvailableLabel={callsAvailableLabel}
               btoPositions={callBtoPositions}
+              riskStrike={riskStrikeCall}
+              riskStrikeAvg={riskStrikeAvgCall}
             />
           ) : (
             <PutsTable
@@ -775,11 +969,11 @@ function OptionsPageInner() {
               safetyLevels={putSafety}
               onSafetyChange={handlePutSafety}
               privacyMode={privacyMode}
-              changePercent={changePercent}
-              trend={trend}
               totalValue={putsTotalValue}
               availableCash={putsAvailableCash}
               btoPositions={putBtoPositions}
+              riskStrike={riskStrikePut}
+              riskStrikeAvg={riskStrikeAvgPut}
             />
           )}
       </Stack>
@@ -789,6 +983,7 @@ function OptionsPageInner() {
   return (
     <Stack gap="md">
     <Text fw={700} size="xl">Options</Text>
+    <DayChangeBanner closes30={quote.closes30} dates30={quote.dates30} daysOfWeek30={quote.daysOfWeek30} />
     <SimpleGrid cols={2} spacing="xl">
       <Paper p="md" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-7)" }}>
         <CallsTable
@@ -797,11 +992,11 @@ function OptionsPageInner() {
           safetyLevels={callSafety}
           onSafetyChange={handleCallSafety}
           privacyMode={privacyMode}
-          changePercent={changePercent}
-          trend={trend}
           totalValue={callsTotalValue}
           callsAvailableLabel={callsAvailableLabel}
           btoPositions={callBtoPositions}
+          riskStrike={riskStrikeCall}
+          riskStrikeAvg={riskStrikeAvgCall}
         />
       </Paper>
       <Paper p="md" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-7)" }}>
@@ -811,11 +1006,11 @@ function OptionsPageInner() {
           safetyLevels={putSafety}
           onSafetyChange={handlePutSafety}
           privacyMode={privacyMode}
-          changePercent={changePercent}
-          trend={trend}
           totalValue={putsTotalValue}
           availableCash={putsAvailableCash}
           btoPositions={putBtoPositions}
+          riskStrike={riskStrikePut}
+          riskStrikeAvg={riskStrikeAvgPut}
         />
       </Paper>
     </SimpleGrid>

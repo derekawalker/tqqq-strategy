@@ -41,6 +41,12 @@ export interface Quote {
   changePercent: number;
   /** 1 = 3 consecutive up days, -1 = 3 consecutive down days, 0 = mixed/unknown */
   trend: number;
+  /** Last ~30 trading day closing prices */
+  closes30: number[];
+  /** Dates for closes30, formatted as "M/D" */
+  dates30: string[];
+  /** Day of week (0=Sun…6=Sat) for each closes30 entry */
+  daysOfWeek30: number[];
   loading: boolean;
 }
 
@@ -241,7 +247,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     init();
     return () => { cancelled = true; };
   }, []);
-  const [quote, setQuote] = useState<Quote>({ price: 0, changePercent: 0, trend: 0, loading: true });
+  const [quote, setQuote] = useState<Quote>({ price: 0, changePercent: 0, trend: 0, closes30: [], dates30: [], daysOfWeek30: [], loading: true });
   const [refreshTick, setRefreshTick] = useState(0);
   const [quoteTick, setQuoteTick] = useState(0);
   const [allFilledOrders, setAllFilledOrders] = useState<FilledOrder[]>([]);
