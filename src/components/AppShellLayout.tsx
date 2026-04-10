@@ -143,7 +143,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
       // Set price immediately when quote resolves — don't wait for trend
       const quoteData = await quotePromise;
       if (!cancelled && quoteData?.price != null)
-        setQuote({ price: quoteData.price, changePercent: quoteData.changePercent, trend: 0, loading: false });
+        setQuote((q) => ({ ...q, price: quoteData.price, changePercent: quoteData.changePercent, trend: 0, loading: false }));
       else if (!cancelled)
         setQuote((q) => ({ ...q, loading: false }));
 

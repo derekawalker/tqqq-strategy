@@ -32,7 +32,7 @@ export async function GET() {
       if (filtered.length > 0 && filtered[filtered.length - 1].date === todayLabel) {
         filtered[filtered.length - 1].close = livePrice;
       } else {
-        filtered.push({ close: livePrice, date: todayLabel });
+        filtered.push({ close: livePrice, date: todayLabel, dow: now.getDay() });
       }
     }
 

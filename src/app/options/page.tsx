@@ -28,7 +28,29 @@ function linReg(vals: number[]): { slope: number; intercept: number } {
   return { slope, intercept };
 }
 
-function DayChangeBanner({ closes30, dates30, daysOfWeek30 }: { closes30: number[]; dates30: string[]; daysOfWeek30: number[] }) {
+function DayChangeBanner({ closes30, dates30, daysOfWeek30, loading }: { closes30: number[]; dates30: string[]; daysOfWeek30: number[]; loading?: boolean }) {
+  if (loading) {
+    return (
+      <Paper p="md" radius="md" style={{ background: "linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)", boxShadow: "inset 2px 2px 6px rgba(0,0,0,0.4)", border: "none" }}>
+        <Stack gap="xs">
+          <Stack gap={2} align="center">
+            <Skeleton height={12} width="50%" radius="sm" />
+            <Skeleton height={10} width="75%" radius="sm" />
+          </Stack>
+          <Skeleton height={120} radius="sm" />
+          <Skeleton height={1} radius="sm" />
+          <Group grow gap="xs">
+            {[0, 1, 2].map((i) => (
+              <Stack key={i} gap={4} align="center">
+                <Skeleton height={9} width="70%" radius="sm" />
+                <Skeleton height={12} width="50%" radius="sm" />
+              </Stack>
+            ))}
+          </Group>
+        </Stack>
+      </Paper>
+    );
+  }
   const hasHistory = closes30.length > 1;
 
   // 30-day trendline
@@ -46,7 +68,7 @@ function DayChangeBanner({ closes30, dates30, daysOfWeek30 }: { closes30: number
     trend2: i >= offset2 ? parseFloat((intercept2 + slope2 * (i - offset2)).toFixed(2)) : null,
   }));
 
-  const trendUp = closes30[closes30.length - 1] > closes30[0];
+  const trendUp = slope >= 0;
   const highIdx = closes30.reduce((best, v, i) => v > closes30[best] ? i : best, 0);
   const lowIdx  = closes30.reduce((best, v, i) => v < closes30[best] ? i : best, 0);
 
@@ -74,7 +96,7 @@ function DayChangeBanner({ closes30, dates30, daysOfWeek30 }: { closes30: number
   const max5Down = weeklyMoves.length ? weeklyMoves.reduce((b, w) => w.dollar < b.dollar ? w : b) : { dollar: 0 };
 
   const trend2Up = slope2 >= 0;
-  const trendLineColor = trendUp ? "rgba(20,184,166,0.45)" : "rgba(239,68,68,0.45)";
+  const trendLineColor = slope >= 0 ? "rgba(20,184,166,0.45)" : "rgba(239,68,68,0.45)";
   const bg = trendUp && trend2Up
     ? "linear-gradient(135deg, rgba(20,184,166,0.15) 0%, rgba(20,184,166,0.05) 100%)"
     : !trendUp && !trend2Up
@@ -101,7 +123,7 @@ function DayChangeBanner({ closes30, dates30, daysOfWeek30 }: { closes30: number
           );
           return (
             <Stack gap={2} align="center">
-              <Text size="xs" fw={700} c="dimmed" ta="center">Trend is Neutral — Either side is viable.</Text>
+              <Text size="xs" fw={700} c="dimmed" ta="center">Composite Trend is Neutral — Calls and puts are both viable.</Text>
               <Text size="xs" c="dimmed" ta="center">Try to sell puts on down days and calls on up days for better premium.</Text>
             </Stack>
           );
@@ -937,7 +959,7 @@ function OptionsPageInner() {
     return (
       <Stack gap="md">
         <Text fw={700} size="xl">Options</Text>
-        <DayChangeBanner closes30={quote.closes30} dates30={quote.dates30} daysOfWeek30={quote.daysOfWeek30} />
+        <DayChangeBanner closes30={quote.closes30} dates30={quote.dates30} daysOfWeek30={quote.daysOfWeek30} loading={quote.loading} />
         <SegmentedControl
           fullWidth
           color={color}
@@ -983,7 +1005,7 @@ function OptionsPageInner() {
   return (
     <Stack gap="md">
     <Text fw={700} size="xl">Options</Text>
-    <DayChangeBanner closes30={quote.closes30} dates30={quote.dates30} daysOfWeek30={quote.daysOfWeek30} />
+    <DayChangeBanner closes30={quote.closes30} dates30={quote.dates30} daysOfWeek30={quote.daysOfWeek30} loading={quote.loading} />
     <SimpleGrid cols={2} spacing="xl">
       <Paper p="md" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-7)" }}>
         <CallsTable
