@@ -1,21 +1,11 @@
 import { useMemo } from "react";
 import { useApp } from "@/lib/context/AppContext";
-import { computeLevels, Level } from "@/lib/levels";
+import { computeLevels, matchLevel, Level } from "@/lib/levels";
 
 export interface LevelsSummary {
   levels: Level[];
   currentLevel: number;
   ownedLevels: Level[];
-}
-
-/** Match a fill (shares + price) to the closest level index, checking both buy and sell prices. Returns -1 if no share match or price is too far off. */
-function matchLevel(levels: Level[], shares: number, price: number): number {
-  const candidates = levels
-    .map((l, i) => ({ i, diff: Math.min(Math.abs(l.buyPrice - price), Math.abs(l.sellPrice - price)) }))
-    .filter((_, i) => levels[i].shares === shares)
-    .filter((c) => c.diff <= 0.01); // must be within $0.01 of level's buy or sell price
-  if (candidates.length === 0) return -1;
-  return candidates.reduce((best, c) => (c.diff < best.diff ? c : best)).i;
 }
 
 export function useLevels(): LevelsSummary | null {

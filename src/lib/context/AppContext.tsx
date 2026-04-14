@@ -100,7 +100,7 @@ const ACTIVE_ACCOUNT_KEY = "tqqq-active-account";
 
 const DEFAULT_ACCOUNTS: Account[] = [];
 
-function deserializeAccount(a: Account): Account {
+export function deserializeAccount(a: Account): Account {
   return {
     ...a,
     settings: {
