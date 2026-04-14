@@ -3,6 +3,8 @@
 import { useMemo } from "react";
 import { Box } from "@mantine/core";
 import { useApp } from "@/lib/context/AppContext";
+import { useAccountColor } from "@/lib/hooks/useAccountColor";
+import { toDateKey } from "@/lib/format";
 import { AccountValueCard } from "@/components/AccountValueCard";
 import { GainLossCard } from "@/components/GainLossCard";
 import { StatCard } from "@/components/StatCard";
@@ -10,15 +12,12 @@ import { MiniChartCard } from "@/components/MiniChartCard";
 import { CurrentLevelCard } from "@/components/CurrentLevelCard";
 
 export default function Home() {
-  const { filledOrders, optionPositions, activeAccount, tqqqShares } = useApp();
-  const color = activeAccount?.color ?? "dark";
+  const { filledOrders, optionPositions, tqqqShares } = useApp();
+  const color = useAccountColor("dark");
 
   const tradesToday = useMemo(() => {
-    const today = new Date().toLocaleDateString("en-CA");
-    return filledOrders.filter((o) => {
-      const d = new Date(o.time).toLocaleDateString("en-CA");
-      return d === today;
-    }).length;
+    const today = toDateKey(new Date());
+    return filledOrders.filter((o) => toDateKey(new Date(o.time)) === today).length;
   }, [filledOrders]);
 
 

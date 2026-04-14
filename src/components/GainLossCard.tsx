@@ -6,6 +6,8 @@ import { IconInfoCircle } from "@tabler/icons-react";
 import { Outfit } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/context/AppContext";
+import { createMask } from "@/lib/format";
+import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { useCardBg } from "@/lib/hooks/useCardBg";
 import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
 import { useBalances } from "@/lib/hooks/useBalances";
@@ -20,8 +22,9 @@ function fmtMoney(n: number) {
 
 export function GainLossCard() {
   const { activeAccount, privacyMode, snapshotLoading } = useApp();
+  const accountColor = useAccountColor("dark");
   const { balance, loading: balanceLoading } = useBalances();
-  const mask = (v: string) => (privacyMode ? "••••" : v);
+  const mask = createMask(privacyMode);
 
   const { totalGain, totalGainPct, annualROI } = useMemo(() => {
     const startingCash = activeAccount?.settings.startingCash ?? null;
@@ -45,7 +48,7 @@ export function GainLossCard() {
   }, [balance, activeAccount]);
 
   const gainColor = (totalGain ?? 0) >= 0 ? "white" : "var(--mantine-color-red-6)";
-  const bg = useCardBg(activeAccount?.color ?? "dark");
+  const bg = useCardBg(accountColor);
   const router = useRouter();
 
   return (

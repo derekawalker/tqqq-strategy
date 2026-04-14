@@ -10,12 +10,16 @@ import SettingsModal from "@/components/SettingsModal";
 import { SideNav, BottomNav } from "@/components/AppNav";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
+import { usePendingBuyCost } from "@/lib/hooks/usePendingBuyCost";
+import { useCSPCollateral } from "@/lib/hooks/useCSPCollateral";
 
 const NAVBAR_WIDTH = 180;
 
 function AppShellInner({ children }: { children: ReactNode }) {
   const { activeAccount, setQuote, refreshTick, quoteTick, tickRefresh, tqqqShares, setAlerts, workingOrders, optionPositions, quote, balances } = useApp();
   const levelsSummary = useLevels();
+  const pendingBuyCost = usePendingBuyCost();
+  const cspCollateral = useCSPCollateral();
   const isMobile = useMediaQuery("(max-width: 768px)", false);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -98,41 +102,10 @@ function AppShellInner({ children }: { children: ReactNode }) {
       return;
     }
 
-    const cspCollateral = optionPositions
-      .filter((p) => p.putCall === "PUT" && p.shortQty > 0)
-      .reduce((sum, p) => sum + p.strike * 100 * p.shortQty, 0);
-
-    let pendingBuyCost = 0;
-    if (levelsSummary) {
-      const ownedLevelIndices = new Set(
-        levelsSummary.ownedLevels.map((l) =>
-          levelsSummary.levels.findIndex((ll) => ll.shares === l.shares && ll.buyPrice === l.buyPrice)
-        )
-      );
-      const counts = new Map<number, { buys: number; buyPrice: number | null }>();
-      for (const o of workingOrders) {
-        if (o.side !== "BUY") continue;
-        const existing = counts.get(o.shares);
-        const idx = levelsSummary.levels.findIndex((l) => l.shares === o.shares);
-        const buyPrice = idx >= 0 ? levelsSummary.levels[idx].buyPrice : null;
-        if (!existing) {
-          counts.set(o.shares, { buys: 1, buyPrice });
-        } else {
-          counts.set(o.shares, { ...existing, buys: existing.buys + 1 });
-        }
-      }
-      for (const [shares, { buys, buyPrice }] of counts) {
-        if (buys === 0 || buyPrice == null) continue;
-        const idx = levelsSummary.levels.findIndex((l) => l.shares === shares);
-        if (idx >= 0 && ownedLevelIndices.has(idx)) continue;
-        pendingBuyCost += shares * buyPrice;
-      }
-    }
-
-    const idleCash = balance.cash - cspCollateral - pendingBuyCost;
+    const idleCash = balance.cash - (cspCollateral ?? 0) - (pendingBuyCost ?? 0);
     setAlerts((prev) => ({ ...prev, idleCash: idleCash > 1000 ? idleCash : null }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [balances, activeAccount?.accountNumber, optionPositions, workingOrders, levelsSummary]);
+  }, [balances, activeAccount?.accountNumber, cspCollateral, pendingBuyCost]);
 
   useEffect(() => {
     let cancelled = false;

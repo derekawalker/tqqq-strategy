@@ -100,18 +100,23 @@ const ACTIVE_ACCOUNT_KEY = "tqqq-active-account";
 
 const DEFAULT_ACCOUNTS: Account[] = [];
 
+function deserializeAccount(a: Account): Account {
+  return {
+    ...a,
+    settings: {
+      ...a.settings,
+      startingDate: a.settings.startingDate ? new Date(a.settings.startingDate) : null,
+      levelResetDate: a.settings.levelResetDate ? new Date(a.settings.levelResetDate) : null,
+    },
+  };
+}
+
 function loadAccounts(): Account[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_ACCOUNTS;
     const parsed = JSON.parse(raw) as Account[];
-    return parsed.map((a) => ({
-      ...a,
-      settings: {
-        ...a.settings,
-        startingDate: a.settings.startingDate ? new Date(a.settings.startingDate) : null,
-      },
-    }));
+    return parsed.map(deserializeAccount);
   } catch {
     return DEFAULT_ACCOUNTS;
   }
@@ -142,13 +147,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .then((r) => r.json())
       .then((data) => {
         if (!data.value) return;
-        const remote = (data.value as Account[]).map((a) => ({
-          ...a,
-          settings: {
-            ...a.settings,
-            startingDate: a.settings.startingDate ? new Date(a.settings.startingDate) : null,
-          },
-        }));
+        const remote = (data.value as Account[]).map(deserializeAccount);
         // Only use Supabase data if it has meaningful settings; otherwise keep localStorage
         const hasRealSettings = remote.some((a) =>
           a.settings.startingCash != null || a.settings.startingDate != null || a.settings.initialLotPrice != null

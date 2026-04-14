@@ -6,17 +6,14 @@ import { Outfit } from "next/font/google";
 const outfit = Outfit({ subsets: ["latin"] });
 import { Table, ScrollArea, Text, Center, Skeleton, Stack, Tabs, Group, Paper, SimpleGrid, Divider, Box } from "@mantine/core";
 import { useApp } from "@/lib/context/AppContext";
+import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { useCardBg } from "@/lib/hooks/useCardBg";
 import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
 import { computeLevels } from "@/lib/levels";
+import { fmt, weekStart, createMask } from "@/lib/format";
 
-const fmt = (n: number, decimals = 2) =>
-  n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-
-const fmtDate = (iso: string) => {
-  const d = new Date(iso);
-  return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-};
+const fmtDate = (iso: string) =>
+  new Date(iso).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
 type Period = "day" | "week" | "month" | "year" | "all";
 
@@ -52,12 +49,6 @@ interface ProfitRow {
   profit: number | null;
 }
 
-// Returns the Sunday of the week containing the given local date string (YYYY-MM-DD)
-function weekStart(dateKey: string): string {
-  const d = new Date(dateKey + "T00:00:00");
-  d.setDate(d.getDate() - d.getDay()); // shift back to Sunday
-  return d.toLocaleDateString("en-CA");
-}
 
 interface DaySummary {
   dateKey: string;   // "2026-03-25"
@@ -110,7 +101,7 @@ function DayCard({ day, privacyMode, color, selected, onClick }: { day: DaySumma
   const total = day.equity + day.options + day.interest + day.dividends;
   const totalTrades = day.equityTrades + day.optionsTrades;
   const hasActivity = totalTrades > 0 || day.interest !== 0 || day.dividends !== 0;
-  const mask = (v: string) => (privacyMode ? "••••" : v);
+  const mask = createMask(privacyMode);
   const c = (n: number) => n < 0 ? "red" : color;
   const bg = useCardBg(color);
 
@@ -163,7 +154,7 @@ function DayCard({ day, privacyMode, color, selected, onClick }: { day: DaySumma
 function WeekCard({ week, privacyMode, color, selected, onClick }: { week: WeekSummary; privacyMode: boolean; color: string; selected?: boolean; onClick?: () => void }) {
   const total = week.equity + week.options + week.interest + week.dividends;
   const hasActivity = week.equityTrades > 0 || week.options !== 0 || week.interest !== 0 || week.dividends !== 0;
-  const mask = (v: string) => (privacyMode ? "••••" : v);
+  const mask = createMask(privacyMode);
   const c = (n: number) => n < 0 ? "red" : color;
   const bg = useCardBg(color);
 
@@ -213,7 +204,7 @@ function WeekCard({ week, privacyMode, color, selected, onClick }: { week: WeekS
 function MonthCard({ month, privacyMode, color, selected, onClick }: { month: MonthSummary; privacyMode: boolean; color: string; selected?: boolean; onClick?: () => void }) {
   const total = month.equity + month.options + month.interest + month.dividends;
   const hasActivity = month.equityTrades > 0 || month.options !== 0 || month.interest !== 0 || month.dividends !== 0;
-  const mask = (v: string) => (privacyMode ? "••••" : v);
+  const mask = createMask(privacyMode);
   const c = (n: number) => n < 0 ? "red" : color;
   const bg = useCardBg(color);
 
@@ -263,7 +254,8 @@ function MonthCard({ month, privacyMode, color, selected, onClick }: { month: Mo
 
 export default function ProfitPage() {
   const { filledOrders, filledOptionOrders, expiredOptionOrders, transactions, snapshotLoading, privacyMode, activeAccount, tqqqShares, tqqqAvgPrice, quote } = useApp();
-  const summaryBg = useCardBg(activeAccount?.color ?? "blue");
+  const accountColor = useAccountColor();
+  const summaryBg = useCardBg(accountColor);
 
   // Pair each STO with its BTC(s)/expirations FIFO, and each BTO with its STC(s) FIFO.
   const realizedOptionTrades = useMemo((): RealizedOptionTrade[] => {
@@ -392,7 +384,7 @@ export default function ProfitPage() {
   const [selectedWeek, setSelectedWeek] = useState<string | null>(null);
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
 
-  const mask = (val: string) => (privacyMode ? "••••" : val);
+  const mask = createMask(privacyMode);
 
   const rows = useMemo<ProfitRow[]>(() => {
     const { startingCash, initialLotPrice, sellPercentage, reductionFactor } = activeAccount?.settings ?? {};
@@ -626,7 +618,7 @@ export default function ProfitPage() {
     <Stack gap="md">
       <Group justify="space-between" align="center">
         <Text fw={700} size="xl">Profit Tracker</Text>
-        <Tabs value={period} onChange={handlePeriodChange} color={activeAccount?.color ?? "blue"}>
+        <Tabs value={period} onChange={handlePeriodChange} color={accountColor}>
           <Tabs.List>
             {PERIODS.map((p) => (
               <Tabs.Tab key={p.value} value={p.value} className="profit-tab">{p.label}</Tabs.Tab>
@@ -645,7 +637,7 @@ export default function ProfitPage() {
                   <DayCard
                     day={day}
                     privacyMode={privacyMode}
-                    color={activeAccount?.color ?? "blue"}
+                    color={accountColor}
                     selected={day.dateKey === effectiveDay}
                     onClick={() => setSelectedDay(day.dateKey)}
                   />
@@ -666,7 +658,7 @@ export default function ProfitPage() {
                   key={week.weekKey}
                   week={week}
                   privacyMode={privacyMode}
-                  color={activeAccount?.color ?? "blue"}
+                  color={accountColor}
                   selected={week.weekKey === effectiveWeek}
                   onClick={() => setSelectedWeek(week.weekKey)}
                 />
@@ -699,7 +691,7 @@ export default function ProfitPage() {
                   {row.fees !== 0 ? <Text size="sm" c="dimmed">{mask(fmtMoney(row.fees))}</Text> : <Text size="sm" c="dimmed">—</Text>}
                 </Table.Td>
                 <Table.Td ta="right">
-                  <Text size="sm" fw={600} c={row.profit != null ? (row.profit >= 0 ? activeAccount?.color ?? "blue" : "red") : "dimmed"}>
+                  <Text size="sm" fw={600} c={row.profit != null ? (row.profit >= 0 ? accountColor : "red") : "dimmed"}>
                     {row.profit != null ? mask(`${row.profit >= 0 ? "+" : ""}$${fmt(row.profit)}`) : "—"}
                   </Text>
                 </Table.Td>
@@ -776,7 +768,7 @@ export default function ProfitPage() {
                   {row.fees !== 0 ? <Text size="sm" c="dimmed">{mask(fmtMoney(row.fees))}</Text> : <Text size="sm" c="dimmed">—</Text>}
                 </Table.Td>
                 <Table.Td ta="right">
-                  <Text size="sm" fw={600} c={row.profit != null ? (row.profit >= 0 ? activeAccount?.color ?? "blue" : "red") : "dimmed"}>
+                  <Text size="sm" fw={600} c={row.profit != null ? (row.profit >= 0 ? accountColor : "red") : "dimmed"}>
                     {row.profit != null ? mask(`${row.profit >= 0 ? "+" : ""}$${fmt(row.profit)}`) : "—"}
                   </Text>
                 </Table.Td>
@@ -840,7 +832,7 @@ export default function ProfitPage() {
                   key={month.monthKey}
                   month={month}
                   privacyMode={privacyMode}
-                  color={activeAccount?.color ?? "blue"}
+                  color={accountColor}
                   selected={month.monthKey === effectiveMonth}
                   onClick={() => setSelectedMonth(month.monthKey)}
                 />
@@ -873,7 +865,7 @@ export default function ProfitPage() {
                   {row.fees !== 0 ? <Text size="sm" c="dimmed">{mask(fmtMoney(row.fees))}</Text> : <Text size="sm" c="dimmed">—</Text>}
                 </Table.Td>
                 <Table.Td ta="right">
-                  <Text size="sm" fw={600} c={row.profit != null ? (row.profit >= 0 ? activeAccount?.color ?? "blue" : "red") : "dimmed"}>
+                  <Text size="sm" fw={600} c={row.profit != null ? (row.profit >= 0 ? accountColor : "red") : "dimmed"}>
                     {row.profit != null ? mask(`${row.profit >= 0 ? "+" : ""}$${fmt(row.profit)}`) : "—"}
                   </Text>
                 </Table.Td>
@@ -947,7 +939,7 @@ export default function ProfitPage() {
                 <Divider mt="auto" />
                 <Group justify="space-between" gap={4} wrap="nowrap">
                   <Text size="xs" c="dimmed">Total</Text>
-                  <Text fw={700} c={yearlyData.equityTotal < 0 ? "red" : activeAccount?.color ?? "blue"} ta="right" className={outfit.className} style={{ fontSize: "1rem" }}>
+                  <Text fw={700} c={yearlyData.equityTotal < 0 ? "red" : accountColor} ta="right" className={outfit.className} style={{ fontSize: "1rem" }}>
                     {yearlyData.equityTrades > 0 ? mask(fmtMoney(yearlyData.equityTotal, true)) : "—"}
                   </Text>
                 </Group>
@@ -1008,7 +1000,7 @@ export default function ProfitPage() {
                 <Text c="dimmed" tt="uppercase" fw={600} ta="center" style={CARD_LABEL_STYLE} mb={6}>{yearlyData.year} Total</Text>
                 <Group justify="space-between" gap={4} wrap="nowrap">
                   <Text size="xs" c="dimmed">Equity</Text>
-                  <Text size="xs" fw={500} c={yearlyData.equityTotal < 0 ? "red" : activeAccount?.color ?? "blue"} ta="right">
+                  <Text size="xs" fw={500} c={yearlyData.equityTotal < 0 ? "red" : accountColor} ta="right">
                     {yearlyData.equityTrades > 0 ? mask(fmtMoney(yearlyData.equityTotal, true)) : "—"}
                   </Text>
                 </Group>
@@ -1050,13 +1042,12 @@ export default function ProfitPage() {
               {yearlyData.months.map((m) => {
                 const total = m.equity + m.options + m.interest + m.dividends;
                 const hasActivity = m.equityTrades > 0 || m.options !== 0 || m.interest !== 0 || m.dividends !== 0;
-                const color = activeAccount?.color ?? "blue";
                 const intDiv = m.interest + m.dividends;
                 return (
                   <Table.Tr key={m.monthKey} style={{ opacity: hasActivity ? 1 : 0.4 }}>
                     <Table.Td><Text size="sm">{m.label}</Text></Table.Td>
                     <Table.Td ta="right" className="hide-mobile">
-                      <Text size="sm" c={!hasActivity ? "dimmed" : m.equity >= 0 ? color : "red"}>
+                      <Text size="sm" c={!hasActivity ? "dimmed" : m.equity >= 0 ? accountColor : "red"}>
                         {m.equityTrades > 0 ? mask(fmtMoney(m.equity, true)) : "—"}
                       </Text>
                     </Table.Td>
@@ -1072,14 +1063,14 @@ export default function ProfitPage() {
                     </Table.Td>
                     <Table.Td ta="right" className="show-mobile">
                       <Stack gap={2} align="center">
-                        {m.equityTrades > 0 && <Text size="sm" c={m.equity >= 0 ? color : "red"}>{mask(fmtMoney(m.equity, true))}</Text>}
+                        {m.equityTrades > 0 && <Text size="sm" c={m.equity >= 0 ? accountColor : "red"}>{mask(fmtMoney(m.equity, true))}</Text>}
                         {m.options !== 0 && <Text size="sm" c={m.options < 0 ? "red" : "orange"}>{mask(fmtMoney(m.options, true))}</Text>}
                         {intDiv !== 0 && <Text size="sm" c="lime">{mask(fmtMoney(intDiv, true))}</Text>}
                         {!hasActivity && <Text size="sm" c="dimmed">—</Text>}
                       </Stack>
                     </Table.Td>
                     <Table.Td ta="right">
-                      <Text size="sm" fw={600} c={!hasActivity ? "dimmed" : total >= 0 ? color : "red"}>
+                      <Text size="sm" fw={600} c={!hasActivity ? "dimmed" : total >= 0 ? accountColor : "red"}>
                         {hasActivity ? mask(fmtMoney(total, true)) : "—"}
                       </Text>
                     </Table.Td>
@@ -1128,7 +1119,7 @@ export default function ProfitPage() {
                 <Text c="dimmed" tt="uppercase" fw={600} ta="center" style={CARD_LABEL_STYLE} mb={6}>Realized Profit</Text>
                 <Group justify="space-between" gap={4} wrap="nowrap">
                   <Text size="xs" c="dimmed">Equity ({allTimeData.trades} trades)</Text>
-                  <Text size="xs" fw={500} c={allTimeData.equityTotal < 0 ? "red" : activeAccount?.color ?? "blue"} ta="right">
+                  <Text size="xs" fw={500} c={allTimeData.equityTotal < 0 ? "red" : accountColor} ta="right">
                     {mask(fmtMoney(allTimeData.equityTotal, true))}
                   </Text>
                 </Group>
@@ -1198,13 +1189,12 @@ export default function ProfitPage() {
               <Table.Tbody>
                 {allTimeData.years.map((y) => {
                   const total = y.equity + y.options + y.interest + y.dividends;
-                  const color = activeAccount?.color ?? "blue";
-                  const intDiv = y.interest + y.dividends;
+                    const intDiv = y.interest + y.dividends;
                   return (
                     <Table.Tr key={y.year}>
                       <Table.Td><Text size="sm">{y.year}</Text></Table.Td>
                       <Table.Td ta="right" className="hide-mobile">
-                        <Text size="sm" c={y.equityTrades === 0 ? "dimmed" : y.equity >= 0 ? color : "red"}>
+                        <Text size="sm" c={y.equityTrades === 0 ? "dimmed" : y.equity >= 0 ? accountColor : "red"}>
                           {y.equityTrades > 0 ? mask(fmtMoney(y.equity, true)) : "—"}
                         </Text>
                       </Table.Td>
@@ -1220,13 +1210,13 @@ export default function ProfitPage() {
                       </Table.Td>
                       <Table.Td ta="right" className="show-mobile">
                         <Stack gap={2} align="center">
-                          {y.equityTrades > 0 && <Text size="sm" c={y.equity >= 0 ? color : "red"}>{mask(fmtMoney(y.equity, true))}</Text>}
+                          {y.equityTrades > 0 && <Text size="sm" c={y.equity >= 0 ? accountColor : "red"}>{mask(fmtMoney(y.equity, true))}</Text>}
                           {y.options !== 0 && <Text size="sm" c={y.options < 0 ? "red" : "orange"}>{mask(fmtMoney(y.options, true))}</Text>}
                           {intDiv !== 0 && <Text size="sm" c="lime">{mask(fmtMoney(intDiv, true))}</Text>}
                         </Stack>
                       </Table.Td>
                       <Table.Td ta="right">
-                        <Text size="sm" fw={600} c={total >= 0 ? color : "red"}>
+                        <Text size="sm" fw={600} c={total >= 0 ? accountColor : "red"}>
                           {mask(fmtMoney(total, true))}
                         </Text>
                       </Table.Td>

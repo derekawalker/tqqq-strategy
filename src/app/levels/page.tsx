@@ -6,9 +6,8 @@ import { IconCheck, IconPlayerPlayFilled } from "@tabler/icons-react";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
-
-const fmt = (n: number, decimals = 2) =>
-  n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+import { fmt, createMask } from "@/lib/format";
+import { useAccountColor } from "@/lib/hooks/useAccountColor";
 
 
 function ProgressRow({ progress, color, paddingTop, paddingBottom, cols }: {
@@ -38,7 +37,7 @@ export default function LevelsPage() {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { activeAccount, privacyMode, quote } = useApp();
   const summary = useLevels();
-  const accountColor = activeAccount?.color ?? "blue";
+  const accountColor = useAccountColor();
   const currentRowRef = useRef<HTMLTableRowElement>(null);
 
   useEffect(() => {
@@ -60,7 +59,7 @@ export default function LevelsPage() {
   const totalGainLoss = ownedLevels.reduce((sum, l) => sum + (quote.price - l.buyPrice) * l.shares, 0);
   const totalGainLossColor = totalGainLoss >= 0 ? "teal" : "red";
 
-  const mask = (val: string) => (privacyMode ? "••••" : val);
+  const mask = createMask(privacyMode);
 
   return (
     <Stack gap="md">

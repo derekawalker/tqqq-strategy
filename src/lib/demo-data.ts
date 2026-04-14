@@ -47,6 +47,7 @@ export const DEMO_ACCOUNT_CONFIG: Account[] = [
       orderBuffer: 5,
       callSafetyLevels: 8,
       putSafetyLevels: 8,
+      levelResetDate: null,
     },
   },
   {
@@ -63,6 +64,7 @@ export const DEMO_ACCOUNT_CONFIG: Account[] = [
       orderBuffer: 5,
       callSafetyLevels: 8,
       putSafetyLevels: 8,
+      levelResetDate: null,
     },
   },
   {
@@ -79,6 +81,7 @@ export const DEMO_ACCOUNT_CONFIG: Account[] = [
       orderBuffer: 5,
       callSafetyLevels: 8,
       putSafetyLevels: 8,
+      levelResetDate: null,
     },
   },
 ];

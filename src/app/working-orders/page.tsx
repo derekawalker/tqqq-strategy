@@ -5,9 +5,8 @@ import { Table, ScrollArea, Text, Center, Skeleton, Stack, Badge, NumberInput, G
 import { IconAlertTriangle, IconCheck, IconCopy, IconPlayerPlayFilled } from "@tabler/icons-react";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
-
-const fmt = (n: number, decimals = 2) =>
-  n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+import { fmt, createMask } from "@/lib/format";
+import { useAccountColor } from "@/lib/hooks/useAccountColor";
 
 interface LevelRow {
   levelIndex: number;
@@ -45,6 +44,7 @@ function buildTosText(side: "BUY" | "SELL", shares: number, buyPrice: number, se
 export default function WorkingOrdersPage() {
   const { workingOrders, snapshotLoading, privacyMode, activeAccount, updateAccountSettings, quote } = useApp();
   const levelsSummary = useLevels();
+  const accountColor = useAccountColor();
   const [tosModal, setTosModal] = useState<{ text: string } | null>(null);
 
   const warnBelow = activeAccount?.settings.orderWarnBelow ?? 3;
@@ -110,7 +110,7 @@ export default function WorkingOrdersPage() {
     return rows;
   }, [workingOrders, levelsSummary, bufferSize]);
 
-  const mask = (val: string) => (privacyMode ? "••••" : val);
+  const mask = createMask(privacyMode);
 
   const duplicateShares = useMemo(() => {
     const workingOnly = workingOrders.filter((o) => o.status === "WORKING");
@@ -321,7 +321,7 @@ export default function WorkingOrdersPage() {
                       <Tooltip label={`Current price $${fmt(quote.price)} is between buy and sell`} withArrow>
                         <IconPlayerPlayFilled
                           size={10}
-                          color={bufferMissing ? "var(--mantine-color-orange-5)" : `var(--mantine-color-${activeAccount?.color ?? "blue"}-5)`}
+                          color={bufferMissing ? "var(--mantine-color-orange-5)" : `var(--mantine-color-${accountColor}-5)`}
                           style={{ position: "absolute", left: -4, top: "50%", transform: "translateY(-50%)", cursor: "default" }}
                         />
                       </Tooltip>

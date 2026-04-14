@@ -10,6 +10,8 @@ import { CARD_RADIUS } from "@/lib/cardStyles";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
+import { createMask, fmt } from "@/lib/format";
+import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { IconArrowRight, IconAlertTriangle, IconPlayerPlayFilled } from "@tabler/icons-react";
 import { LineChart, Line, LabelList, XAxis, YAxis, ReferenceArea, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
 import type { OptionPosition, WorkingOrder } from "@/lib/schwab/parse";
@@ -257,7 +259,7 @@ function OptionsSummaryCard({
   color: string;
   privacyMode: boolean;
 }) {
-  const mask = (v: string) => (privacyMode ? "••••" : v);
+  const mask = createMask(privacyMode);
   const valueSign = totalValue >= 0 ? "+" : "";
   return (
     <Paper p="sm" radius="md" style={{ background: "var(--mantine-color-dark-6)" }}>
@@ -454,7 +456,7 @@ function buildPutRows(
 function PositionCells({
   position, color, privacyMode, inSafeZone,
 }: { position: OptionPosition | null; color: string; privacyMode: boolean; inSafeZone: boolean }) {
-  const mask = (v: string) => (privacyMode ? "••••" : v);
+  const mask = createMask(privacyMode);
 
   if (!position) {
     return (
@@ -552,7 +554,7 @@ function CallsTable({
   riskStrike: number | null;
   riskStrikeAvg: number | null;
 }) {
-  const mask = (v: string) => (privacyMode ? "••••" : v);
+  const mask = createMask(privacyMode);
 
   return (
     <Stack gap="xs">
@@ -687,7 +689,7 @@ function PutsTable({
   riskStrike: number | null;
   riskStrikeAvg: number | null;
 }) {
-  const mask = (v: string) => (privacyMode ? "••••" : v);
+  const mask = createMask(privacyMode);
 
   return (
     <Stack gap="xs">
@@ -706,7 +708,7 @@ function PutsTable({
       <OptionsSummaryCard
         totalValue={totalValue}
         availableLabel="Cash Available"
-        availableValue={mask(`$${availableCash.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)}
+        availableValue={mask(`$${fmt(availableCash)}`)}
         color={color}
         privacyMode={privacyMode}
       />
@@ -811,7 +813,7 @@ function OptionsPageInner() {
   const { optionPositions, snapshotLoading, activeAccount, privacyMode, updateAccountSettings, quote, tqqqShares, workingOrders, balances } = useApp();
 
   const levelsSummary = useLevels();
-  const color = activeAccount?.color ?? "blue";
+  const color = useAccountColor();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [mobileTab, setMobileTab] = useState<"calls" | "puts">("calls");
 

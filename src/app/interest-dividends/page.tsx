@@ -12,20 +12,15 @@ import { CARD_RADIUS } from "@/lib/cardStyles";
 
 const outfit = Outfit({ subsets: ["latin"] });
 
-const fmt = (n: number) =>
-  n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-const fmtDate = (iso: string) => {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "2-digit" });
-};
+import { fmt, fmtDateShort as fmtDate, createMask } from "@/lib/format";
+import { useAccountColor } from "@/lib/hooks/useAccountColor";
 
 export default function InterestDividendsPage() {
   const { activeAccount, privacyMode, transactions, snapshotLoading } = useApp();
-  const color = activeAccount?.color ?? "blue";
+  const color = useAccountColor();
   const bg = useCardBg(color);
   const isMobile = useMediaQuery("(max-width: 768px)");
-  const mask = (v: string) => (privacyMode ? "••••" : v);
+  const mask = createMask(privacyMode);
 
   const accountTransactions = useMemo(() => {
     const interestAndDividends = transactions.filter((t) => t.category === "interest" || t.category === "dividend");

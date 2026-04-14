@@ -1,22 +1,18 @@
 "use client";
 
-import { useMemo } from "react";
 import { Paper, Text, Stack, Group, Box, Skeleton } from "@mantine/core";
 import { Outfit } from "next/font/google";
 
 const outfit = Outfit({ subsets: ["latin"] });
 import { useApp } from "@/lib/context/AppContext";
+import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { useCardBg } from "@/lib/hooks/useCardBg";
 import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
 import { useBalances } from "@/lib/hooks/useBalances";
-import { useLevels } from "@/lib/hooks/useLevels";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
-
-const fmt = (n: number) =>
-  n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-
-const fmtPct = (n: number) =>
-  n.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+import { fmt, createMask } from "@/lib/format";
+import { usePendingBuyCost } from "@/lib/hooks/usePendingBuyCost";
+import { useCSPCollateral } from "@/lib/hooks/useCSPCollateral";
 
 const SEGMENTS = [
   { key: "tqqqValue",        label: "TQQQ",         color: "#339af0" },
@@ -29,54 +25,14 @@ const SEGMENTS = [
 type SegmentKey = typeof SEGMENTS[number]["key"];
 
 export function AccountValueCard() {
-  const { privacyMode, activeAccount, workingOrders, optionPositions } = useApp();
+  const { privacyMode } = useApp();
   const { balance, loading } = useBalances();
-  const levelsSummary = useLevels();
+  const pendingBuyCost = usePendingBuyCost();
+  const cspCollateral = useCSPCollateral();
 
-  const mask = (val: string) => (privacyMode ? "••••" : val);
+  const mask = createMask(privacyMode);
 
-  // Pending buy cost — same logic as working orders page
-  const pendingBuyCost = useMemo(() => {
-    if (!levelsSummary) return null;
-
-    const ownedLevelIndices = new Set(
-      levelsSummary.ownedLevels.map((l) =>
-        levelsSummary.levels.findIndex(
-          (ll) => ll.shares === l.shares && ll.buyPrice === l.buyPrice
-        )
-      )
-    );
-
-    const counts = new Map<number, { buys: number; buyPrice: number | null }>();
-    for (const o of workingOrders) {
-      if (o.side !== "BUY") continue;
-      const existing = counts.get(o.shares);
-      const idx = levelsSummary.levels.findIndex((l) => l.shares === o.shares);
-      const buyPrice = idx >= 0 ? levelsSummary.levels[idx].buyPrice : null;
-      if (!existing) {
-        counts.set(o.shares, { buys: 1, buyPrice });
-      } else {
-        counts.set(o.shares, { ...existing, buys: existing.buys + 1 });
-      }
-    }
-
-    let total = 0;
-    for (const [shares, { buys, buyPrice }] of counts) {
-      if (buys === 0 || buyPrice == null) continue;
-      const idx = levelsSummary.levels.findIndex((l) => l.shares === shares);
-      if (idx >= 0 && ownedLevelIndices.has(idx)) continue;
-      total += shares * buyPrice;
-    }
-    return total;
-  }, [workingOrders, levelsSummary]);
-
-  const cspCollateral = useMemo(() => {
-    const puts = optionPositions.filter((p) => p.putCall === "PUT" && p.shortQty > 0);
-    if (puts.length === 0) return null;
-    return puts.reduce((sum, p) => sum + p.strike * 100 * p.shortQty, 0);
-  }, [optionPositions]);
-
-  const color = activeAccount?.color ?? "teal";
+  const color = useAccountColor("teal");
   const bg = useCardBg(color);
 
   if (loading && !balance) {
@@ -106,7 +62,7 @@ export function AccountValueCard() {
           <Text c="dimmed" tt="uppercase" fw={600} ta="center" w="100%" style={CARD_LABEL_STYLE}>Account Value</Text>
         </Group>
         <AnimatedNumber
-          value={mask(`$${fmt(total)}`)}
+          value={mask(`$${fmt(total, 0)}`)}
           className={outfit.className}
           style={{ fontSize: "4rem", fontWeight: 700, lineHeight: 1, color: "white", width: "100%" }}
         />
@@ -154,8 +110,8 @@ export function AccountValueCard() {
                   <Text size="xs" c="dimmed">{s.label}</Text>
                 </Group>
                 <Group gap={8} wrap="nowrap">
-                  <Text size="xs" fw={500}>{mask(`$${fmt(s.value)}`)}</Text>
-                  <Text size="xs" c="dimmed" w={40} ta="right">{fmtPct(pct)}%</Text>
+                  <Text size="xs" fw={500}>{mask(`$${fmt(s.value, 0)}`)}</Text>
+                  <Text size="xs" c="dimmed" w={40} ta="right">{fmt(pct, 1)}%</Text>
                 </Group>
               </Group>
             );
@@ -169,20 +125,20 @@ export function AccountValueCard() {
             <Group justify="space-between">
               <Text size="xs" c="dimmed">CSP collateral</Text>
               <Text size="xs" fw={600} c="grape">
-                {mask(`$${fmt(cspCollateral)}`)}
+                {mask(`$${fmt(cspCollateral, 0)}`)}
               </Text>
             </Group>
           )}
           <Group justify="space-between">
             <Text size="xs" c="dimmed">Pending trades</Text>
             <Text size="xs" fw={600} c="orange">
-              {pendingBuyCost != null ? mask(`$${fmt(pendingBuyCost)}`) : "—"}
+              {pendingBuyCost != null ? mask(`$${fmt(pendingBuyCost, 0)}`) : "—"}
             </Text>
           </Group>
           <Group justify="space-between">
             <Text size="xs" c="dimmed">Available cash</Text>
             <Text size="xs" fw={600} c="teal">
-              {balance != null ? mask(`$${fmt(balance.cashAvailableForTrading)}`) : "—"}
+              {balance != null ? mask(`$${fmt(balance.cashAvailableForTrading, 0)}`) : "—"}
             </Text>
           </Group>
         </Stack>

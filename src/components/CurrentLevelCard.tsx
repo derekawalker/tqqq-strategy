@@ -3,15 +3,14 @@
 import { Paper, Text, Stack, Box, Group } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { useRouter } from "next/navigation";
-import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
+import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { useCardBg } from "@/lib/hooks/useCardBg";
 import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
 
 export function CurrentLevelCard() {
-  const { activeAccount } = useApp();
   const levelsSummary = useLevels();
-  const color = activeAccount?.color ?? "teal";
+  const color = useAccountColor("teal");
   const bg = useCardBg(color);
   const router = useRouter();
   const isMobile = useMediaQuery("(max-width: 768px)");

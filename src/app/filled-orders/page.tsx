@@ -24,34 +24,11 @@ import {
 } from "recharts";
 import { useMantineTheme } from "@mantine/core";
 import { useApp } from "@/lib/context/AppContext";
+import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { useCardBg } from "@/lib/hooks/useCardBg";
 import { CARD_RADIUS } from "@/lib/cardStyles";
 import type { FilledOrder } from "@/lib/schwab/parse";
-
-const fmt = (n: number, decimals = 2) =>
-  n.toLocaleString("en-US", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-
-const fmtDate = (iso: string) => {
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-};
-
-const fmtTime = (iso: string) => {
-  const d = new Date(iso);
-  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-};
-
-function toDateKey(date: Date): string {
-  return date.toLocaleDateString("en-CA"); // YYYY-MM-DD
-}
-
-function fmtDateKey(key: string): string {
-  const d = new Date(key + "T12:00:00");
-  const mm = d.getMonth() + 1;
-  const dd = d.getDate();
-  const yy = String(d.getFullYear()).slice(-2);
-  return `${mm}/${dd}/${yy}`;
-}
+import { fmt, fmtDate, fmtTime, toDateKey, fmtDateKey } from "@/lib/format";
 
 
 interface ChartPoint {
@@ -158,7 +135,7 @@ function DayChart({ dayOrders, color }: { dayOrders: FilledOrder[]; color: strin
 }
 
 export default function FilledOrdersPage() {
-  const { filledOrders, snapshotLoading: loading, activeAccount } = useApp();
+  const { filledOrders, snapshotLoading: loading } = useApp();
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const availableDates = useMemo(() => {
@@ -179,7 +156,7 @@ export default function FilledOrdersPage() {
   }, [filledOrders, effectiveDate]);
 
 
-  const color = activeAccount?.color ?? "blue";
+  const color = useAccountColor();
   const bg = useCardBg(color);
 
   return (

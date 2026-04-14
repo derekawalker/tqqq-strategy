@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { useApp } from "@/lib/context/AppContext";
 import type { Alerts } from "@/lib/context/AppContext";
+import { useAccountColor } from "@/lib/hooks/useAccountColor";
 
 const TEST_ALERTS: Alerts = {
   levelMatch: false,
@@ -67,10 +68,10 @@ function NavIcon({ Icon, warn }: { Icon: React.ElementType; warn: boolean }) {
 // Desktop sidebar
 export function SideNav() {
   const pathname = usePathname();
-  const { alerts: realAlerts, activeAccount } = useApp();
+  const { alerts: realAlerts } = useApp();
   const testMode = typeof window !== "undefined" && window.location.search.includes("testAlerts");
   const alerts = testMode ? TEST_ALERTS : realAlerts;
-  const color = activeAccount?.color ?? "blue";
+  const color = useAccountColor();
 
   return (
     <Stack gap={4} p="xs">
@@ -96,10 +97,10 @@ export function SideNav() {
 export function BottomNav() {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
-  const { alerts: realAlerts, activeAccount } = useApp();
+  const { alerts: realAlerts } = useApp();
   const testMode = typeof window !== "undefined" && window.location.search.includes("testAlerts");
   const alerts = testMode ? TEST_ALERTS : realAlerts;
-  const color = activeAccount?.color ?? "blue";
+  const color = useAccountColor();
   const moreWarn = MORE_PAGES.some(({ href }) => PAGE_WARN[href]?.(alerts) ?? false);
 
   return (

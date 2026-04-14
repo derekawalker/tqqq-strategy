@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useMediaQuery } from "@mantine/hooks";
 import { Paper, Stack, Text, Group, Box, Skeleton, SegmentedControl, Center } from "@mantine/core";
 import {
@@ -9,6 +9,9 @@ import {
 } from "recharts";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
+import { useAccountColor } from "@/lib/hooks/useAccountColor";
+import { useChartCandles } from "@/lib/hooks/useChartCandles";
+import { fmtTime, fmtDateTime } from "@/lib/format";
 import type { Candle } from "@/app/api/chart/route";
 
 function PriceTag({ viewBox, value, color, position }: {
@@ -34,27 +37,14 @@ function PriceTag({ viewBox, value, color, position }: {
   );
 }
 
-function fmtTime(ts: number) {
-  return new Date(ts).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-}
-
-function fmtDateTime(ts: number) {
-  return new Date(ts).toLocaleString("en-US", {
-    weekday: "short", month: "short", day: "numeric",
-    hour: "numeric", minute: "2-digit",
-  });
-}
-
 function LegendDash({ color }: { color: string }) {
   return <Box style={{ width: 20, height: 2, borderTop: `2px dashed ${color}`, display: "inline-block" }} />;
 }
 
-const candleCache: Record<string, { tick: number; data: Candle[] }> = {};
-
 export default function ChartPage() {
-  const { activeAccount, quote, quoteTick } = useApp();
+  const { quote } = useApp();
   const levelsSummary = useLevels();
-  const color = activeAccount?.color ?? "blue";
+  const color = useAccountColor();
   const isMobile = useMediaQuery("(max-width: 768px)");
 
   const [range, setRange] = useState<"1d" | "1w" | "1m">(() => {
@@ -68,35 +58,7 @@ export default function ChartPage() {
     localStorage.setItem("chart-range", r);
   };
 
-  // fetchedData tracks the last async result so useMemo can incorporate it
-  const [fetchedData, setFetchedData] = useState<{ range: string; tick: number; data: Candle[] } | null>(null);
-
-  // Derive candles from cache (instant on remount) or latest fetch result; derive loading from absence of data
-  const displayCandles = useMemo((): Candle[] => {
-    const c = candleCache[range];
-    if (c?.tick === quoteTick) return c.data;
-    if (fetchedData?.range === range && fetchedData?.tick === quoteTick) return fetchedData.data;
-    return [];
-  }, [range, quoteTick, fetchedData]);
-
-  const loading = displayCandles.length === 0 &&
-    candleCache[range]?.tick !== quoteTick &&
-    !(fetchedData?.range === range && fetchedData?.tick === quoteTick);
-
-  useEffect(() => {
-    if (candleCache[range]?.tick === quoteTick) return;
-    let cancelled = false;
-    fetch(`/api/chart?range=${range}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled && Array.isArray(data)) {
-          candleCache[range] = { tick: quoteTick, data };
-          setFetchedData({ range, tick: quoteTick, data });
-        }
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [quoteTick, range]);
+  const { candles: displayCandles, loading } = useChartCandles(range);
 
   const levels = levelsSummary?.levels ?? [];
   const currentLevel = levelsSummary?.currentLevel ?? -1;

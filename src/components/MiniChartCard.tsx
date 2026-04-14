@@ -1,16 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
 import { Paper, Skeleton, Text, Center } from "@mantine/core";
 import { ResponsiveContainer, AreaChart, Area, Customized, YAxis, ReferenceLine, Tooltip } from "recharts";
 import { useRouter } from "next/navigation";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
+import { useAccountColor } from "@/lib/hooks/useAccountColor";
+import { useChartCandles } from "@/lib/hooks/useChartCandles";
 import { useCardBg } from "@/lib/hooks/useCardBg";
 import { CARD_RADIUS } from "@/lib/cardStyles";
 import type { Candle } from "@/app/api/chart/route";
-
-let miniCache: { tick: number; data: Candle[] } | null = null;
 
 function CenterLabel({ viewBox, value, color, bg }: {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -32,33 +31,11 @@ function CenterLabel({ viewBox, value, color, bg }: {
 }
 
 export function MiniChartCard() {
-  const { quoteTick, activeAccount, quote } = useApp();
+  const { quote } = useApp();
   const router = useRouter();
   const levelsSummary = useLevels();
-  const color = activeAccount?.color ?? "dark";
-
-  const [fetchedData, setFetchedData] = useState<{ tick: number; data: Candle[] } | null>(null);
-
-  const candles: Candle[] = (miniCache?.tick === quoteTick ? miniCache.data : null)
-    ?? (fetchedData?.tick === quoteTick ? fetchedData.data : null)
-    ?? [];
-  const loading = candles.length === 0 && miniCache?.tick !== quoteTick && fetchedData?.tick !== quoteTick;
-
-  useEffect(() => {
-    if (miniCache?.tick === quoteTick) return;
-    let cancelled = false;
-    fetch("/api/chart?range=1d")
-      .then((r) => r.json())
-      .then((data) => {
-        if (!cancelled && Array.isArray(data)) {
-          miniCache = { tick: quoteTick, data };
-          setFetchedData({ tick: quoteTick, data });
-        }
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [quoteTick]);
-
+  const color = useAccountColor("dark");
+  const { candles, loading } = useChartCandles("1d");
   const bg = useCardBg(color);
 
   if (loading) {
