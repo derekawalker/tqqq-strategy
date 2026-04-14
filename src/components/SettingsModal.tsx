@@ -47,6 +47,21 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
                 updateAccountSettings(activeAccount.accountNumber, { startingDate: d });
               }}
             />
+            <DatePickerInput
+              label="Level Reset Date"
+              description="Ignore fills before this date for level detection"
+              placeholder="No reset"
+              clearable
+              value={s.levelResetDate}
+              onChange={(val) => {
+                if (!val) { updateAccountSettings(activeAccount.accountNumber, { levelResetDate: null }); return; }
+                const [y, m, day] = typeof val === "string"
+                  ? val.split("-").map(Number)
+                  : [(val as Date).getFullYear(), (val as Date).getMonth() + 1, (val as Date).getDate()];
+                const d = new Date(y, m - 1, day, 0, 0, 0, 0);
+                updateAccountSettings(activeAccount.accountNumber, { levelResetDate: d });
+              }}
+            />
             <SimpleGrid cols={2} spacing="sm">
               <NumberInput
                 label="Starting Cash"

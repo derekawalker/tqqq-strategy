@@ -15,6 +15,7 @@ export interface AccountSettings {
   orderBuffer: number | null;
   callSafetyLevels: number | null;
   putSafetyLevels: number | null;
+  levelResetDate: Date | null;
 }
 
 export interface Account {
@@ -34,6 +35,7 @@ const DEFAULT_SETTINGS: AccountSettings = {
   orderBuffer: 5,
   callSafetyLevels: 8,
   putSafetyLevels: 8,
+  levelResetDate: null,
 };
 
 export interface Quote {

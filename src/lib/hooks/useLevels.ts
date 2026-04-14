@@ -8,11 +8,12 @@ export interface LevelsSummary {
   ownedLevels: Level[];
 }
 
-/** Match a fill (shares + price) to the closest level index, checking both buy and sell prices. Returns -1 if no share match. */
+/** Match a fill (shares + price) to the closest level index, checking both buy and sell prices. Returns -1 if no share match or price is too far off. */
 function matchLevel(levels: Level[], shares: number, price: number): number {
   const candidates = levels
     .map((l, i) => ({ i, diff: Math.min(Math.abs(l.buyPrice - price), Math.abs(l.sellPrice - price)) }))
-    .filter((_, i) => levels[i].shares === shares);
+    .filter((_, i) => levels[i].shares === shares)
+    .filter((c) => c.diff <= 0.01); // must be within $0.01 of level's buy or sell price
   if (candidates.length === 0) return -1;
   return candidates.reduce((best, c) => (c.diff < best.diff ? c : best)).i;
 }
@@ -32,8 +33,13 @@ export function useLevels(): LevelsSummary | null {
     // For each level, find the most recent fill (BUY or SELL).
     // If the most recent fill was a BUY → owned. SELL → not owned.
     // filledOrders is sorted newest first.
+    const resetDate = s?.levelResetDate ?? null;
+    const relevantOrders = resetDate
+      ? filledOrders.filter((o) => new Date(o.time) >= resetDate)
+      : filledOrders;
+
     const lastFillSide = new Map<number, "BUY" | "SELL">();
-    for (const o of filledOrders) {
+    for (const o of relevantOrders) {
       const idx = matchLevel(levels, o.shares, o.fillPrice);
       if (idx === -1) continue;
       if (!lastFillSide.has(idx)) lastFillSide.set(idx, o.side);
@@ -51,8 +57,8 @@ export function useLevels(): LevelsSummary | null {
 
     // Sell-based cap: the most recent sell tells us which level was just exited.
     // currentLevel can't be higher than that level index - 1.
-    // filledOrders is sorted newest first, so find the first SELL that matches a level.
-    for (const o of filledOrders) {
+    // relevantOrders is sorted newest first, so find the first SELL that matches a level.
+    for (const o of relevantOrders) {
       if (o.side !== "SELL") continue;
       const idx = matchLevel(levels, o.shares, o.fillPrice);
       if (idx === -1) continue;
