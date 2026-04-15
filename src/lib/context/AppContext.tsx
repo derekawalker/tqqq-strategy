@@ -6,6 +6,7 @@ import type { Transaction, AccountBalance } from "@/app/api/schwab/data/route";
 export type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition, Transaction, AccountBalance };
 
 export interface AccountSettings {
+  initialCash: number | null;
   startingCash: number | null;
   startingDate: Date | null;
   initialLotPrice: number | null;
@@ -26,6 +27,7 @@ export interface Account {
 }
 
 const DEFAULT_SETTINGS: AccountSettings = {
+  initialCash: null,
   startingCash: null,
   startingDate: null,
   initialLotPrice: null,
@@ -155,7 +157,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const remote = (data.value as Account[]).map(deserializeAccount);
         // Only use Supabase data if it has meaningful settings; otherwise keep localStorage
         const hasRealSettings = remote.some((a) =>
-          a.settings.startingCash != null || a.settings.startingDate != null || a.settings.initialLotPrice != null
+          a.settings.initialCash != null || a.settings.startingCash != null || a.settings.startingDate != null || a.settings.initialLotPrice != null
         );
         if (!hasRealSettings) return;
         loadingFromSupabase.current = true;

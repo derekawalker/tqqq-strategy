@@ -38,6 +38,7 @@ export const DEMO_ACCOUNT_CONFIG: Account[] = [
     accountName: "Main Account",
     color: "blue",
     settings: {
+      initialCash: 200000,
       startingCash: 200000,
       startingDate: new Date("2026-01-01"),
       initialLotPrice: 50.0,
@@ -55,6 +56,7 @@ export const DEMO_ACCOUNT_CONFIG: Account[] = [
     accountName: "IRA",
     color: "teal",
     settings: {
+      initialCash: 100000,
       startingCash: 100000,
       startingDate: new Date("2026-02-01"),
       initialLotPrice: 50.0,
@@ -72,6 +74,7 @@ export const DEMO_ACCOUNT_CONFIG: Account[] = [
     accountName: "Joint",
     color: "violet",
     settings: {
+      initialCash: 300000,
       startingCash: 300000,
       startingDate: new Date("2026-01-01"),
       initialLotPrice: 50.0,

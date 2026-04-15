@@ -27,16 +27,16 @@ export function GainLossCard() {
   const mask = createMask(privacyMode);
 
   const { totalGain, totalGainPct, annualROI } = useMemo(() => {
-    const startingCash = activeAccount?.settings.startingCash ?? null;
+    const initialCash = activeAccount?.settings.initialCash ?? null;
     const startingDate = activeAccount?.settings.startingDate ?? null;
     const currentValue = balance?.totalValue ?? null;
 
-    if (startingCash == null || currentValue == null) {
+    if (initialCash == null || currentValue == null) {
       return { totalGain: null, totalGainPct: null, annualROI: null };
     }
 
-    const totalGain = currentValue - startingCash;
-    const totalGainPct = startingCash > 0 ? (totalGain / startingCash) * 100 : null;
+    const totalGain = currentValue - initialCash;
+    const totalGainPct = initialCash > 0 ? (totalGain / initialCash) * 100 : null;
 
     let annualROI: number | null = null;
     if (totalGainPct != null && startingDate) {
