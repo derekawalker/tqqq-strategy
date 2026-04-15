@@ -24,7 +24,7 @@ import {
   IconRefreshDot,
 } from "@tabler/icons-react";
 import { useApp } from "@/lib/context/AppContext";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 interface AppHeaderProps {
   onRefresh: () => void;
@@ -35,6 +35,8 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
   const { accounts, activeAccount, setActiveAccount, privacyMode, togglePrivacy, quote, schwabConnected, checkSchwabAuth, tickQuoteRefresh } = useApp();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const router = useRouter();
+  const pathname = usePathname();
+  const isAllAccounts = pathname === "/accounts";
 
   const priceColor = quote.changePercent >= 0 ? "teal" : "red";
   const priceSign = quote.changePercent >= 0 ? "+" : "";
@@ -123,7 +125,7 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
     </Group>
   );
 
-  const headerBg = activeAccount
+  const headerBg = !isAllAccounts && activeAccount
     ? `color-mix(in srgb, var(--mantine-color-${activeAccount.color}-7) 12%, var(--mantine-color-dark-8))`
     : undefined;
 
@@ -137,15 +139,19 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
             size="xs"
             radius="sm"
             comboboxProps={{ radius: "sm" }}
-            value={activeAccount?.accountNumber ?? null}
+            value={isAllAccounts ? "all" : (activeAccount?.accountNumber ?? null)}
             onChange={(val) => {
+              if (val === "all") { router.push("/accounts"); return; }
               const account = accounts.find((a) => a.accountNumber === val);
               if (account) setActiveAccount(account);
             }}
-            data={accounts.map((a) => ({
-              value: a.accountNumber,
-              label: privacyMode ? `•••${a.accountNumber.slice(-3)}` : a.accountName,
-            }))}
+            data={[
+              { value: "all", label: "All Accounts" },
+              ...accounts.map((a) => ({
+                value: a.accountNumber,
+                label: privacyMode ? `•••${a.accountNumber.slice(-3)}` : a.accountName,
+              })),
+            ]}
             styles={{
               input: {
                 backgroundColor: "transparent",
@@ -178,14 +184,23 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
 
       {/* Right: Accounts + action buttons */}
       <Group gap="xs" wrap="nowrap">
+        <Button
+          size="xs"
+          color="gray.5"
+          radius="md"
+          variant={isAllAccounts ? "light" : "subtle"}
+          onClick={() => router.push("/accounts")}
+        >
+          All Accounts
+        </Button>
         {accounts.map((account) => (
           <Button
             key={account.accountNumber}
             size="xs"
             color={`${account.color}.7`}
             radius={"md"}
-            variant={activeAccount?.accountNumber === account.accountNumber ? "light" : "subtle"}
-            onClick={() => setActiveAccount(account)}
+            variant={!isAllAccounts && activeAccount?.accountNumber === account.accountNumber ? "light" : "subtle"}
+            onClick={() => { setActiveAccount(account); if (isAllAccounts) router.push("/"); }}
           >
             {privacyMode
               ? `•••${account.accountNumber.slice(-3)}`

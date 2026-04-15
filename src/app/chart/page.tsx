@@ -184,7 +184,7 @@ export default function ChartPage() {
               type="monotone"
               dataKey="close"
               stroke={lineColor}
-              strokeWidth={3}
+              strokeWidth={1.5}
               dot={false}
               isAnimationActive={false}
             />

@@ -33,6 +33,7 @@ import {
   IconChartCandle,
   IconCoins,
   IconChartLine,
+  IconColumns3,
   IconDotsCircleHorizontal,
 } from "@tabler/icons-react";
 

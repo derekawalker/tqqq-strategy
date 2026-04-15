@@ -21,6 +21,8 @@ function AppShellInner({ children }: { children: ReactNode }) {
   const pendingBuyCost = usePendingBuyCost();
   const cspCollateral = useCSPCollateral();
   const isMobile = useMediaQuery("(max-width: 768px)", false);
+  const pathname = usePathname();
+  const isAccountsPage = pathname === "/accounts";
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
@@ -129,14 +131,14 @@ function AppShellInner({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, [refreshTick, quoteTick, setQuote]);
 
-  const mainBg = activeAccount
+  const mainBg = !isAccountsPage && activeAccount
     ? `linear-gradient(135deg, color-mix(in srgb, var(--mantine-color-${activeAccount.color}-7) 10%, var(--mantine-color-dark-9)) 0%, var(--mantine-color-dark-8) 100%)`
     : undefined;
 
   return (
     <AppShell
       header={{ height: { base: 88, sm: 56 } }}
-      navbar={{ width: NAVBAR_WIDTH, breakpoint: "sm", collapsed: { mobile: true } }}
+      navbar={{ width: NAVBAR_WIDTH, breakpoint: "sm", collapsed: { mobile: true, desktop: isAccountsPage } }}
       padding="md"
     >
       <AppShell.Header>
@@ -151,7 +153,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
       </AppShell.Navbar>
 
       <AppShell.Main style={{ background: mainBg, minHeight: "100vh", paddingBottom: isMobile ? 70 : undefined }}>
-        <Box maw={1024} mx="auto">
+        <Box maw={isAccountsPage ? "90%" : 1024} w="100%" mx="auto">
           <PageAlertBanner />
           {children}
         </Box>

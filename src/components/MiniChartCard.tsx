@@ -114,7 +114,7 @@ export function MiniChartCard() {
             type="monotone"
             dataKey="close"
             stroke="url(#miniLineGrad)"
-            strokeWidth={2.5}
+            strokeWidth={1.5}
             fill="url(#miniAreaGrad)"
             dot={false}
             isAnimationActive={false}

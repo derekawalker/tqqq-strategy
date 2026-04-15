@@ -90,6 +90,11 @@ interface AppContextValue {
   transactions: Transaction[];
   tqqqShares: number;
   tqqqAvgPrice: number;
+  allTqqqShares: Record<string, number>;
+  allTqqqAvgPrice: Record<string, number>;
+  allFilledOrders: FilledOrder[];
+  allWorkingOrders: WorkingOrder[];
+  allOptionPositions: OptionPosition[];
   snapshotLoading: boolean;
   balances: AccountBalance[];
   balancesLoading: boolean;
@@ -396,6 +401,11 @@ const togglePrivacy = () => setPrivacyMode((p) => !p);
         transactions,
         tqqqShares,
         tqqqAvgPrice,
+        allTqqqShares,
+        allTqqqAvgPrice,
+        allFilledOrders,
+        allWorkingOrders,
+        allOptionPositions,
         snapshotLoading,
         balances: allBalances,
         balancesLoading: snapshotLoading,
