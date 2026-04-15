@@ -95,14 +95,7 @@ export default function LevelsPage() {
       <MiniChartCard />
 
       <Table>
-        <Table.Thead
-          style={{
-            position: "sticky",
-            top: isMobile ? 88 : 56,
-            zIndex: 1,
-            background: "var(--mantine-color-dark-7)",
-          }}
-        >
+        <Table.Thead>
           <Table.Tr style={{ verticalAlign: "top" }}>
             <Table.Th w={40} />
             <Table.Th>
