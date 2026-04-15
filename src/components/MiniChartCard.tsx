@@ -30,26 +30,27 @@ function CenterLabel({ viewBox, value, color, bg }: {
   );
 }
 
-export function MiniChartCard() {
+export function MiniChartCard({ bottomFlush = false, height = 140 }: { bottomFlush?: boolean; height?: number }) {
   const { quote } = useApp();
   const router = useRouter();
   const levelsSummary = useLevels();
   const color = useAccountColor("dark");
   const { candles, loading } = useChartCandles("1d");
   const bg = useCardBg(color);
+  const radius = bottomFlush ? `${CARD_RADIUS} ${CARD_RADIUS} 0 0` : CARD_RADIUS;
 
   if (loading) {
     return (
-      <Paper p={0} radius={CARD_RADIUS} style={{ overflow: "hidden", background: bg, height: "100%" }}>
-        <Skeleton height={140} radius="md" />
+      <Paper p={0} radius={0} style={{ overflow: "hidden", background: bg, height: "100%", borderRadius: radius }}>
+        <Skeleton height={height} radius="md" />
       </Paper>
     );
   }
 
   if (candles.length === 0) {
     return (
-      <Paper p={0} radius={CARD_RADIUS} onClick={() => router.push("/chart")} style={{ overflow: "hidden", background: bg, cursor: "pointer", height: "100%" }}>
-        <Center h={140}>
+      <Paper p={0} radius={0} onClick={() => router.push("/chart")} style={{ overflow: "hidden", background: bg, cursor: "pointer", height: "100%", borderRadius: radius }}>
+        <Center h={height}>
           <Text size="sm" c="dimmed">Markets closed</Text>
         </Center>
       </Paper>
@@ -76,11 +77,11 @@ export function MiniChartCard() {
   return (
     <Paper
       p={0}
-      radius={CARD_RADIUS}
+      radius={0}
       onClick={() => router.push("/chart")}
-      style={{ overflow: "hidden", background: bg, cursor: "pointer", height: "100%" }}
+      style={{ overflow: "hidden", background: bg, cursor: "pointer", height: "100%", borderRadius: radius }}
     >
-      <ResponsiveContainer width="100%" height={140}>
+      <ResponsiveContainer width="100%" height={height}>
         <AreaChart data={candles} margin={{ top: 8, right: 0, left: 0, bottom: 0 }}>
           <Customized component={() => (
             <defs>

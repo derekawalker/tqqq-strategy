@@ -9,6 +9,7 @@ import { useLevels } from "@/lib/hooks/useLevels";
 import { fmt, createMask } from "@/lib/format";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { MiniChartCard } from "@/components/MiniChartCard";
+import { CARD_RADIUS } from "@/lib/cardStyles";
 
 function ProgressRow({
   progress,
@@ -87,12 +88,11 @@ export default function LevelsPage() {
   const mask = createMask(privacyMode);
 
   return (
-    <Stack gap="md">
+    <>
+    <Stack gap="md" pb={isMobile ? 230 : 240}>
       <Text fw={700} size="xl">
         Levels
       </Text>
-
-      <MiniChartCard />
 
       <Table>
         <Table.Thead>
@@ -228,5 +228,20 @@ export default function LevelsPage() {
         </Table.Tbody>
       </Table>
     </Stack>
+    <div
+      style={{
+        position: "sticky",
+        bottom: isMobile ? 56 : 0,
+        zIndex: 10,
+        borderTop: "1px solid var(--mantine-color-dark-4)",
+        borderLeft: "1px solid var(--mantine-color-dark-4)",
+        borderRight: "1px solid var(--mantine-color-dark-4)",
+        borderRadius: `${CARD_RADIUS} ${CARD_RADIUS} 0 0`,
+        overflow: "hidden",
+      }}
+    >
+      <MiniChartCard bottomFlush height={isMobile ? 160 : 220} />
+    </div>
+    </>
   );
 }
