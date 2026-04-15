@@ -108,10 +108,13 @@ const ACTIVE_ACCOUNT_KEY = "tqqq-active-account";
 const DEFAULT_ACCOUNTS: Account[] = [];
 
 export function deserializeAccount(a: Account): Account {
+  const raw = a.settings as unknown as Record<string, unknown>;
   return {
     ...a,
     settings: {
       ...a.settings,
+      // Migrate old field name → new field name
+      levelStartingCash: a.settings.levelStartingCash ?? (raw.startingCash as number | null) ?? null,
       startingDate: a.settings.startingDate ? new Date(a.settings.startingDate) : null,
       levelResetDate: a.settings.levelResetDate ? new Date(a.settings.levelResetDate) : null,
     },
