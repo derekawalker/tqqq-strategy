@@ -10,7 +10,6 @@ import {
   Skeleton,
   ScrollArea,
   Switch,
-  Divider,
 } from "@mantine/core";
 import { Outfit } from "next/font/google";
 import { useApp } from "@/lib/context/AppContext";
@@ -478,11 +477,13 @@ function AccountColumn({
   mask,
   enabled,
   onToggle,
+  gridColumn,
 }: {
   data: AccountData;
   mask: (s: string) => string;
   enabled: boolean;
   onToggle: () => void;
+  gridColumn: number;
 }) {
   const {
     account,
@@ -501,11 +502,18 @@ function AccountColumn({
   const color = account.color;
 
   return (
-    <Stack gap="md" style={{ width: COLUMN_WIDTH, flexShrink: 0 }}>
-      {/* Column header — always full opacity so toggle remains usable */}
+    <div
+      style={{
+        gridColumn,
+        gridRow: "1 / 6",
+        display: "grid",
+        gridTemplateRows: "subgrid",
+        width: COLUMN_WIDTH,
+      }}
+    >
+      {/* Row 1: Header — always full opacity so toggle remains usable */}
       <Group gap={8} justify="center" wrap="nowrap">
         <Switch checked={enabled} onChange={onToggle} color={color} size="sm" />
-
         <Text
           fw={700}
           size="sm"
@@ -515,47 +523,44 @@ function AccountColumn({
         </Text>
       </Group>
 
-      {/* Cards — grayed out when disabled */}
+      {/* Rows 2–5: Cards — grayed out when disabled */}
       <Box
         style={{
+          gridRow: "span 4",
+          display: "grid",
+          gridTemplateRows: "subgrid",
           opacity: enabled ? 1 : 0.35,
           filter: enabled ? undefined : "grayscale(1)",
           transition: "opacity 0.2s, filter 0.2s",
           pointerEvents: enabled ? undefined : "none",
         }}
       >
-        <Stack gap="md">
-          <AccountValueWidget
-            balance={balance}
-            pendingBuyCost={pendingBuyCost}
-            cspCollateral={cspCollateral}
-            color={color}
-            mask={mask}
-          />
-          <Group gap="xs" wrap="nowrap">
-            <MiniStatCard label="Today" value={tradesToday} color={color} />
-            <MiniStatCard label="Options" value={openOptions} color={color} />
-            <MiniStatCard
-              label="Shares"
-              value={tqqqShares.toLocaleString()}
-              color={color}
-            />
-          </Group>
-          <GainLossWidget
-            gain={gain}
-            gainPct={gainPct}
-            annualROI={annualROI}
-            color={color}
-            mask={mask}
-          />
-          <LevelWidget
-            levels={levels}
-            currentLevel={currentLevel}
+        <AccountValueWidget
+          balance={balance}
+          pendingBuyCost={pendingBuyCost}
+          cspCollateral={cspCollateral}
+          color={color}
+          mask={mask}
+        />
+        <Group gap="xs" wrap="nowrap" align="stretch">
+          <MiniStatCard label="Today" value={tradesToday} color={color} />
+          <MiniStatCard label="Options" value={openOptions} color={color} />
+          <MiniStatCard
+            label="Shares"
+            value={tqqqShares.toLocaleString()}
             color={color}
           />
-        </Stack>
+        </Group>
+        <GainLossWidget
+          gain={gain}
+          gainPct={gainPct}
+          annualROI={annualROI}
+          color={color}
+          mask={mask}
+        />
+        <LevelWidget levels={levels} currentLevel={currentLevel} color={color} />
       </Box>
-    </Stack>
+    </div>
   );
 }
 
@@ -568,9 +573,11 @@ function CombinedColumn({
   cspCollateral,
   gain,
   gainPct,
+  annualROI,
   avgLevel,
   anyLevels,
   mask,
+  gridColumn,
 }: {
   accounts: AccountData[];
   balances: AccountBalance[];
@@ -581,9 +588,11 @@ function CombinedColumn({
   cspCollateral: number;
   gain: number | null;
   gainPct: number | null;
+  annualROI: number | null;
   avgLevel: number | null;
   anyLevels: Level[];
   mask: (s: string) => string;
+  gridColumn: number;
 }) {
   const combinedBalance: AccountBalance | null =
     balances.length > 0
@@ -607,7 +616,17 @@ function CombinedColumn({
       : null;
 
   return (
-    <Stack gap="md" style={{ width: COLUMN_WIDTH, flexShrink: 0 }}>
+    <div
+      style={{
+        gridColumn,
+        gridRow: "1 / 6",
+        display: "grid",
+        gridTemplateRows: "subgrid",
+        width: COLUMN_WIDTH,
+        boxShadow: "inset 2px 0 0 rgba(120,120,120,0.15)",
+        paddingLeft: 8,
+      }}
+    >
       <Group gap={8} justify="center">
         <Text fw={700} size="sm" c="dimmed">
           Combined
@@ -622,7 +641,7 @@ function CombinedColumn({
         mask={mask}
       />
 
-      <Group gap="xs" wrap="nowrap">
+      <Group gap="xs" wrap="nowrap" align="stretch">
         <MiniStatCard label="Today" value={tradesToday} color="gray" />
         <MiniStatCard label="Options" value={openOptions} color="gray" />
         <MiniStatCard
@@ -635,12 +654,12 @@ function CombinedColumn({
       <GainLossWidget
         gain={gain}
         gainPct={gainPct}
-        annualROI={null}
+        annualROI={annualROI}
         color="gray"
         mask={mask}
       />
       <LevelWidget levels={anyLevels} currentLevel={avgLevel} color="gray" />
-    </Stack>
+    </div>
   );
 }
 
@@ -668,6 +687,8 @@ function AccountsPageInner() {
       return new Set();
     }
   });
+  const [now] = useState(() => Date.now());
+
   const toggleAccount = (accountNumber: string) =>
     setDisabledAccounts((prev) => {
       const next = new Set(prev);
@@ -744,7 +765,7 @@ function AccountsPageInner() {
         const gainPct =
           gain != null && initialCash ? (gain / initialCash) * 100 : null;
         const daysIn = startingDate
-          ? Math.max(1, (Date.now() - startingDate.getTime()) / 86400000)
+          ? Math.max(1, (now - startingDate.getTime()) / 86400000)
           : null;
         const annualROI =
           gainPct != null && daysIn != null ? (gainPct / daysIn) * 365 : null;
@@ -772,6 +793,7 @@ function AccountsPageInner() {
       allOptionPositions,
       allTqqqShares,
       today,
+      now,
     ],
   );
 
@@ -810,6 +832,22 @@ function AccountsPageInner() {
           )
         : null;
     const anyLevels = enabled.find((d) => d.levels.length > 0)?.levels ?? [];
+
+    const earliestDate = enabled.reduce<Date | null>((earliest, d) => {
+      const sd = d.account.settings.startingDate;
+      if (!sd) return earliest;
+      return earliest == null || sd < earliest ? sd : earliest;
+    }, null);
+    const gainPct =
+      totalGain != null && totalInitialCash > 0
+        ? (totalGain / totalInitialCash) * 100
+        : null;
+    const daysIn = earliestDate
+      ? Math.max(1, (now - earliestDate.getTime()) / 86400000)
+      : null;
+    const annualROI =
+      gainPct != null && daysIn != null ? (gainPct / daysIn) * 365 : null;
+
     return {
       tqqqShares: enabled.reduce((s, d) => s + d.tqqqShares, 0),
       openOptions: enabled.reduce((s, d) => s + d.openOptions, 0),
@@ -821,10 +859,11 @@ function AccountsPageInner() {
         totalGain != null && totalInitialCash > 0
           ? (totalGain / totalInitialCash) * 100
           : null,
+      annualROI,
       avgLevel,
       anyLevels,
     };
-  }, [accountData, disabledAccounts]);
+  }, [accountData, disabledAccounts, now]);
 
   if (snapshotLoading) {
     return (
@@ -857,27 +896,28 @@ function AccountsPageInner() {
         All Accounts
       </Text>
       <ScrollArea type="auto" offsetScrollbars>
-        <Group
-          gap="md"
-          align="flex-start"
-          wrap="nowrap"
-          pb={8}
-          style={{ width: "fit-content", margin: "0 auto" }}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: `repeat(${accountData.length + 1}, ${COLUMN_WIDTH}px)`,
+            gridTemplateRows: "auto auto auto auto auto",
+            columnGap: 16,
+            rowGap: 16,
+            width: "fit-content",
+            margin: "0 auto",
+            paddingBottom: 8,
+          }}
         >
-          {accountData.map((data) => (
+          {accountData.map((data, i) => (
             <AccountColumn
               key={data.account.accountNumber}
               data={data}
               mask={mask}
               enabled={!disabledAccounts.has(data.account.accountNumber)}
               onToggle={() => toggleAccount(data.account.accountNumber)}
+              gridColumn={i + 1}
             />
           ))}
-          <Divider
-            orientation="vertical"
-            color="rgba(72,72,72,0.1)"
-            size="xl"
-          />
           <CombinedColumn
             accounts={accountData}
             balances={combinedBalances}
@@ -888,11 +928,13 @@ function AccountsPageInner() {
             cspCollateral={combined.cspCollateral}
             gain={combined.gain}
             gainPct={combined.gainPct}
+            annualROI={combined.annualROI}
             avgLevel={combined.avgLevel}
             anyLevels={combined.anyLevels}
             mask={mask}
+            gridColumn={accountData.length + 1}
           />
-        </Group>
+        </div>
       </ScrollArea>
     </Stack>
   );
