@@ -39,7 +39,7 @@ export const DEMO_ACCOUNT_CONFIG: Account[] = [
     color: "blue",
     settings: {
       initialCash: 200000,
-      startingCash: 200000,
+      levelStartingCash: 200000,
       startingDate: new Date("2026-01-01"),
       initialLotPrice: 50.0,
       sellPercentage: 1.64,
@@ -57,7 +57,7 @@ export const DEMO_ACCOUNT_CONFIG: Account[] = [
     color: "teal",
     settings: {
       initialCash: 100000,
-      startingCash: 100000,
+      levelStartingCash: 100000,
       startingDate: new Date("2026-02-01"),
       initialLotPrice: 50.0,
       sellPercentage: 1.64,
@@ -75,7 +75,7 @@ export const DEMO_ACCOUNT_CONFIG: Account[] = [
     color: "violet",
     settings: {
       initialCash: 300000,
-      startingCash: 300000,
+      levelStartingCash: 300000,
       startingDate: new Date("2026-01-01"),
       initialLotPrice: 50.0,
       sellPercentage: 1.64,

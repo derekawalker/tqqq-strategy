@@ -139,15 +139,15 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
           />
           <SimpleGrid cols={2} spacing="sm">
             <NumberInput
-              label="Starting Cash"
+              label="Level Starting Cash"
               placeholder="0.00"
               prefix="$"
               decimalScale={2}
               thousandSeparator=","
-              value={s.startingCash ?? ""}
+              value={s.levelStartingCash ?? ""}
               onChange={(val) =>
                 updateAccountSettings(activeAccount.accountNumber, {
-                  startingCash: val === "" ? null : Number(val),
+                  levelStartingCash: val === "" ? null : Number(val),
                 })
               }
             />

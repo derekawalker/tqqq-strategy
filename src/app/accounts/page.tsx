@@ -64,7 +64,7 @@ function buildLevelsAndCurrentLevel(
 ): { levels: Level[]; currentLevel: number | null } {
   const s = account.settings;
   if (
-    !s.startingCash ||
+    !s.levelStartingCash ||
     !s.initialLotPrice ||
     !s.sellPercentage ||
     !s.reductionFactor
@@ -72,7 +72,7 @@ function buildLevelsAndCurrentLevel(
     return { levels: [], currentLevel: null };
   }
   const levels = computeLevels(
-    s.startingCash,
+    s.levelStartingCash,
     s.initialLotPrice,
     s.sellPercentage,
     s.reductionFactor,
@@ -860,9 +860,9 @@ function AccountsPageInner() {
         <Group
           gap="md"
           align="flex-start"
-          justify="center"
           wrap="nowrap"
           pb={8}
+          style={{ width: "fit-content", margin: "0 auto" }}
         >
           {accountData.map((data) => (
             <AccountColumn

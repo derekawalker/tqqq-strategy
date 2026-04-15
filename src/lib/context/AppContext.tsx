@@ -7,7 +7,7 @@ export type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, 
 
 export interface AccountSettings {
   initialCash: number | null;
-  startingCash: number | null;
+  levelStartingCash: number | null;
   startingDate: Date | null;
   initialLotPrice: number | null;
   sellPercentage: number | null;
@@ -28,7 +28,7 @@ export interface Account {
 
 const DEFAULT_SETTINGS: AccountSettings = {
   initialCash: null,
-  startingCash: null,
+  levelStartingCash: null,
   startingDate: null,
   initialLotPrice: null,
   sellPercentage: null,
@@ -157,7 +157,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const remote = (data.value as Account[]).map(deserializeAccount);
         // Only use Supabase data if it has meaningful settings; otherwise keep localStorage
         const hasRealSettings = remote.some((a) =>
-          a.settings.initialCash != null || a.settings.startingCash != null || a.settings.startingDate != null || a.settings.initialLotPrice != null
+          a.settings.initialCash != null || a.settings.levelStartingCash != null || a.settings.startingDate != null || a.settings.initialLotPrice != null
         );
         if (!hasRealSettings) return;
         loadingFromSupabase.current = true;

@@ -13,8 +13,8 @@ export function useLevels(): LevelsSummary | null {
   const s = activeAccount?.settings;
 
   const levels = useMemo(() => {
-    if (!s?.startingCash || !s?.initialLotPrice || !s?.sellPercentage || !s?.reductionFactor) return null;
-    return computeLevels(s.startingCash, s.initialLotPrice, s.sellPercentage, s.reductionFactor);
+    if (!s?.levelStartingCash || !s?.initialLotPrice || !s?.sellPercentage || !s?.reductionFactor) return null;
+    return computeLevels(s.levelStartingCash, s.initialLotPrice, s.sellPercentage, s.reductionFactor);
   }, [s]);
 
   return useMemo(() => {

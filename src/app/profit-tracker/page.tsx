@@ -387,16 +387,16 @@ export default function ProfitPage() {
   const mask = createMask(privacyMode);
 
   const rows = useMemo<ProfitRow[]>(() => {
-    const { startingCash, initialLotPrice, sellPercentage, reductionFactor } = activeAccount?.settings ?? {};
+    const { levelStartingCash, initialLotPrice, sellPercentage, reductionFactor } = activeAccount?.settings ?? {};
     const sells = filledOrders.filter((o) => o.side === "SELL");
 
-    if (!startingCash || !initialLotPrice || !sellPercentage || !reductionFactor) {
+    if (!levelStartingCash || !initialLotPrice || !sellPercentage || !reductionFactor) {
       return sells
         .map((o) => ({ orderId: o.orderId, date: new Date(o.time).toLocaleDateString("en-CA"), time: o.time, shares: o.shares, buyPrice: null, sellPrice: o.fillPrice, fees: o.fees, profit: null }))
         .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
     }
 
-    const levels = computeLevels(startingCash, initialLotPrice, sellPercentage, reductionFactor);
+    const levels = computeLevels(levelStartingCash, initialLotPrice, sellPercentage, reductionFactor);
 
     return sells
       .map((o) => {

@@ -18,7 +18,7 @@ export function matchLevel(levels: Level[], shares: number, price: number): numb
 }
 
 export function computeLevels(
-  startingCash: number,
+  levelStartingCash: number,
   initialLotPrice: number,
   sellPercentage: number, // e.g. 5 for 5%
   reductionFactor: number
@@ -28,7 +28,7 @@ export function computeLevels(
 
   return Array.from({ length: 88 }, (_, n) => {
     const buyPrice = initialLotPrice * (1 - 0.01 * n);
-    const allocated = startingCash * K * Math.pow(R, n);
+    const allocated = levelStartingCash * K * Math.pow(R, n);
     const shares = Math.round(allocated / buyPrice);
     const cost = shares * buyPrice;
     const sellPrice = buyPrice * (1 + sellPercentage / 100);

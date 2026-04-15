@@ -31,7 +31,7 @@ describe("computeLevels", () => {
     levels.forEach((l, i) => expect(l.n).toBe(i));
   });
 
-  it("allocated cash sums to approximately startingCash", () => {
+  it("allocated cash sums to approximately levelStartingCash", () => {
     const total = levels.reduce((sum, l) => sum + l.cost, 0);
     expect(total).toBeGreaterThan(190000);
     expect(total).toBeLessThan(210000);

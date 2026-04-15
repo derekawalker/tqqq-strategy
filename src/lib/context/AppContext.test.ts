@@ -9,7 +9,7 @@ function makeAccount(overrides: Partial<Account["settings"]> = {}): Account {
     color: "blue",
     settings: {
       initialCash: 100000,
-      startingCash: 100000,
+      levelStartingCash: 100000,
       startingDate: null,
       initialLotPrice: 70,
       sellPercentage: 5,
@@ -53,10 +53,10 @@ describe("deserializeAccount", () => {
   });
 
   it("preserves all other settings unchanged", () => {
-    const account = makeAccount({ initialCash: 250000, startingCash: 250000, sellPercentage: 1.64 });
+    const account = makeAccount({ initialCash: 250000, levelStartingCash: 250000, sellPercentage: 1.64 });
     const result = deserializeAccount(account);
     expect(result.settings.initialCash).toBe(250000);
-    expect(result.settings.startingCash).toBe(250000);
+    expect(result.settings.levelStartingCash).toBe(250000);
     expect(result.settings.sellPercentage).toBe(1.64);
     expect(result.accountNumber).toBe("123");
     expect(result.color).toBe("blue");
