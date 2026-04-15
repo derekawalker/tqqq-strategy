@@ -189,12 +189,6 @@ export default function ChartPage() {
               isAnimationActive={false}
             />
 
-            {/* Current price */}
-            {currentPrice && (
-              <ReferenceLine y={currentPrice} stroke={currentColor} strokeDasharray="5 3" strokeWidth={1.5}
-                label={{ value: `$${currentPrice.toFixed(2)}`, position: "right", fill: currentColor, fontSize: 11 }} />
-            )}
-
             {/* Current level buy price */}
             {currentSellPrice && (
               <ReferenceLine y={currentSellPrice} stroke={currentLevelColor} strokeDasharray="5 3" strokeWidth={1.5}
@@ -205,6 +199,12 @@ export default function ChartPage() {
             {nextBuyPrice && (
               <ReferenceLine y={nextBuyPrice} stroke={nextLevelColor} strokeDasharray="5 3" strokeWidth={1.5}
                 label={{ value: `$${nextBuyPrice.toFixed(2)}`, position: "right", fill: nextLevelColor, fontSize: 11 }} />
+            )}
+
+            {/* Current price */}
+            {currentPrice && (
+              <ReferenceLine y={currentPrice} stroke={currentColor} strokeDasharray="5 3" strokeWidth={1.5}
+                label={{ value: `$${currentPrice.toFixed(2)}`, position: "right", fill: currentColor, fontSize: 11 }} />
             )}
 
             {/* Week high */}

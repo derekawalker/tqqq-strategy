@@ -121,10 +121,6 @@ export function MiniChartCard({ bottomFlush = false, height = 140 }: { bottomFlu
             isAnimationActive={false}
           />
 
-          {currentPrice && (
-            <ReferenceLine y={currentPrice} stroke="rgba(255,255,255,0.5)" strokeWidth={1}
-              label={<CenterLabel value={`$${currentPrice.toFixed(2)}`} color="#fff" bg="rgba(80,80,80,0.9)" />} />
-          )}
           {currentSellPrice && (
             <ReferenceLine y={currentSellPrice} stroke="var(--mantine-color-lime-6)" strokeDasharray="4 3" strokeWidth={1}
               label={<CenterLabel value={`$${currentSellPrice.toFixed(2)}`} color="#fff" bg="rgba(130,180,50,0.85)" />} />
@@ -132,6 +128,10 @@ export function MiniChartCard({ bottomFlush = false, height = 140 }: { bottomFlu
           {nextBuyPrice && (
             <ReferenceLine y={nextBuyPrice} stroke="var(--mantine-color-indigo-5)" strokeDasharray="4 3" strokeWidth={1}
               label={<CenterLabel value={`$${nextBuyPrice.toFixed(2)}`} color="#fff" bg="rgba(80,80,200,0.85)" />} />
+          )}
+          {currentPrice && (
+            <ReferenceLine y={currentPrice} stroke="rgba(255,255,255,0.5)" strokeWidth={1}
+              label={<CenterLabel value={`$${currentPrice.toFixed(2)}`} color="#fff" bg="rgba(80,80,80,0.9)" />} />
           )}
         </AreaChart>
       </ResponsiveContainer>
