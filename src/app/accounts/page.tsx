@@ -558,7 +558,11 @@ function AccountColumn({
           color={color}
           mask={mask}
         />
-        <LevelWidget levels={levels} currentLevel={currentLevel} color={color} />
+        <LevelWidget
+          levels={levels}
+          currentLevel={currentLevel}
+          color={color}
+        />
       </Box>
     </div>
   );
@@ -624,7 +628,7 @@ function CombinedColumn({
         gridTemplateRows: "subgrid",
         width: COLUMN_WIDTH,
         boxShadow: "inset 2px 0 0 rgba(120,120,120,0.15)",
-        paddingLeft: 8,
+        paddingLeft: 16,
       }}
     >
       <Group gap={8} justify="center">
