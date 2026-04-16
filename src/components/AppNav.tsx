@@ -52,7 +52,7 @@ const TAB_PAGES = ALL_PAGES.slice(0, 5);
 const MORE_PAGES = ALL_PAGES.slice(5);
 
 const PAGE_WARN: Record<string, (a: Alerts) => boolean> = {
-  "/":               (a) => a.idleCash != null && a.idleCash > 1000,
+  "/":               (a) => a.idleCash != null && a.idleCash > 3000,
   "/levels":         (a) => a.levelMatch === false,
   "/working-orders": (a) => a.workingOrders === false || (a.duplicateOrders ?? 0) > 0,
   "/options":        (a) => (a.expiringOptions ?? 0) > 0 || (a.itmOptions ?? 0) > 0,

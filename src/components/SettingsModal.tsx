@@ -98,6 +98,7 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
               placeholder="0.00"
               prefix="$"
               decimalScale={2}
+              step={0.01}
               thousandSeparator=","
               value={s.initialCash ?? ""}
               onChange={(val) =>
@@ -143,6 +144,7 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
               placeholder="0.00"
               prefix="$"
               decimalScale={2}
+              step={0.01}
               thousandSeparator=","
               value={s.levelStartingCash ?? ""}
               onChange={(val) =>
@@ -156,6 +158,7 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
               placeholder="0.00"
               prefix="$"
               decimalScale={2}
+              step={0.01}
               thousandSeparator=","
               value={s.initialLotPrice ?? ""}
               onChange={(val) =>
@@ -169,6 +172,7 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
               placeholder="0.00"
               suffix="%"
               decimalScale={2}
+              step={0.01}
               value={s.sellPercentage ?? ""}
               onChange={(val) =>
                 updateAccountSettings(activeAccount.accountNumber, {

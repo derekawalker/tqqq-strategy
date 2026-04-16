@@ -105,7 +105,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
     }
 
     const idleCash = balance.cash - (cspCollateral ?? 0) - (pendingBuyCost ?? 0);
-    setAlerts((prev) => ({ ...prev, idleCash: idleCash > 1000 ? idleCash : null }));
+    setAlerts((prev) => ({ ...prev, idleCash: idleCash > 3000 ? idleCash : null }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [balances, activeAccount?.accountNumber, cspCollateral, pendingBuyCost]);
 
