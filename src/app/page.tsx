@@ -28,7 +28,7 @@ export default function Home() {
       <div className="dash-stats">
         <StatCard color={color} label="Trades Today" value={tradesToday} href="/filled-orders" />
         <StatCard color={color} label="Open Options" value={optionPositions.length} href="/options" />
-        <StatCard color={color} label="TQQQ Shares" value={tqqqShares.toLocaleString()} />
+        <StatCard color={color} label="TQQQ Shares" value={tqqqShares.toLocaleString()} href="/levels" />
       </div>
       <div className="dash-chart"><MiniChartCard /></div>
       <div className="dash-level"><CurrentLevelCard /></div>
