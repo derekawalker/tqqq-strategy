@@ -18,6 +18,7 @@ import {
   Paper,
   Divider,
   Tooltip,
+  Button,
 } from "@mantine/core";
 import { CARD_RADIUS } from "@/lib/cardStyles";
 import { useMediaQuery } from "@mantine/hooks";
@@ -73,7 +74,7 @@ function DayChangeBanner({
     return (
       <Paper
         p="md"
-        radius="md"
+        radius={CARD_RADIUS}
         style={{
           background:
             "linear-gradient(135deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)",
@@ -178,7 +179,7 @@ function DayChangeBanner({
   return (
     <Paper
       p="md"
-      radius="md"
+      radius={CARD_RADIUS}
       style={{
         background: bg,
         boxShadow: "inset 2px 2px 6px rgba(0,0,0,0.4)",
@@ -1153,6 +1154,13 @@ function CallsTable({
           />
         </Group>
       </Group>
+      <Group justify="flex-end">
+        <Button.Group>
+          <Button size="compact-xs" variant="default" onClick={() => setExpandedStrikes(new Set())}>Collapse all</Button>
+          <Button size="compact-xs" variant="default" onClick={() => setExpandedStrikes(new Set(rows.filter((r) => r.position && daysUntil(r.position.expiry) <= 5).map((r) => r.strike)))}>Expiring soon</Button>
+          <Button size="compact-xs" variant="default" onClick={() => setExpandedStrikes(new Set(rows.filter((r) => r.position).map((r) => r.strike)))}>Expand all</Button>
+        </Button.Group>
+      </Group>
 
       <OptionsSummaryCard
         totalValue={totalValue}
@@ -1522,6 +1530,13 @@ function PutsTable({
             w={64}
           />
         </Group>
+      </Group>
+      <Group justify="flex-end">
+        <Button.Group>
+          <Button size="compact-xs" variant="default" onClick={() => setExpandedStrikes(new Set())}>Collapse all</Button>
+          <Button size="compact-xs" variant="default" onClick={() => setExpandedStrikes(new Set(rows.filter((r) => r.position && daysUntil(r.position.expiry) <= 5).map((r) => r.strike)))}>Expiring soon</Button>
+          <Button size="compact-xs" variant="default" onClick={() => setExpandedStrikes(new Set(rows.filter((r) => r.position).map((r) => r.strike)))}>Expand all</Button>
+        </Button.Group>
       </Group>
 
       <OptionsSummaryCard
