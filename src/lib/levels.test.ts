@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeLevels, matchLevel } from "./levels";
+import { computeLevels, matchLevel, computeCurrentLevel } from "./levels";
 
 // ── computeLevels ─────────────────────────────────────────────────────────────
 
@@ -74,5 +74,44 @@ describe("matchLevel", () => {
     // old settings would spuriously match new levels if shares coincided.
     const idx = matchLevel(levels, levels[0].shares, levels[0].buyPrice + 10);
     expect(idx).toBe(-1);
+  });
+});
+
+// ── computeCurrentLevel ───────────────────────────────────────────────────────
+
+describe("computeCurrentLevel", () => {
+  const levels = computeLevels(200000, 70, 5, 0.95);
+
+  it("returns -1 with no orders", () => {
+    expect(computeCurrentLevel(levels, [])).toBe(-1);
+  });
+
+  it("returns the highest bought level index", () => {
+    const orders = [
+      { side: "BUY" as const, shares: levels[2].shares, fillPrice: levels[2].buyPrice },
+      { side: "BUY" as const, shares: levels[1].shares, fillPrice: levels[1].buyPrice },
+      { side: "BUY" as const, shares: levels[0].shares, fillPrice: levels[0].buyPrice },
+    ];
+    expect(computeCurrentLevel(levels, orders)).toBe(2);
+  });
+
+  it("returns -1 after selling the only owned level", () => {
+    // Buy L0, then sell L0 — most recent action for L0 is SELL
+    const orders = [
+      { side: "SELL" as const, shares: levels[0].shares, fillPrice: levels[0].sellPrice },
+      { side: "BUY" as const, shares: levels[0].shares, fillPrice: levels[0].buyPrice },
+    ];
+    expect(computeCurrentLevel(levels, orders)).toBe(-1);
+  });
+
+  it("recognises a re-buy after a sell (the sell-then-rebuy regression)", () => {
+    // Sequence (newest first): re-buy L1, re-buy L2, sell L1
+    // The sell cap must not fire because L1 was re-bought after the sell.
+    const orders = [
+      { side: "BUY" as const, shares: levels[2].shares, fillPrice: levels[2].buyPrice },
+      { side: "BUY" as const, shares: levels[1].shares, fillPrice: levels[1].buyPrice },
+      { side: "SELL" as const, shares: levels[1].shares, fillPrice: levels[1].sellPrice },
+    ];
+    expect(computeCurrentLevel(levels, orders)).toBe(2);
   });
 });

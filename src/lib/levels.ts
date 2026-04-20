@@ -17,6 +17,42 @@ export function matchLevel(levels: Level[], shares: number, price: number): numb
   return candidates.reduce((best, c) => (c.diff < best.diff ? c : best)).i;
 }
 
+export interface FillOrder {
+  side: "BUY" | "SELL";
+  shares: number;
+  fillPrice: number;
+}
+
+/**
+ * Given a list of fills (sorted newest first) and computed levels, returns the
+ * current level index (highest owned level), or -1 if nothing is owned.
+ */
+export function computeCurrentLevel(levels: Level[], orders: FillOrder[]): number {
+  const lastFillSide = new Map<number, "BUY" | "SELL">();
+  for (const o of orders) {
+    const idx = matchLevel(levels, o.shares, o.fillPrice);
+    if (idx === -1) continue;
+    if (!lastFillSide.has(idx)) lastFillSide.set(idx, o.side);
+  }
+
+  const ownedIndices = new Set(
+    [...lastFillSide.entries()].filter(([, side]) => side === "BUY").map(([i]) => i)
+  );
+
+  let currentLevel = ownedIndices.size > 0 ? Math.max(...ownedIndices) : -1;
+
+  for (const o of orders) {
+    if (o.side !== "SELL") continue;
+    const idx = matchLevel(levels, o.shares, o.fillPrice);
+    if (idx === -1) continue;
+    if (lastFillSide.get(idx) !== "SELL") continue;
+    if (currentLevel >= idx) currentLevel = idx - 1;
+    break;
+  }
+
+  return currentLevel;
+}
+
 export function computeLevels(
   levelStartingCash: number,
   initialLotPrice: number,

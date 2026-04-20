@@ -16,7 +16,7 @@ import { useApp } from "@/lib/context/AppContext";
 import type { Account } from "@/lib/context/AppContext";
 import type { FilledOrder, WorkingOrder } from "@/lib/schwab/parse";
 import type { AccountBalance } from "@/app/api/schwab/data/route";
-import { computeLevels, matchLevel } from "@/lib/levels";
+import { computeLevels, computeCurrentLevel, matchLevel } from "@/lib/levels";
 import type { Level } from "@/lib/levels";
 import { fmt, createMask, toDateKey } from "@/lib/format";
 import { useCardBg } from "@/lib/hooks/useCardBg";
@@ -87,27 +87,7 @@ function buildLevelsAndCurrentLevel(
     ? orders.filter((o) => new Date(o.time) >= resetDate)
     : orders;
 
-  const lastFillSide = new Map<number, "BUY" | "SELL">();
-  for (const o of relevant) {
-    const idx = matchLevel(levels, o.shares, o.fillPrice);
-    if (idx === -1) continue;
-    if (!lastFillSide.has(idx)) lastFillSide.set(idx, o.side);
-  }
-
-  const ownedIndices = new Set(
-    [...lastFillSide.entries()]
-      .filter(([, side]) => side === "BUY")
-      .map(([i]) => i),
-  );
-  let currentLevel = ownedIndices.size > 0 ? Math.max(...ownedIndices) : -1;
-
-  for (const o of relevant) {
-    if (o.side !== "SELL") continue;
-    const idx = matchLevel(levels, o.shares, o.fillPrice);
-    if (idx === -1) continue;
-    if (currentLevel >= idx) currentLevel = idx - 1;
-    break;
-  }
+  const currentLevel = computeCurrentLevel(levels, relevant);
 
   return { levels, currentLevel };
 }
