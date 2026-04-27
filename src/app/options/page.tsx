@@ -681,12 +681,12 @@ function putStrikeForLevel(level: Level): number {
   return Math.floor(level.buyPrice / 0.5) * 0.5;
 }
 
-/** Find a position whose strike matches within $0.01 */
-function matchPosition(
+/** Find all positions whose strike matches within $0.01 */
+function matchPositions(
   positions: OptionPosition[],
   strike: number,
-): OptionPosition | null {
-  return positions.find((p) => Math.abs(p.strike - strike) < 0.01) ?? null;
+): OptionPosition[] {
+  return positions.filter((p) => Math.abs(p.strike - strike) < 0.01);
 }
 
 // ── calls allocation ───────────────────────────────────────────────────────
@@ -701,7 +701,7 @@ interface CallRow {
   inSafeZone: boolean;
   itm: boolean;
   isCurrent: boolean;
-  position: OptionPosition | null;
+  positions: OptionPosition[];
 }
 
 function buildCallRows(
@@ -769,7 +769,7 @@ function buildCallRows(
       inSafeZone,
       itm,
       isCurrent,
-      position: matchPosition(positions, strike),
+      positions: matchPositions(positions, strike),
     });
 
     carryIn = carryOut;
@@ -790,7 +790,7 @@ interface PutRow {
   inSafeZone: boolean;
   itm: boolean;
   isCurrent: boolean;
-  position: OptionPosition | null;
+  positions: OptionPosition[];
 }
 
 function buildPutRows(
@@ -861,7 +861,7 @@ function buildPutRows(
       inSafeZone,
       itm,
       isCurrent,
-      position: matchPosition(positions, strike),
+      positions: matchPositions(positions, strike),
     });
 
     carryIn = carryOut;
@@ -1109,22 +1109,25 @@ function CallsTable({
   currentLevel: number;
 }) {
   const mask = createMask(privacyMode);
+  const posKey = (strike: number, expiry: string) => `${strike}-${expiry}`;
   const openContracts = rows.reduce(
-    (sum, r) => sum + (r.position?.shortQty ?? 0),
+    (sum, r) => sum + r.positions.reduce((s, p) => s + p.shortQty, 0),
     0,
   );
-  const [expandedStrikes, setExpandedStrikes] = useState<Set<number>>(
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(
     () =>
       new Set(
-        rows
-          .filter((r) => r.position && daysUntil(r.position.expiry) <= 5)
-          .map((r) => r.strike),
+        rows.flatMap((r) =>
+          r.positions
+            .filter((p) => daysUntil(p.expiry) <= 5)
+            .map((p) => posKey(r.strike, p.expiry)),
+        ),
       ),
   );
-  const toggleAdvice = (strike: number) =>
-    setExpandedStrikes((prev) => {
+  const toggleAdvice = (key: string) =>
+    setExpandedKeys((prev) => {
       const next = new Set(prev);
-      next.has(strike) ? next.delete(strike) : next.add(strike);
+      next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
 
@@ -1156,9 +1159,9 @@ function CallsTable({
       </Group>
       <Group justify="flex-end">
         <Button.Group>
-          <Button size="compact-xs" variant="default" onClick={() => setExpandedStrikes(new Set())}>Collapse all</Button>
-          <Button size="compact-xs" variant="default" onClick={() => setExpandedStrikes(new Set(rows.filter((r) => r.position && daysUntil(r.position.expiry) <= 5).map((r) => r.strike)))}>Expiring soon</Button>
-          <Button size="compact-xs" variant="default" onClick={() => setExpandedStrikes(new Set(rows.filter((r) => r.position).map((r) => r.strike)))}>Expand all</Button>
+          <Button size="compact-xs" variant="default" onClick={() => setExpandedKeys(new Set())}>Collapse all</Button>
+          <Button size="compact-xs" variant="default" onClick={() => setExpandedKeys(new Set(rows.flatMap((r) => r.positions.filter((p) => daysUntil(p.expiry) <= 5).map((p) => posKey(r.strike, p.expiry)))))}>Expiring soon</Button>
+          <Button size="compact-xs" variant="default" onClick={() => setExpandedKeys(new Set(rows.flatMap((r) => r.positions.map((p) => posKey(r.strike, p.expiry)))))}>Expand all</Button>
         </Button.Group>
       </Group>
 
@@ -1240,213 +1243,90 @@ function CallsTable({
               const riskIdx = closest(riskStrike);
               const avgIdx = closest(riskStrikeAvg);
               return rows.map((row, i) => {
-                const dim =
-                  !row.position && (!row.inSafeZone || row.contracts === 0);
+                const dim = row.positions.length === 0 && (!row.inSafeZone || row.contracts === 0);
                 const isItmBoundary = row.itm && !rows[i - 1]?.itm;
+                const rowBg = row.inSafeZone
+                  ? i % 2 === 0 ? `var(--mantine-color-${color}-light-hover)` : `var(--mantine-color-${color}-light)`
+                  : i % 2 === 0 ? "rgba(255,255,255,0.06)" : undefined;
+                const firstPos = row.positions[0] ?? null;
+                const firstKey = firstPos ? posKey(row.strike, firstPos.expiry) : "";
+                const firstExpanded = firstPos ? expandedKeys.has(firstKey) : false;
                 return (
                   <Fragment key={row.strike}>
                     {isItmBoundary && (
                       <Table.Tr bg="rgba(251,146,60,0.15)">
-                        <Table.Td
-                          colSpan={6}
-                          py={2}
-                          style={{ textAlign: "center" }}
-                        >
-                          <Text
-                            size="9px"
-                            fw={700}
-                            c="rgba(251,146,60,0.8)"
-                            tt="uppercase"
-                            style={{ letterSpacing: "0.08em" }}
-                          >
-                            ▼ ITM ▼
-                          </Text>
+                        <Table.Td colSpan={6} py={2} style={{ textAlign: "center" }}>
+                          <Text size="9px" fw={700} c="rgba(251,146,60,0.8)" tt="uppercase" style={{ letterSpacing: "0.08em" }}>▼ ITM ▼</Text>
                         </Table.Td>
                       </Table.Tr>
                     )}
                     <Table.Tr
-                      bg={
-                        row.inSafeZone
-                          ? i % 2 === 0
-                            ? `var(--mantine-color-${color}-light-hover)`
-                            : `var(--mantine-color-${color}-light)`
-                          : i % 2 === 0
-                            ? "rgba(255,255,255,0.06)"
-                            : undefined
-                      }
-                      style={{
-                        opacity: dim ? 0.4 : 1,
-                        cursor: row.position ? "pointer" : undefined,
-                      }}
-                      onClick={
-                        row.position
-                          ? () => toggleAdvice(row.strike)
-                          : undefined
-                      }
+                      bg={rowBg}
+                      style={{ opacity: dim ? 0.4 : 1, cursor: firstPos ? "pointer" : undefined }}
+                      onClick={firstPos ? () => toggleAdvice(firstKey) : undefined}
                     >
-                      <Table.Td
-                        style={{
-                          position: "relative",
-                          ...(row.position && expandedStrikes.has(row.strike)
-                            ? {
-                                borderTop: POSITION_BORDER,
-                                borderLeft: POSITION_BORDER,
-                              }
-                            : {}),
-                        }}
-                      >
-                        {row.position &&
-                          (expandedStrikes.has(row.strike) ? (
-                            <IconChevronDown
-                              size={10}
-                              style={{
-                                position: "absolute",
-                                left: 2,
-                                top: "50%",
-                                transform: "translateY(-50%)",
-                                color: "var(--mantine-color-dimmed)",
-                              }}
-                            />
-                          ) : (
-                            <IconChevronRight
-                              size={10}
-                              style={{
-                                position: "absolute",
-                                left: 2,
-                                top: "50%",
-                                transform: "translateY(-50%)",
-                                color: "var(--mantine-color-dimmed)",
-                              }}
-                            />
-                          ))}
-                        {i === riskIdx && (
-                          <IconPlayerPlayFilled
-                            size={8}
-                            style={{
-                              position: "absolute",
-                              left: -2,
-                              top: "50%",
-                              transform: "translateY(-50%)",
-                              color: "rgba(20,184,166,1)",
-                            }}
-                          />
+                      <Table.Td style={{ position: "relative", ...(firstPos && firstExpanded ? { borderTop: POSITION_BORDER, borderLeft: POSITION_BORDER } : {}) }}>
+                        {firstPos && (firstExpanded
+                          ? <IconChevronDown size={10} style={{ position: "absolute", left: 2, top: "50%", transform: "translateY(-50%)", color: "var(--mantine-color-dimmed)" }} />
+                          : <IconChevronRight size={10} style={{ position: "absolute", left: 2, top: "50%", transform: "translateY(-50%)", color: "var(--mantine-color-dimmed)" }} />
                         )}
-                        {i === avgIdx && i !== riskIdx && (
-                          <IconPlayerPlayFilled
-                            size={8}
-                            style={{
-                              position: "absolute",
-                              left: -2,
-                              top: "50%",
-                              transform: "translateY(-50%)",
-                              color: "rgba(255,255,255,0.6)",
-                            }}
-                          />
-                        )}
-                        {i === avgIdx && i === riskIdx && (
-                          <IconPlayerPlayFilled
-                            size={8}
-                            style={{
-                              position: "absolute",
-                              left: -2,
-                              top: "50%",
-                              transform: "translateY(-50%)",
-                              color: "rgba(20,184,166,1)",
-                            }}
-                          />
-                        )}
+                        {i === riskIdx && <IconPlayerPlayFilled size={8} style={{ position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)", color: "rgba(20,184,166,1)" }} />}
+                        {i === avgIdx && i !== riskIdx && <IconPlayerPlayFilled size={8} style={{ position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)", color: "rgba(255,255,255,0.6)" }} />}
+                        {i === avgIdx && i === riskIdx && <IconPlayerPlayFilled size={8} style={{ position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)", color: "rgba(20,184,166,1)" }} />}
                         <Group gap={4}>
-                          <Text
-                            size="xs"
-                            c={
-                              row.levelNums.length === 0 ? "dimmed" : undefined
-                            }
-                          >
-                            {row.levelNums.length > 0
-                              ? row.levelNums.join(", ")
-                              : "—"}
+                          <Text size="xs" c={row.levelNums.length === 0 ? "dimmed" : undefined}>
+                            {row.levelNums.length > 0 ? row.levelNums.join(", ") : "—"}
                           </Text>
-                          {row.carryIn > 0 && (
-                            <Text size="xs" c="dimmed">
-                              (+{row.carryIn})
-                            </Text>
-                          )}
+                          {row.carryIn > 0 && <Text size="xs" c="dimmed">(+{row.carryIn})</Text>}
                         </Group>
                       </Table.Td>
-                      <Table.Td
-                        ta="right"
-                        style={
-                          row.position && expandedStrikes.has(row.strike)
-                            ? { borderTop: POSITION_BORDER }
-                            : undefined
-                        }
-                      >
-                        <Text size="xs">
-                          {mask(`$${row.strike.toFixed(2)}`)}
-                        </Text>
+                      <Table.Td ta="right" style={firstPos && firstExpanded ? { borderTop: POSITION_BORDER } : undefined}>
+                        <Text size="xs">{mask(`$${row.strike.toFixed(2)}`)}</Text>
                       </Table.Td>
-                      <Table.Td
-                        ta="right"
-                        style={
-                          row.position && expandedStrikes.has(row.strike)
-                            ? { borderTop: POSITION_BORDER }
-                            : undefined
-                        }
-                      >
+                      <Table.Td ta="right" style={firstPos && firstExpanded ? { borderTop: POSITION_BORDER } : undefined}>
                         {row.contracts > 0 ? (
-                          <Badge color="gray" variant="light" size="sm">
-                            {row.contracts}
-                          </Badge>
+                          <Badge color="gray" variant="light" size="sm">{row.contracts}</Badge>
                         ) : row.inSafeZone && row.ownedShares > 0 ? (
-                          <Text size="xs" c="dimmed">
-                            {row.ownedShares}sh
-                          </Text>
+                          <Text size="xs" c="dimmed">{row.ownedShares}sh</Text>
                         ) : (
-                          <Text size="sm" c="dimmed">
-                            —
-                          </Text>
+                          <Text size="sm" c="dimmed">—</Text>
                         )}
                       </Table.Td>
-                      <PositionCells
-                        position={row.position}
-                        color={color}
-                        privacyMode={privacyMode}
-                        inSafeZone={row.inSafeZone}
-                        withBorder={
-                          !!row.position && expandedStrikes.has(row.strike)
-                        }
-                      />
+                      <PositionCells position={firstPos} color={color} privacyMode={privacyMode} inSafeZone={row.inSafeZone} withBorder={!!firstPos && firstExpanded} />
                     </Table.Tr>
-                    {row.position && expandedStrikes.has(row.strike) && (
-                      <Table.Tr
-                        bg={
-                          row.inSafeZone
-                            ? `var(--mantine-color-${color}-light-hover)`
-                            : undefined
-                        }
-                        style={{ opacity: dim ? 0.4 : 1 }}
-                      >
-                        <Table.Td
-                          colSpan={6}
-                          py={4}
-                          style={{
-                            borderTop: "1px dashed var(--mantine-color-dark-3)",
-                            borderLeft: POSITION_BORDER,
-                            borderRight: POSITION_BORDER,
-                            borderBottom: POSITION_BORDER,
-                          }}
-                        >
-                          <PositionAdvice
-                            position={row.position}
-                            inSafeZone={row.inSafeZone}
-                            itm={row.itm}
-                            levelNums={row.levelNums}
-                            currentLevel={currentLevel}
-                            privacyMode={privacyMode}
-                          />
+                    {firstPos && firstExpanded && (
+                      <Table.Tr bg={rowBg} style={{ opacity: dim ? 0.4 : 1 }}>
+                        <Table.Td colSpan={6} py={4} style={{ borderTop: "1px dashed var(--mantine-color-dark-3)", borderLeft: POSITION_BORDER, borderRight: POSITION_BORDER, borderBottom: POSITION_BORDER }}>
+                          <PositionAdvice position={firstPos} inSafeZone={row.inSafeZone} itm={row.itm} levelNums={row.levelNums} currentLevel={currentLevel} privacyMode={privacyMode} />
                         </Table.Td>
                       </Table.Tr>
                     )}
+                    {row.positions.slice(1).map((pos) => {
+                      const key = posKey(row.strike, pos.expiry);
+                      const expanded = expandedKeys.has(key);
+                      return (
+                        <Fragment key={key}>
+                          <Table.Tr bg={rowBg} style={{ cursor: "pointer" }} onClick={() => toggleAdvice(key)}>
+                            <Table.Td style={{ position: "relative", ...(expanded ? { borderTop: POSITION_BORDER, borderLeft: POSITION_BORDER } : {}) }}>
+                              {expanded
+                                ? <IconChevronDown size={10} style={{ position: "absolute", left: 2, top: "50%", transform: "translateY(-50%)", color: "var(--mantine-color-dimmed)" }} />
+                                : <IconChevronRight size={10} style={{ position: "absolute", left: 2, top: "50%", transform: "translateY(-50%)", color: "var(--mantine-color-dimmed)" }} />
+                              }
+                            </Table.Td>
+                            <Table.Td style={expanded ? { borderTop: POSITION_BORDER } : undefined} />
+                            <Table.Td style={expanded ? { borderTop: POSITION_BORDER } : undefined} />
+                            <PositionCells position={pos} color={color} privacyMode={privacyMode} inSafeZone={row.inSafeZone} withBorder={expanded} />
+                          </Table.Tr>
+                          {expanded && (
+                            <Table.Tr bg={rowBg}>
+                              <Table.Td colSpan={6} py={4} style={{ borderTop: "1px dashed var(--mantine-color-dark-3)", borderLeft: POSITION_BORDER, borderRight: POSITION_BORDER, borderBottom: POSITION_BORDER }}>
+                                <PositionAdvice position={pos} inSafeZone={row.inSafeZone} itm={row.itm} levelNums={row.levelNums} currentLevel={currentLevel} privacyMode={privacyMode} />
+                              </Table.Td>
+                            </Table.Tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                   </Fragment>
                 );
               });
@@ -1486,22 +1366,25 @@ function PutsTable({
   currentLevel: number;
 }) {
   const mask = createMask(privacyMode);
+  const posKey = (strike: number, expiry: string) => `${strike}-${expiry}`;
   const openContracts = rows.reduce(
-    (sum, r) => sum + (r.position?.shortQty ?? 0),
+    (sum, r) => sum + r.positions.reduce((s, p) => s + p.shortQty, 0),
     0,
   );
-  const [expandedStrikes, setExpandedStrikes] = useState<Set<number>>(
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(
     () =>
       new Set(
-        rows
-          .filter((r) => r.position && daysUntil(r.position.expiry) <= 5)
-          .map((r) => r.strike),
+        rows.flatMap((r) =>
+          r.positions
+            .filter((p) => daysUntil(p.expiry) <= 5)
+            .map((p) => posKey(r.strike, p.expiry)),
+        ),
       ),
   );
-  const toggleAdvice = (strike: number) =>
-    setExpandedStrikes((prev) => {
+  const toggleAdvice = (key: string) =>
+    setExpandedKeys((prev) => {
       const next = new Set(prev);
-      next.has(strike) ? next.delete(strike) : next.add(strike);
+      next.has(key) ? next.delete(key) : next.add(key);
       return next;
     });
 
@@ -1533,9 +1416,9 @@ function PutsTable({
       </Group>
       <Group justify="flex-end">
         <Button.Group>
-          <Button size="compact-xs" variant="default" onClick={() => setExpandedStrikes(new Set())}>Collapse all</Button>
-          <Button size="compact-xs" variant="default" onClick={() => setExpandedStrikes(new Set(rows.filter((r) => r.position && daysUntil(r.position.expiry) <= 5).map((r) => r.strike)))}>Expiring soon</Button>
-          <Button size="compact-xs" variant="default" onClick={() => setExpandedStrikes(new Set(rows.filter((r) => r.position).map((r) => r.strike)))}>Expand all</Button>
+          <Button size="compact-xs" variant="default" onClick={() => setExpandedKeys(new Set())}>Collapse all</Button>
+          <Button size="compact-xs" variant="default" onClick={() => setExpandedKeys(new Set(rows.flatMap((r) => r.positions.filter((p) => daysUntil(p.expiry) <= 5).map((p) => posKey(r.strike, p.expiry)))))}>Expiring soon</Button>
+          <Button size="compact-xs" variant="default" onClick={() => setExpandedKeys(new Set(rows.flatMap((r) => r.positions.map((p) => posKey(r.strike, p.expiry)))))}>Expand all</Button>
         </Button.Group>
       </Group>
 
@@ -1617,213 +1500,90 @@ function PutsTable({
               const riskIdx = closest(riskStrike);
               const avgIdx = closest(riskStrikeAvg);
               return rows.map((row, i) => {
-                const dim =
-                  !row.position && (!row.inSafeZone || row.contracts === 0);
+                const dim = row.positions.length === 0 && (!row.inSafeZone || row.contracts === 0);
                 const isItmBoundary = !row.itm && rows[i - 1]?.itm;
+                const rowBg = row.inSafeZone
+                  ? i % 2 === 0 ? `var(--mantine-color-${color}-light-hover)` : `var(--mantine-color-${color}-light)`
+                  : i % 2 === 0 ? "rgba(255,255,255,0.06)" : undefined;
+                const firstPos = row.positions[0] ?? null;
+                const firstKey = firstPos ? posKey(row.strike, firstPos.expiry) : "";
+                const firstExpanded = firstPos ? expandedKeys.has(firstKey) : false;
                 return (
                   <Fragment key={row.strike}>
                     {isItmBoundary && (
                       <Table.Tr bg="rgba(251,146,60,0.15)">
-                        <Table.Td
-                          colSpan={6}
-                          py={2}
-                          style={{ textAlign: "center" }}
-                        >
-                          <Text
-                            size="9px"
-                            fw={700}
-                            c="rgba(251,146,60,0.8)"
-                            tt="uppercase"
-                            style={{ letterSpacing: "0.08em" }}
-                          >
-                            ▲ ITM ▲
-                          </Text>
+                        <Table.Td colSpan={6} py={2} style={{ textAlign: "center" }}>
+                          <Text size="9px" fw={700} c="rgba(251,146,60,0.8)" tt="uppercase" style={{ letterSpacing: "0.08em" }}>▲ ITM ▲</Text>
                         </Table.Td>
                       </Table.Tr>
                     )}
                     <Table.Tr
-                      bg={
-                        row.inSafeZone
-                          ? i % 2 === 0
-                            ? `var(--mantine-color-${color}-light-hover)`
-                            : `var(--mantine-color-${color}-light)`
-                          : i % 2 === 0
-                            ? "rgba(255,255,255,0.06)"
-                            : undefined
-                      }
-                      style={{
-                        opacity: dim ? 0.4 : 1,
-                        cursor: row.position ? "pointer" : undefined,
-                      }}
-                      onClick={
-                        row.position
-                          ? () => toggleAdvice(row.strike)
-                          : undefined
-                      }
+                      bg={rowBg}
+                      style={{ opacity: dim ? 0.4 : 1, cursor: firstPos ? "pointer" : undefined }}
+                      onClick={firstPos ? () => toggleAdvice(firstKey) : undefined}
                     >
-                      <Table.Td
-                        style={{
-                          position: "relative",
-                          ...(row.position && expandedStrikes.has(row.strike)
-                            ? {
-                                borderTop: POSITION_BORDER,
-                                borderLeft: POSITION_BORDER,
-                              }
-                            : {}),
-                        }}
-                      >
-                        {row.position &&
-                          (expandedStrikes.has(row.strike) ? (
-                            <IconChevronDown
-                              size={10}
-                              style={{
-                                position: "absolute",
-                                left: 2,
-                                top: "50%",
-                                transform: "translateY(-50%)",
-                                color: "var(--mantine-color-dimmed)",
-                              }}
-                            />
-                          ) : (
-                            <IconChevronRight
-                              size={10}
-                              style={{
-                                position: "absolute",
-                                left: 2,
-                                top: "50%",
-                                transform: "translateY(-50%)",
-                                color: "var(--mantine-color-dimmed)",
-                              }}
-                            />
-                          ))}
-                        {i === riskIdx && (
-                          <IconPlayerPlayFilled
-                            size={8}
-                            style={{
-                              position: "absolute",
-                              left: -2,
-                              top: "50%",
-                              transform: "translateY(-50%)",
-                              color: "rgba(239,68,68,1)",
-                            }}
-                          />
+                      <Table.Td style={{ position: "relative", ...(firstPos && firstExpanded ? { borderTop: POSITION_BORDER, borderLeft: POSITION_BORDER } : {}) }}>
+                        {firstPos && (firstExpanded
+                          ? <IconChevronDown size={10} style={{ position: "absolute", left: 2, top: "50%", transform: "translateY(-50%)", color: "var(--mantine-color-dimmed)" }} />
+                          : <IconChevronRight size={10} style={{ position: "absolute", left: 2, top: "50%", transform: "translateY(-50%)", color: "var(--mantine-color-dimmed)" }} />
                         )}
-                        {i === avgIdx && i !== riskIdx && (
-                          <IconPlayerPlayFilled
-                            size={8}
-                            style={{
-                              position: "absolute",
-                              left: -2,
-                              top: "50%",
-                              transform: "translateY(-50%)",
-                              color: "rgba(255,255,255,0.6)",
-                            }}
-                          />
-                        )}
-                        {i === avgIdx && i === riskIdx && (
-                          <IconPlayerPlayFilled
-                            size={8}
-                            style={{
-                              position: "absolute",
-                              left: -2,
-                              top: "50%",
-                              transform: "translateY(-50%)",
-                              color: "rgba(239,68,68,1)",
-                            }}
-                          />
-                        )}
+                        {i === riskIdx && <IconPlayerPlayFilled size={8} style={{ position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)", color: "rgba(239,68,68,1)" }} />}
+                        {i === avgIdx && i !== riskIdx && <IconPlayerPlayFilled size={8} style={{ position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)", color: "rgba(255,255,255,0.6)" }} />}
+                        {i === avgIdx && i === riskIdx && <IconPlayerPlayFilled size={8} style={{ position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)", color: "rgba(239,68,68,1)" }} />}
                         <Group gap={4}>
-                          <Text
-                            size="xs"
-                            c={
-                              row.levelNums.length === 0 ? "dimmed" : undefined
-                            }
-                          >
-                            {row.levelNums.length > 0
-                              ? row.levelNums.join(", ")
-                              : "—"}
+                          <Text size="xs" c={row.levelNums.length === 0 ? "dimmed" : undefined}>
+                            {row.levelNums.length > 0 ? row.levelNums.join(", ") : "—"}
                           </Text>
-                          {row.carryIn > 0 && (
-                            <Text size="xs" c="dimmed">
-                              (+{row.carryIn})
-                            </Text>
-                          )}
+                          {row.carryIn > 0 && <Text size="xs" c="dimmed">(+{row.carryIn})</Text>}
                         </Group>
                       </Table.Td>
-                      <Table.Td
-                        ta="right"
-                        style={
-                          row.position && expandedStrikes.has(row.strike)
-                            ? { borderTop: POSITION_BORDER }
-                            : undefined
-                        }
-                      >
-                        <Text size="xs">
-                          {mask(`$${row.strike.toFixed(2)}`)}
-                        </Text>
+                      <Table.Td ta="right" style={firstPos && firstExpanded ? { borderTop: POSITION_BORDER } : undefined}>
+                        <Text size="xs">{mask(`$${row.strike.toFixed(2)}`)}</Text>
                       </Table.Td>
-                      <Table.Td
-                        ta="right"
-                        style={
-                          row.position && expandedStrikes.has(row.strike)
-                            ? { borderTop: POSITION_BORDER }
-                            : undefined
-                        }
-                      >
+                      <Table.Td ta="right" style={firstPos && firstExpanded ? { borderTop: POSITION_BORDER } : undefined}>
                         {row.contracts > 0 ? (
-                          <Badge color="gray" variant="light" size="sm">
-                            {row.contracts}
-                          </Badge>
+                          <Badge color="gray" variant="light" size="sm">{row.contracts}</Badge>
                         ) : row.inSafeZone && row.levelShares > 0 ? (
-                          <Text size="xs" c="dimmed">
-                            {row.levelShares}sh
-                          </Text>
+                          <Text size="xs" c="dimmed">{row.levelShares}sh</Text>
                         ) : (
-                          <Text size="sm" c="dimmed">
-                            —
-                          </Text>
+                          <Text size="sm" c="dimmed">—</Text>
                         )}
                       </Table.Td>
-                      <PositionCells
-                        position={row.position}
-                        color={color}
-                        privacyMode={privacyMode}
-                        inSafeZone={row.inSafeZone}
-                        withBorder={
-                          !!row.position && expandedStrikes.has(row.strike)
-                        }
-                      />
+                      <PositionCells position={firstPos} color={color} privacyMode={privacyMode} inSafeZone={row.inSafeZone} withBorder={!!firstPos && firstExpanded} />
                     </Table.Tr>
-                    {row.position && expandedStrikes.has(row.strike) && (
-                      <Table.Tr
-                        bg={
-                          row.inSafeZone
-                            ? `var(--mantine-color-${color}-light-hover)`
-                            : undefined
-                        }
-                        style={{ opacity: dim ? 0.4 : 1 }}
-                      >
-                        <Table.Td
-                          colSpan={6}
-                          py={4}
-                          style={{
-                            borderTop: "1px dashed var(--mantine-color-dark-3)",
-                            borderLeft: POSITION_BORDER,
-                            borderRight: POSITION_BORDER,
-                            borderBottom: POSITION_BORDER,
-                          }}
-                        >
-                          <PositionAdvice
-                            position={row.position}
-                            inSafeZone={row.inSafeZone}
-                            itm={row.itm}
-                            levelNums={row.levelNums}
-                            currentLevel={currentLevel}
-                            privacyMode={privacyMode}
-                          />
+                    {firstPos && firstExpanded && (
+                      <Table.Tr bg={rowBg} style={{ opacity: dim ? 0.4 : 1 }}>
+                        <Table.Td colSpan={6} py={4} style={{ borderTop: "1px dashed var(--mantine-color-dark-3)", borderLeft: POSITION_BORDER, borderRight: POSITION_BORDER, borderBottom: POSITION_BORDER }}>
+                          <PositionAdvice position={firstPos} inSafeZone={row.inSafeZone} itm={row.itm} levelNums={row.levelNums} currentLevel={currentLevel} privacyMode={privacyMode} />
                         </Table.Td>
                       </Table.Tr>
                     )}
+                    {row.positions.slice(1).map((pos) => {
+                      const key = posKey(row.strike, pos.expiry);
+                      const expanded = expandedKeys.has(key);
+                      return (
+                        <Fragment key={key}>
+                          <Table.Tr bg={rowBg} style={{ cursor: "pointer" }} onClick={() => toggleAdvice(key)}>
+                            <Table.Td style={{ position: "relative", ...(expanded ? { borderTop: POSITION_BORDER, borderLeft: POSITION_BORDER } : {}) }}>
+                              {expanded
+                                ? <IconChevronDown size={10} style={{ position: "absolute", left: 2, top: "50%", transform: "translateY(-50%)", color: "var(--mantine-color-dimmed)" }} />
+                                : <IconChevronRight size={10} style={{ position: "absolute", left: 2, top: "50%", transform: "translateY(-50%)", color: "var(--mantine-color-dimmed)" }} />
+                              }
+                            </Table.Td>
+                            <Table.Td style={expanded ? { borderTop: POSITION_BORDER } : undefined} />
+                            <Table.Td style={expanded ? { borderTop: POSITION_BORDER } : undefined} />
+                            <PositionCells position={pos} color={color} privacyMode={privacyMode} inSafeZone={row.inSafeZone} withBorder={expanded} />
+                          </Table.Tr>
+                          {expanded && (
+                            <Table.Tr bg={rowBg}>
+                              <Table.Td colSpan={6} py={4} style={{ borderTop: "1px dashed var(--mantine-color-dark-3)", borderLeft: POSITION_BORDER, borderRight: POSITION_BORDER, borderBottom: POSITION_BORDER }}>
+                                <PositionAdvice position={pos} inSafeZone={row.inSafeZone} itm={row.itm} levelNums={row.levelNums} currentLevel={currentLevel} privacyMode={privacyMode} />
+                              </Table.Td>
+                            </Table.Tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                   </Fragment>
                 );
               });

@@ -17,7 +17,7 @@ interface LevelRow {
   sells: number;
 }
 
-function buildTosText(side: "BUY" | "SELL", shares: number, buyPrice: number, sellPrice: number, count: number): string {
+function buildTosText(side: "BUY" | "SELL", shares: number, buyPrice: number, sellPrice: number, count: number, endWithPrimary = false): string {
   const lines: string[] = [];
   const pair = side === "BUY"
     ? [
@@ -30,11 +30,8 @@ function buildTosText(side: "BUY" | "SELL", shares: number, buyPrice: number, se
       ];
 
   for (let i = 0; i < count; i++) {
-    if (i === 0) {
-      lines.push(pair[0]);
-      lines.push(pair[1]);
-    } else {
-      lines.push(pair[0] + " TRG BY");
+    lines.push(i === 0 ? pair[0] : pair[0] + " TRG BY");
+    if (!endWithPrimary || i < count - 1) {
       lines.push(pair[1]);
     }
   }
@@ -260,7 +257,6 @@ export default function WorkingOrdersPage() {
               return (<>
               {topLevel && (() => {
                 const cost = topLevel.buyPrice != null ? topLevel.shares * topLevel.buyPrice : null;
-                const count = Math.max(threshold, 1);
                 return (
                   <Table.Tr key="next-level" style={{ borderBottom: "2px solid rgba(255,255,255,0.08)" }}>
                     <Table.Td ta="center">
@@ -270,13 +266,13 @@ export default function WorkingOrdersPage() {
                     <Table.Td ta="center">
                       <Badge variant="filled" size="md" fw={700}
                         style={{ background: "var(--mantine-color-teal-7)", color: "#fff", cursor: topLevel.buyPrice != null && topLevel.sellPrice != null ? "pointer" : "default" }}
-                        onClick={() => topLevel.buyPrice != null && topLevel.sellPrice != null && setTosModal({ text: buildTosText("BUY", topLevel.shares, topLevel.buyPrice!, topLevel.sellPrice!, count) })}
+                        onClick={() => topLevel.buyPrice != null && topLevel.sellPrice != null && setTosModal({ text: buildTosText("BUY", topLevel.shares, topLevel.buyPrice!, topLevel.sellPrice!, 4) })}
                       >+</Badge>
                     </Table.Td>
                     <Table.Td ta="center">
                       <Badge variant="filled" size="md" fw={700}
                         style={{ background: "var(--mantine-color-red-7)", color: "#fff", cursor: topLevel.buyPrice != null && topLevel.sellPrice != null ? "pointer" : "default" }}
-                        onClick={() => topLevel.buyPrice != null && topLevel.sellPrice != null && setTosModal({ text: buildTosText("SELL", topLevel.shares, topLevel.buyPrice!, topLevel.sellPrice!, count) })}
+                        onClick={() => topLevel.buyPrice != null && topLevel.sellPrice != null && setTosModal({ text: buildTosText("SELL", topLevel.shares, topLevel.buyPrice!, topLevel.sellPrice!, 4) })}
                       >+</Badge>
                     </Table.Td>
                     <Table.Td ta="center">
@@ -350,12 +346,12 @@ export default function WorkingOrdersPage() {
                       )}
                       {buyWarn
                         ? <Badge variant="filled" size="md" fw={700} style={{ background: "rgba(251,146,60,0.9)", color: "#fff", cursor: "pointer" }}
-                            onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("BUY", row.shares, row.buyPrice, row.sellPrice, threshold) })}
+                            onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("SELL", row.shares, row.buyPrice, row.sellPrice, 3) })}
                           >{row.buys}</Badge>
                         : row.buys > 0
                           ? <Text size="sm" c="teal">{row.buys}</Text>
                           : <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-teal-7)", color: "#fff", cursor: row.buyPrice != null && row.sellPrice != null ? "pointer" : "default" }}
-                              onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("BUY", row.shares, row.buyPrice, row.sellPrice, Math.max(threshold, 1)) })}
+                              onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("BUY", row.shares, row.buyPrice, row.sellPrice, 4) })}
                             >+</Badge>}
                     </Group>
                   </Table.Td>
@@ -368,12 +364,12 @@ export default function WorkingOrdersPage() {
                       )}
                       {sellWarn
                         ? <Badge variant="filled" size="md" fw={700} style={{ background: "rgba(251,146,60,0.9)", color: "#fff", cursor: "pointer" }}
-                            onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("SELL", row.shares, row.buyPrice, row.sellPrice, threshold) })}
+                            onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("BUY", row.shares, row.buyPrice, row.sellPrice, 3) })}
                           >{row.sells}</Badge>
                         : row.sells > 0
                           ? <Text size="sm" c="red">{row.sells}</Text>
                           : <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-red-7)", color: "#fff", cursor: row.buyPrice != null && row.sellPrice != null ? "pointer" : "default" }}
-                              onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("SELL", row.shares, row.buyPrice, row.sellPrice, Math.max(threshold, 1)) })}
+                              onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("SELL", row.shares, row.buyPrice, row.sellPrice, 4) })}
                             >+</Badge>}
                     </Group>
                   </Table.Td>
