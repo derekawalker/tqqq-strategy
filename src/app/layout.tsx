@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { MantineProvider, createTheme } from "@mantine/core";
+import ServiceWorkerRegistration from "@/components/ServiceWorkerRegistration";
 
 const theme = createTheme({
   defaultRadius: "xl",
@@ -39,6 +40,14 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "TQQQ Strategy",
   description: "Schwab account holdings tracker",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "TQQQ",
+  },
+  formatDetection: {
+    telephone: false,
+  },
 };
 
 export const viewport = {
@@ -46,6 +55,7 @@ export const viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
+  themeColor: "#1a1b1e",
 };
 
 export default function RootLayout({
@@ -59,6 +69,7 @@ export default function RootLayout({
         <MantineProvider theme={theme} forceColorScheme="dark">
           <AppProvider>
             <Notifications />
+            <ServiceWorkerRegistration />
             <AppShellLayout>{children}</AppShellLayout>
           </AppProvider>
         </MantineProvider>
