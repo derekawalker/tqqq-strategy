@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from "react";
 import type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition } from "@/lib/schwab/parse";
 import type { Transaction, AccountBalance } from "@/app/api/schwab/data/route";
 export type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition, Transaction, AccountBalance };
@@ -102,7 +102,6 @@ interface AppContextValue {
   balancesLoading: boolean;
 }
 
-const STORAGE_KEY = "tqqq-accounts";
 const ACTIVE_ACCOUNT_KEY = "tqqq-active-account";
 
 const DEFAULT_ACCOUNTS: Account[] = [];
@@ -121,66 +120,18 @@ export function deserializeAccount(a: Account): Account {
   };
 }
 
-function loadAccounts(): Account[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_ACCOUNTS;
-    const parsed = JSON.parse(raw) as Account[];
-    return parsed.map(deserializeAccount);
-  } catch {
-    return DEFAULT_ACCOUNTS;
-  }
-}
-
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  // Start with defaults (matches SSR), load localStorage after mount
+  // Start with empty defaults (matches SSR); init effect loads from Supabase before enabling writes
   const [accounts, setAccounts] = useState<Account[]>(DEFAULT_ACCOUNTS);
   const [activeAccount, setActiveAccount] = useState<Account | null>(DEFAULT_ACCOUNTS[0] ?? null);
-  // initialized becomes true after the first localStorage load — persists only fire after this
+  // initialized becomes true after settings are loaded from the database — persists only fire after this
   const [initialized, setInitialized] = useState(false);
-  // Prevents writing back to Supabase when the update originated from Supabase
-  const loadingFromSupabase = useRef(false);
 
-  useEffect(() => {
-    // Load from localStorage immediately for a fast first render
-    const savedAccounts = loadAccounts();
-    const savedNumber = localStorage.getItem(ACTIVE_ACCOUNT_KEY);
-    const saved = savedNumber ? savedAccounts.find((a) => a.accountNumber === savedNumber) : null;
-    setAccounts(savedAccounts);
-    setActiveAccount(saved ?? savedAccounts[0] ?? null);
-    setInitialized(true);
-
-    // Then fetch from Supabase and override if available (handles new devices)
-    fetch("/api/settings?key=accounts")
-      .then((r) => r.json())
-      .then((data) => {
-        if (!data.value) return;
-        const remote = (data.value as Account[]).map(deserializeAccount);
-        // Only use Supabase data if it has meaningful settings; otherwise keep localStorage
-        const hasRealSettings = remote.some((a) =>
-          a.settings.initialCash != null || a.settings.levelStartingCash != null || a.settings.startingDate != null || a.settings.initialLotPrice != null
-        );
-        if (!hasRealSettings) return;
-        loadingFromSupabase.current = true;
-        setAccounts(remote);
-        setActiveAccount((active) => {
-          const preferred = localStorage.getItem(ACTIVE_ACCOUNT_KEY) ?? active?.accountNumber;
-          return remote.find((a) => a.accountNumber === preferred) ?? remote[0] ?? null;
-        });
-      })
-      .catch(() => {});
-  }, []);
-
-  // Persist accounts to localStorage and Supabase
+  // Persist accounts to Supabase whenever they change (after initial load)
   useEffect(() => {
     if (!initialized) return;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts));
-    if (loadingFromSupabase.current) {
-      loadingFromSupabase.current = false;
-      return;
-    }
     fetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -244,16 +195,49 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     async function init() {
+      // 1. Load accounts from Supabase (source of truth)
+      let remoteAccounts: Account[] = [];
+      try {
+        const data = await fetch("/api/settings?key=accounts").then((r) => r.json());
+        if (!cancelled && data.value) {
+          remoteAccounts = (data.value as Account[]).map(deserializeAccount);
+          setAccounts(remoteAccounts);
+        }
+      } catch {}
+
+      if (cancelled) return;
+
+      // 2. Check Schwab auth; if connected, merge account list (preserves settings from step 1)
       try {
         const res = await fetch("/api/auth/status");
-        const data = await res.json();
+        const authData = await res.json();
         if (cancelled) return;
-        const connected = data.authenticated === true;
+        const connected = authData.authenticated === true;
         setSchwabConnected(connected);
-        if (connected) await syncAccountsFromSchwab();
+        if (connected) {
+          await syncAccountsFromSchwab(); // sets activeAccount internally
+        } else {
+          const savedNumber = localStorage.getItem(ACTIVE_ACCOUNT_KEY);
+          setActiveAccount(
+            (savedNumber ? remoteAccounts.find((a) => a.accountNumber === savedNumber) : null) ??
+              remoteAccounts[0] ??
+              null
+          );
+        }
       } catch {
-        if (!cancelled) setSchwabConnected(false);
+        if (!cancelled) {
+          setSchwabConnected(false);
+          const savedNumber = localStorage.getItem(ACTIVE_ACCOUNT_KEY);
+          setActiveAccount(
+            (savedNumber ? remoteAccounts.find((a) => a.accountNumber === savedNumber) : null) ??
+              remoteAccounts[0] ??
+              null
+          );
+        }
       }
+
+      // 3. Enable persistence writes now that initial load is complete
+      if (!cancelled) setInitialized(true);
     }
     init();
     return () => { cancelled = true; };
