@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useApp } from "@/lib/context/AppContext";
 import type { Alerts } from "@/lib/context/AppContext";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
@@ -35,6 +35,7 @@ import {
   IconChartLine,
   IconColumns3,
   IconDotsCircleHorizontal,
+  IconMoodSmile,
 } from "@tabler/icons-react";
 
 const ALL_PAGES = [
@@ -46,6 +47,7 @@ const ALL_PAGES = [
   { href: "/options",             label: "Options",      icon: IconChartCandle },
   { href: "/interest-dividends",  label: "Interest",     icon: IconCoins },
   { href: "/chart",               label: "Chart",        icon: IconChartLine },
+  { href: "/sentiment",           label: "Sentiment",    icon: IconMoodSmile },
 ];
 
 const TAB_PAGES = ALL_PAGES.slice(0, 5);
@@ -66,11 +68,19 @@ function NavIcon({ Icon, warn }: { Icon: React.ElementType; warn: boolean }) {
   );
 }
 
+function useTestMode() {
+  return useSyncExternalStore(
+    () => () => {},
+    () => window.location.search.includes("testAlerts"),
+    () => false,
+  );
+}
+
 // Desktop sidebar
 export function SideNav() {
   const pathname = usePathname();
   const { alerts: realAlerts } = useApp();
-  const testMode = typeof window !== "undefined" && window.location.search.includes("testAlerts");
+  const testMode = useTestMode();
   const alerts = testMode ? TEST_ALERTS : realAlerts;
   const color = useAccountColor();
 
@@ -99,7 +109,7 @@ export function BottomNav() {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
   const { alerts: realAlerts } = useApp();
-  const testMode = typeof window !== "undefined" && window.location.search.includes("testAlerts");
+  const testMode = useTestMode();
   const alerts = testMode ? TEST_ALERTS : realAlerts;
   const color = useAccountColor();
   const moreWarn = MORE_PAGES.some(({ href }) => PAGE_WARN[href]?.(alerts) ?? false);
