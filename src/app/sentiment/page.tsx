@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Stack,
   Group,
@@ -229,60 +229,81 @@ function FearGreedGauge({ score, color }: { score: number; color: string }) {
   );
 }
 
+// ── card link wrapper ──────────────────────────────────────────────────────
+
+function CardLink({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", display: "block", height: "100%", color: "inherit" }}>
+      {children}
+    </a>
+  );
+}
+
 // ── indicator cards ────────────────────────────────────────────────────────
 
 function FearGreedCard({ data }: { data: SentimentData["fearGreed"] }) {
   const color = data ? fgColor(data.current) : "gray";
   const bg = useCardBg(color);
 
+  const href = "https://www.cnn.com/markets/fear-and-greed";
+
   if (!data) {
     return (
-      <Paper p="md" radius={CARD_RADIUS} style={{ background: bg }}>
-        <Stack gap="xs" align="center">
-          <Text size="xs" c="dimmed" tt="uppercase" fw={600}>Fear &amp; Greed</Text>
-          <Group gap={4} c="dimmed"><IconAlertTriangle size={14} /><Text size="xs">Unavailable</Text></Group>
-        </Stack>
-      </Paper>
+      <CardLink href={href}>
+        <Paper p="md" radius={CARD_RADIUS} style={{ background: bg, height: "100%" }}>
+          <Stack gap="xs" align="center">
+            <Text size="xs" c="dimmed" tt="uppercase" fw={600}>Fear &amp; Greed</Text>
+            <Group gap={4} c="dimmed"><IconAlertTriangle size={14} /><Text size="xs">Unavailable</Text></Group>
+          </Stack>
+        </Paper>
+      </CardLink>
     );
   }
 
-
   return (
-    <Paper p="md" radius={CARD_RADIUS} style={{ background: bg }}>
-      <Stack gap="sm">
-        <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center">
+    <CardLink href={href}>
+    <Paper p="xs" radius={CARD_RADIUS} style={{ background: bg, height: "100%" }}>
+      <Stack gap="xs">
+        <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center" hiddenFrom="sm">
+          Fear &amp; Greed
+        </Text>
+        <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center" visibleFrom="sm">
           Fear &amp; Greed Index
         </Text>
-        <Box style={{ minHeight: 130, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
-          <FearGreedGauge score={data.current} color={color} />
-          <Badge color={color} variant="filled" size="sm">
+        <Box style={{ minHeight: 120, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
+          <Box hiddenFrom="sm">
+            <Text style={{ fontSize: "1.75rem", fontWeight: 700, lineHeight: 1 }} c={`${color}.4`}>{data.current}</Text>
+          </Box>
+          <Box visibleFrom="sm">
+            <FearGreedGauge score={data.current} color={color} />
+          </Box>
+          <Badge color={color} variant="filled" size="xs">
             {fgLabel(data.current)}
           </Badge>
         </Box>
-        <Sparkline data={data.history} color={color} domain={[0, 100]} />
-        <Divider />
-        <Stack gap={6}>
-          <Group justify="space-between">
-            <Text size="xs" c="dimmed">
-              Yesterday
-            </Text>
-            <ChangeChip delta={data.current - data.previousClose} />
-          </Group>
-          <Group justify="space-between">
-            <Text size="xs" c="dimmed">
-              1 Week ago
-            </Text>
-            <ChangeChip delta={data.current - data.oneWeekAgo} />
-          </Group>
-          <Group justify="space-between">
-            <Text size="xs" c="dimmed">
-              1 Month ago
-            </Text>
-            <ChangeChip delta={data.current - data.oneMonthAgo} />
-          </Group>
-        </Stack>
+        <Box visibleFrom="sm">
+          <Box style={{ marginInline: "calc(-1 * var(--mantine-spacing-xs))" }}>
+            <Sparkline data={data.history} color={color} domain={[0, 100]} />
+            <Divider />
+          </Box>
+          <Stack gap={6} mt="xs">
+            <Group justify="space-between">
+              <Text size="xs" c="dimmed">Yesterday</Text>
+              <ChangeChip delta={data.current - data.previousClose} />
+            </Group>
+            <Group justify="space-between">
+              <Text size="xs" c="dimmed">1 Week ago</Text>
+              <ChangeChip delta={data.current - data.oneWeekAgo} />
+            </Group>
+            <Group justify="space-between">
+              <Text size="xs" c="dimmed">1 Month ago</Text>
+              <ChangeChip delta={data.current - data.oneMonthAgo} />
+            </Group>
+          </Stack>
+        </Box>
       </Stack>
     </Paper>
+    </CardLink>
   );
 }
 
@@ -290,111 +311,108 @@ function VixCard({ data }: { data: SentimentData["vix"] }) {
   const color = data ? vixColor(data.current) : "gray";
   const bg = useCardBg(color);
 
+  const href = "https://www.cboe.com/tradable_products/vix/";
+
   if (!data) {
     return (
-      <Paper p="md" radius={CARD_RADIUS} style={{ background: bg }}>
-        <Stack gap="xs" align="center">
-          <Text size="xs" c="dimmed" tt="uppercase" fw={600}>VIX</Text>
-          <Group gap={4} c="dimmed"><IconAlertTriangle size={14} /><Text size="xs">Unavailable</Text></Group>
-        </Stack>
-      </Paper>
+      <CardLink href={href}>
+        <Paper p="md" radius={CARD_RADIUS} style={{ background: bg, height: "100%" }}>
+          <Stack gap="xs" align="center">
+            <Text size="xs" c="dimmed" tt="uppercase" fw={600}>VIX</Text>
+            <Group gap={4} c="dimmed"><IconAlertTriangle size={14} /><Text size="xs">Unavailable</Text></Group>
+          </Stack>
+        </Paper>
+      </CardLink>
     );
   }
 
   return (
-    <Paper p="md" radius={CARD_RADIUS} style={{ background: bg }}>
-      <Stack gap="sm">
-        <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center">
-          VIX Volatility Index
-        </Text>
-        <Box style={{ minHeight: 130, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
-          <Text
-            style={{ fontSize: "2.5rem", fontWeight: 700, lineHeight: 1 }}
-            c={`${color}.4`}
-          >
-            {data.current.toFixed(1)}
-          </Text>
-          <Text size="xs" c="dimmed">
-            {data.current < 15
-              ? "Calm"
-              : data.current < 20
-                ? "Low"
-                : data.current < 25
-                  ? "Elevated"
-                  : data.current < 30
-                    ? "High"
-                    : "Extreme"}
-          </Text>
-        </Box>
-        <Sparkline data={data.history} color={color} />
-        <Divider />
-        <Stack gap={6}>
-          <Group justify="space-between">
-            <Text size="xs" c="dimmed">
-              Yesterday
+    <CardLink href={href}>
+      <Paper p="xs" radius={CARD_RADIUS} style={{ background: bg, height: "100%" }}>
+        <Stack gap="xs">
+          <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center" hiddenFrom="sm">VIX</Text>
+          <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center" visibleFrom="sm">VIX Volatility Index</Text>
+          <Box style={{ minHeight: 120, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
+            <Text style={{ fontSize: "1.75rem", fontWeight: 700, lineHeight: 1 }} c={`${color}.4`}>
+              {data.current.toFixed(1)}
             </Text>
-            {/* invert: lower VIX = improving sentiment */}
-            <ChangeChip delta={data.dayChange} invert />
-          </Group>
-          <Group justify="space-between">
             <Text size="xs" c="dimmed">
-              1 Week ago
+              {data.current < 15 ? "Calm" : data.current < 20 ? "Low" : data.current < 25 ? "Elevated" : data.current < 30 ? "High" : "Extreme"}
             </Text>
-            <ChangeChip delta={data.weekChange} invert />
-          </Group>
-          <Group justify="space-between">
-            <Text size="xs" c="dimmed">
-              1 Month ago
-            </Text>
-            <ChangeChip delta={data.monthChange} invert />
-          </Group>
+          </Box>
+          <Box visibleFrom="sm">
+            <Box style={{ marginInline: "calc(-1 * var(--mantine-spacing-xs))" }}>
+              <Sparkline data={data.history} color={color} />
+              <Divider />
+            </Box>
+            <Stack gap={6} mt="xs">
+              <Group justify="space-between">
+                <Text size="xs" c="dimmed">Yesterday</Text>
+                {/* invert: lower VIX = improving sentiment */}
+                <ChangeChip delta={data.dayChange} invert />
+              </Group>
+              <Group justify="space-between">
+                <Text size="xs" c="dimmed">1 Week ago</Text>
+                <ChangeChip delta={data.weekChange} invert />
+              </Group>
+              <Group justify="space-between">
+                <Text size="xs" c="dimmed">1 Month ago</Text>
+                <ChangeChip delta={data.monthChange} invert />
+              </Group>
+            </Stack>
+          </Box>
         </Stack>
-      </Stack>
-    </Paper>
+      </Paper>
+    </CardLink>
   );
 }
 
 function RsiCard({ data }: { data: SentimentData["rsi"] }) {
   const color = data ? rsiColor(data.value) : "gray";
   const bg = useCardBg(color);
+  const href = "https://www.tradingview.com/chart/?symbol=TQQQ";
 
   if (!data) {
     return (
-      <Paper p="md" radius={CARD_RADIUS} style={{ background: bg }}>
-        <Stack gap="xs" align="center">
-          <Text size="xs" c="dimmed" tt="uppercase" fw={600}>TQQQ RSI</Text>
-          <Group gap={4} c="dimmed"><IconAlertTriangle size={14} /><Text size="xs">Unavailable</Text></Group>
-        </Stack>
-      </Paper>
+      <CardLink href={href}>
+        <Paper p="md" radius={CARD_RADIUS} style={{ background: bg, height: "100%" }}>
+          <Stack gap="xs" align="center">
+            <Text size="xs" c="dimmed" tt="uppercase" fw={600}>TQQQ RSI</Text>
+            <Group gap={4} c="dimmed"><IconAlertTriangle size={14} /><Text size="xs">Unavailable</Text></Group>
+          </Stack>
+        </Paper>
+      </CardLink>
     );
   }
 
   return (
-    <Paper p="md" radius={CARD_RADIUS} style={{ background: bg }}>
-      <Stack gap="sm">
-        <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center">
-          TQQQ RSI (14)
-        </Text>
-        <Box style={{ minHeight: 130, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
-          <Text
-            style={{ fontSize: "2.5rem", fontWeight: 700, lineHeight: 1 }}
-            c={`${color}.4`}
-          >
-            {data.value.toFixed(1)}
-          </Text>
-          <Badge color={color} variant="filled" size="sm">
-            {rsiLabel(data.value)}
-          </Badge>
-        </Box>
-        <Sparkline data={data.history} color={color} domain={[0, 100]} />
-        <Divider />
-        <Group justify="space-between">
-          <Text size="10px" c="dimmed">Oversold &lt;30</Text>
-          <Text size="10px" c="dimmed">Neutral</Text>
-          <Text size="10px" c="dimmed">&gt;70 Overbought</Text>
-        </Group>
-      </Stack>
-    </Paper>
+    <CardLink href={href}>
+      <Paper p="xs" radius={CARD_RADIUS} style={{ background: bg, height: "100%" }}>
+        <Stack gap="xs">
+          <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center" hiddenFrom="sm">TQQQ RSI</Text>
+          <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center" visibleFrom="sm">TQQQ RSI (14)</Text>
+          <Box style={{ minHeight: 120, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
+            <Text style={{ fontSize: "1.75rem", fontWeight: 700, lineHeight: 1 }} c={`${color}.4`}>
+              {data.value.toFixed(1)}
+            </Text>
+            <Badge color={color} variant="filled" size="xs">
+              {rsiLabel(data.value)}
+            </Badge>
+          </Box>
+          <Box visibleFrom="sm">
+            <Box style={{ marginInline: "calc(-1 * var(--mantine-spacing-xs))" }}>
+              <Sparkline data={data.history} color={color} domain={[0, 100]} />
+              <Divider />
+            </Box>
+            <Group justify="space-between" mt="xs">
+              <Text size="10px" c="dimmed">Oversold &lt;30</Text>
+              <Text size="10px" c="dimmed">Neutral</Text>
+              <Text size="10px" c="dimmed">&gt;70 Overbought</Text>
+            </Group>
+          </Box>
+        </Stack>
+      </Paper>
+    </CardLink>
   );
 }
 
@@ -424,139 +442,144 @@ function MacroSignals({ macro }: { macro: SentimentData["macro"] }) {
     : "gray";
 
   return (
-    <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+    <SimpleGrid cols={3} spacing="xs">
       {/* FOMC */}
-      <Paper p="md" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-6)" }}>
-        <Stack gap={6}>
-          <Text size="xs" c="dimmed" tt="uppercase" fw={600}>Next FOMC</Text>
-          {fomc ? (
-            <>
-              <Box style={{ minHeight: 90, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
-                <Text fw={700} size="sm">{fomc.label}</Text>
-                <Badge color={fomcColor} variant="light" size="sm">
-                  {fomc.daysUntil === 0 ? "Today" : `In ${fomc.daysUntil} day${fomc.daysUntil === 1 ? "" : "s"}`}
-                </Badge>
-                <Text size="xs" c="dimmed">Fed rate decision</Text>
-              </Box>
-              {/* Cycle progress bar */}
-              <Box style={{ height: 56, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
-                <Box style={{ position: "relative", height: 8, borderRadius: 4, background: "var(--mantine-color-dark-4)" }}>
-                  <Box style={{
-                    width: `${Math.round(fomc.daysSinceLast / (fomc.daysSinceLast + fomc.daysUntil) * 100)}%`,
-                    height: "100%", borderRadius: 4,
-                    background: `var(--mantine-color-${fomcColor}-5)`,
-                  }} />
+      <CardLink href="https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm">
+        <Paper p="xs" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-6)", height: "100%" }}>
+          <Stack gap={6} style={{ height: "100%" }}>
+            <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center">Next FOMC</Text>
+            {fomc ? (
+              <>
+                <Box style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <Text fw={700} size="xl" hiddenFrom="sm" c={fomcColor === "gray" ? "dimmed" : `${fomcColor}.4`}>
+                    {new Date(fomc.nextDate).toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "2-digit" })}
+                  </Text>
+                  <Text fw={700} size="sm" visibleFrom="sm">{fomc.label}</Text>
+                  <Badge color={fomcColor} variant="light" size="xs">
+                    {fomc.daysUntil === 0 ? "Today" : `In ${fomc.daysUntil}d`}
+                  </Badge>
+                  <Text size="xs" c="dimmed" visibleFrom="sm">Fed rate decision</Text>
                 </Box>
-                <Group justify="space-between">
-                  <Text size="10px" c="dimmed">Last meeting</Text>
-                  <Text size="10px" c="dimmed">Next meeting</Text>
-                </Group>
-              </Box>
-            </>
-          ) : (
-            <Text size="xs" c="dimmed">Unavailable</Text>
-          )}
-        </Stack>
-      </Paper>
+                <Box visibleFrom="sm" style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
+                  <Box style={{ position: "relative", height: 8, borderRadius: 4, background: "var(--mantine-color-dark-4)" }}>
+                    <Box style={{
+                      width: `${Math.round(fomc.daysSinceLast / (fomc.daysSinceLast + fomc.daysUntil) * 100)}%`,
+                      height: "100%", borderRadius: 4,
+                      background: `var(--mantine-color-${fomcColor}-5)`,
+                    }} />
+                  </Box>
+                  <Group justify="space-between">
+                    <Text size="10px" c="dimmed">Last</Text>
+                    <Text size="10px" c="dimmed">Next</Text>
+                  </Group>
+                </Box>
+              </>
+            ) : (
+              <Text size="xs" c="dimmed">Unavailable</Text>
+            )}
+          </Stack>
+        </Paper>
+      </CardLink>
 
       {/* Yield spread */}
-      <Paper p="md" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-6)" }}>
-        <Stack gap={6}>
-          <Text size="xs" c="dimmed" tt="uppercase" fw={600}>Yield Curve (10Y − 3M)</Text>
-          {yieldSpread ? (
-            <>
-              <Box style={{ minHeight: 90, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
-                <Text fw={700} size="xl" c={`${spreadColor}.4`}>
-                  {yieldSpread.spread > 0 ? "+" : ""}{yieldSpread.spread.toFixed(2)}%
-                </Text>
-                <Badge color={spreadColor} variant="light" size="sm">
-                  {yieldSpread.spread < 0 ? "Inverted — recession risk" : yieldSpread.spread < 0.5 ? "Flat" : "Normal"}
-                </Badge>
-                <Text size="xs" c="dimmed">
-                  10Y {yieldSpread.tenYear.toFixed(2)}% · 3M {yieldSpread.threeMonth.toFixed(2)}%
-                </Text>
-              </Box>
-              {/* Zone scale: -2 → +3, marker at current spread */}
-              <Box style={{ height: 56, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
-                <Box style={{ position: "relative", height: 8, borderRadius: 4, overflow: "hidden", display: "flex" }}>
-                  {[
-                    { color: "red",    flex: 1 },
-                    { color: "orange", flex: 1 },
-                    { color: "yellow", flex: 0.5 },
-                    { color: "lime",   flex: 1 },
-                    { color: "green",  flex: 1.5 },
-                  ].map((z, i) => (
-                    <Box key={i} style={{ flex: z.flex, background: `var(--mantine-color-${z.color}-7)` }} />
-                  ))}
-                  <Box style={{
-                    position: "absolute",
-                    left: `${Math.min(Math.max(Math.round(((yieldSpread.spread + 2) / 5) * 100), 1), 98)}%`,
-                    top: 0, bottom: 0, width: 3,
-                    background: "white",
-                    borderRadius: 2,
-                  }} />
+      <CardLink href="https://fred.stlouisfed.org/series/T10Y3M">
+        <Paper p="xs" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-6)", height: "100%" }}>
+          <Stack gap={6} style={{ height: "100%" }}>
+            <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center" hiddenFrom="sm">Yield Curve</Text>
+            <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center" visibleFrom="sm">Yield Curve (10Y − 3M)</Text>
+            {yieldSpread ? (
+              <>
+                <Box style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <Text fw={700} size="xl" ta="center" c={`${spreadColor}.4`}>
+                    {yieldSpread.spread > 0 ? "+" : ""}{yieldSpread.spread.toFixed(2)}%
+                  </Text>
+                  <Badge color={spreadColor} variant="light" size="xs">
+                    {yieldSpread.spread < 0 ? "Inverted" : yieldSpread.spread < 0.5 ? "Flat" : "Normal"}
+                  </Badge>
+                  <Text size="xs" c="dimmed" visibleFrom="sm">
+                    10Y {yieldSpread.tenYear.toFixed(2)}% · 3M {yieldSpread.threeMonth.toFixed(2)}%
+                  </Text>
                 </Box>
-                <Group justify="space-between">
-                  <Text size="10px" c="dimmed">−2% inverted</Text>
-                  <Text size="10px" c="dimmed">0</Text>
-                  <Text size="10px" c="dimmed">+3% steep</Text>
-                </Group>
-              </Box>
-            </>
-          ) : (
-            <Text size="xs" c="dimmed">Unavailable</Text>
-          )}
-        </Stack>
-      </Paper>
+                <Box visibleFrom="sm" style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
+                  <Box style={{ position: "relative", height: 8, borderRadius: 4, overflow: "hidden", display: "flex" }}>
+                    {[
+                      { color: "red",    flex: 1 },
+                      { color: "orange", flex: 1 },
+                      { color: "yellow", flex: 0.5 },
+                      { color: "lime",   flex: 1 },
+                      { color: "green",  flex: 1.5 },
+                    ].map((z, i) => (
+                      <Box key={i} style={{ flex: z.flex, background: `var(--mantine-color-${z.color}-7)` }} />
+                    ))}
+                    <Box style={{
+                      position: "absolute",
+                      left: `${Math.min(Math.max(Math.round(((yieldSpread.spread + 2) / 5) * 100), 1), 98)}%`,
+                      top: 0, bottom: 0, width: 3,
+                      background: "white",
+                      borderRadius: 2,
+                    }} />
+                  </Box>
+                  <Group justify="space-between">
+                    <Text size="10px" c="dimmed">−2% inverted</Text>
+                    <Text size="10px" c="dimmed">+3% steep</Text>
+                  </Group>
+                </Box>
+              </>
+            ) : (
+              <Text size="xs" c="dimmed">Unavailable</Text>
+            )}
+          </Stack>
+        </Paper>
+      </CardLink>
 
       {/* Put/Call ratio */}
-      <Paper p="md" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-6)" }}>
-        <Stack gap={6}>
-          <Text size="xs" c="dimmed" tt="uppercase" fw={600}>QQQ Put/Call Ratio</Text>
-          {putCallRatio != null ? (
-            <>
-              <Box style={{ minHeight: 90, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
-                <Text fw={700} size="xl" c={`${pcColor}.4`}>{putCallRatio.toFixed(2)}</Text>
-                <Badge color={pcColor} variant="light" size="sm">
-                  {putCallRatio > 1.2 ? "Extreme fear"
-                    : putCallRatio > 0.9 ? "Bearish lean"
-                    : putCallRatio > 0.7 ? "Neutral"
-                    : "Bullish lean"}
-                </Badge>
-                <Text size="xs" c="dimmed">Puts ÷ calls by volume (nearest expiry)</Text>
-              </Box>
-              {/* Zone scale: 0 → 2.0, marker at current ratio */}
-              <Box style={{ height: 56, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
-                <Box style={{ position: "relative", height: 8, borderRadius: 4, overflow: "hidden", display: "flex" }}>
-                  {[
-                    { label: "Bullish", color: "green",  flex: 0.7 },
-                    { label: "Neutral", color: "yellow", flex: 0.2 },
-                    { label: "Bearish", color: "orange", flex: 0.15 },
-                    { label: "Fear",    color: "red",    flex: 0.95 },
-                  ].map((z) => (
-                    <Box key={z.label} style={{ flex: z.flex, background: `var(--mantine-color-${z.color}-7)` }} />
-                  ))}
-                  {/* marker */}
-                  <Box style={{
-                    position: "absolute",
-                    left: `${Math.min(Math.round((putCallRatio / 2) * 100), 98)}%`,
-                    top: 0, bottom: 0, width: 3,
-                    background: "white",
-                    borderRadius: 2,
-                  }} />
+      <CardLink href="https://www.cboe.com/us/options/market_statistics/daily/">
+        <Paper p="xs" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-6)", height: "100%" }}>
+          <Stack gap={6} style={{ height: "100%" }}>
+            <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center" hiddenFrom="sm">Put/Call</Text>
+            <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center" visibleFrom="sm">QQQ Put/Call Ratio</Text>
+            {putCallRatio != null ? (
+              <>
+                <Box style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <Text fw={700} size="xl" ta="center" c={`${pcColor}.4`}>{putCallRatio.toFixed(2)}</Text>
+                  <Badge color={pcColor} variant="light" size="xs">
+                    {putCallRatio > 1.2 ? "Extreme fear"
+                      : putCallRatio > 0.9 ? "Bearish lean"
+                      : putCallRatio > 0.7 ? "Neutral"
+                      : "Bullish lean"}
+                  </Badge>
+                  <Text size="xs" c="dimmed" visibleFrom="sm">Puts ÷ calls by volume (nearest expiry)</Text>
                 </Box>
-                <Group justify="space-between">
-                  <Text size="10px" c="dimmed">0 (bullish)</Text>
-                  <Text size="10px" c="dimmed">1.0</Text>
-                  <Text size="10px" c="dimmed">2.0 (fear)</Text>
-                </Group>
-              </Box>
-            </>
-          ) : (
-            <Text size="xs" c="dimmed">Unavailable</Text>
-          )}
-        </Stack>
-      </Paper>
+                <Box visibleFrom="sm" style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
+                  <Box style={{ position: "relative", height: 8, borderRadius: 4, overflow: "hidden", display: "flex" }}>
+                    {[
+                      { label: "Bullish", color: "green",  flex: 0.7 },
+                      { label: "Neutral", color: "yellow", flex: 0.2 },
+                      { label: "Bearish", color: "orange", flex: 0.15 },
+                      { label: "Fear",    color: "red",    flex: 0.95 },
+                    ].map((z) => (
+                      <Box key={z.label} style={{ flex: z.flex, background: `var(--mantine-color-${z.color}-7)` }} />
+                    ))}
+                    <Box style={{
+                      position: "absolute",
+                      left: `${Math.min(Math.round((putCallRatio / 2) * 100), 98)}%`,
+                      top: 0, bottom: 0, width: 3,
+                      background: "white",
+                      borderRadius: 2,
+                    }} />
+                  </Box>
+                  <Group justify="space-between">
+                    <Text size="10px" c="dimmed">0 (bullish)</Text>
+                    <Text size="10px" c="dimmed">2.0 (fear)</Text>
+                  </Group>
+                </Box>
+              </>
+            ) : (
+              <Text size="xs" c="dimmed">Unavailable</Text>
+            )}
+          </Stack>
+        </Paper>
+      </CardLink>
     </SimpleGrid>
   );
 }
@@ -671,34 +694,42 @@ function EarningsBadge({ earnings }: { earnings: HoldingSentiment["earnings"] })
 function HoldingCard({ holding }: { holding: HoldingSentiment }) {
   const color = sentimentColor(holding.score);
   const label = sentimentLabel(holding.score);
+  const bg = useCardBg(color);
 
   return (
     <Paper
       p="md"
       radius={CARD_RADIUS}
-      style={{ background: "var(--mantine-color-dark-6)" }}
+      style={{ background: bg }}
     >
       <Stack gap="sm">
         <Group justify="space-between" wrap="nowrap">
           <Box>
             <Group gap={6} align="baseline">
-              <Text fw={700} size="sm">
-                {holding.symbol}
-              </Text>
-              <Text size="xs" c="dimmed">
-                {holding.weight.toFixed(1)}%
-              </Text>
+              <Text fw={700} size="sm">{holding.symbol}</Text>
+              {holding.dayChangePercent != null && (
+                <Text size="xs" fw={600} c={holding.dayChangePercent >= 0 ? "green" : "red"}>
+                  {holding.dayChangePercent >= 0 ? "+" : ""}{holding.dayChangePercent.toFixed(2)}%
+                </Text>
+              )}
             </Group>
-            <Text size="xs" c="dimmed">
-              {holding.name}
-            </Text>
+            <Group gap={4} align="baseline">
+              <Text size="xs" c="dimmed">{holding.name}</Text>
+              <Text size="xs" c="dimmed">· {holding.weight.toFixed(1)}%</Text>
+            </Group>
           </Box>
           <Badge color={color} variant="filled" size="sm">
             {label}
           </Badge>
         </Group>
 
-        <EarningsBadge earnings={holding.earnings} />
+        {(holding.earnings.nextDate != null || holding.earnings.recommendationMean != null) && (
+          <>
+            <Divider />
+            <EarningsBadge earnings={holding.earnings} />
+            <Divider />
+          </>
+        )}
 
         {holding.articles.length === 0 ? (
           <Text size="xs" c="dimmed">
@@ -730,7 +761,13 @@ function HoldingCard({ holding }: { holding: HoldingSentiment }) {
                 >
                   <Text size="xs" style={{ lineHeight: 1.4 }}>
                     <Text span size="xs" c="dimmed" fw={500}>{formatArticleDate(article.providerPublishTime)} · </Text>
-                    {article.title}
+                    {article.link ? (
+                      <Text span component="a" href={article.link} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "underline", textDecorationColor: "var(--mantine-color-dimmed)", textUnderlineOffset: 2 }}>
+                        {article.title}
+                      </Text>
+                    ) : (
+                      <Text span>{article.title}</Text>
+                    )}
                   </Text>
                 </Tooltip>
               </Group>
@@ -771,9 +808,9 @@ export default function SentimentPage() {
 
       {/* Indicators */}
       {loading ? (
-        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+        <SimpleGrid cols={3} spacing="xs">
           {[0, 1, 2].map((i) => (
-            <Skeleton key={i} height={200} radius="xl" />
+            <Skeleton key={i} height={120} radius="xl" />
           ))}
         </SimpleGrid>
       ) : error ? (
@@ -788,16 +825,15 @@ export default function SentimentPage() {
           </Group>
         </Paper>
       ) : (
-        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+        <SimpleGrid cols={3} spacing="xs">
           <FearGreedCard data={data?.fearGreed ?? null} />
           <VixCard data={data?.vix ?? null} />
           <RsiCard data={data?.rsi ?? null} />
         </SimpleGrid>
       )}
 
-      {/* Aggregate news sentiment */}
+      {/* Macro signals */}
       {!loading && !error && data && <MacroSignals macro={data.macro} />}
-      {!loading && !error && data && <AggregateSentiment holdings={data.holdings} />}
 
       {/* Holdings news */}
       <Group gap="xs" align="center">
@@ -807,14 +843,17 @@ export default function SentimentPage() {
         </Text>
       </Group>
 
+      {/* Aggregate news sentiment */}
+      {!loading && !error && data && <AggregateSentiment holdings={data.holdings} />}
+
       {loading ? (
-        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+        <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
           {Array.from({ length: 9 }, (_, i) => (
             <Skeleton key={i} height={160} radius="xl" />
           ))}
         </SimpleGrid>
       ) : error ? null : (
-        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+        <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
           {(data?.holdings ?? []).map((holding) => (
             <HoldingCard key={holding.symbol} holding={holding} />
           ))}

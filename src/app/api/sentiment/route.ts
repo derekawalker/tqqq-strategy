@@ -58,6 +58,7 @@ export interface SentimentArticle {
   publisher: string;
   providerPublishTime: number;
   sentiment: "positive" | "negative" | "neutral";
+  link: string;
 }
 
 export interface HoldingSentiment {
@@ -67,6 +68,7 @@ export interface HoldingSentiment {
   score: number;
   articleCount: number;
   articles: SentimentArticle[];
+  dayChangePercent: number | null;
   earnings: {
     nextDate: number | null;
     recommendationMean: number | null;
@@ -126,16 +128,19 @@ export interface SentimentData {
 export async function GET() {
   try {
     const newsPromises = QQQ_TOP9.map((h) =>
-      yf.search(h.symbol, { newsCount: 5, quotesCount: 0 })
+      yf.search(h.name, { newsCount: 5, quotesCount: 0 })
     );
     const earningsPromises = QQQ_TOP9.map((h) =>
       yf.quoteSummary(h.symbol, { modules: ["calendarEvents", "financialData"] })
+    );
+    const quotePromises = QQQ_TOP9.map((h) =>
+      yf.quote(h.symbol, { fields: ["regularMarketChangePercent"] })
     );
 
     const period14 = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000);
     const period45 = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000);
 
-    const [[vixResult, tqqqResult, fgResult, tnxResult, irxResult, pcResult], newsResults, earningsResults] =
+    const [[vixResult, tqqqResult, fgResult, tnxResult, irxResult, pcResult], newsResults, earningsResults, quoteResults] =
       await Promise.all([
         Promise.allSettled([
           yf.chart("^VIX", { period1: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000), interval: "1d" }),
@@ -153,6 +158,7 @@ export async function GET() {
         ]),
         Promise.allSettled(newsPromises),
         Promise.allSettled(earningsPromises),
+        Promise.allSettled(quotePromises),
       ]);
 
     // VIX
@@ -274,6 +280,10 @@ export async function GET() {
     const holdings: HoldingSentiment[] = QQQ_TOP9.map((holding, i) => {
       const newsResult = newsResults[i];
       const earningsResult = earningsResults[i];
+      const quoteResult = quoteResults[i];
+      const dayChangePercent = quoteResult.status === "fulfilled"
+        ? (quoteResult.value.regularMarketChangePercent ?? null)
+        : null;
 
       const news = newsResult.status === "fulfilled" ? (newsResult.value.news ?? []) : [];
       const articles: SentimentArticle[] = news.slice(0, 5).map((article) => ({
@@ -281,10 +291,11 @@ export async function GET() {
         publisher: article.publisher,
         providerPublishTime: (article.providerPublishTime as Date).getTime(),
         sentiment: scoreHeadline(article.title),
+        link: article.link,
       }));
       const pos = articles.filter((a) => a.sentiment === "positive").length;
       const neg = articles.filter((a) => a.sentiment === "negative").length;
-      const score = articles.length > 0 ? (pos - neg) / articles.length : 0;
+      const newsScore = articles.length > 0 ? (pos - neg) / articles.length : 0;
 
       let earnings: HoldingSentiment["earnings"] = { nextDate: null, recommendationMean: null };
       if (earningsResult.status === "fulfilled") {
@@ -296,7 +307,18 @@ export async function GET() {
         earnings = { nextDate, recommendationMean };
       }
 
-      return { ...holding, score, articleCount: articles.length, articles, earnings };
+      // Normalize each signal to [-1, 1], then average whichever are available
+      const priceScore = dayChangePercent != null
+        ? Math.max(-1, Math.min(1, dayChangePercent / 5))
+        : null;
+      // recommendationMean: 1=Strong Buy→+1, 3=Hold→0, 5=Sell→-1
+      const analystScore = earnings.recommendationMean != null
+        ? (3 - earnings.recommendationMean) / 2
+        : null;
+      const signals = [newsScore, priceScore, analystScore].filter((v): v is number => v != null);
+      const score = signals.reduce((a, b) => a + b, 0) / signals.length;
+
+      return { ...holding, score, articleCount: articles.length, articles, dayChangePercent, earnings };
     });
 
     const payload: SentimentData = {
