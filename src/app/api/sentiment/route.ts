@@ -3,7 +3,7 @@ import YahooFinance from "yahoo-finance2";
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
 // Sorted by QQQ weight %, descending (approximate as of early 2025)
-export const QQQ_TOP9 = [
+export const QQQ_TOP12 = [
   { symbol: "MSFT", name: "Microsoft",  weight: 8.8 },
   { symbol: "AAPL", name: "Apple",      weight: 8.0 },
   { symbol: "NVDA", name: "NVIDIA",     weight: 7.9 },
@@ -13,6 +13,9 @@ export const QQQ_TOP9 = [
   { symbol: "TSLA", name: "Tesla",      weight: 3.5 },
   { symbol: "AVGO", name: "Broadcom",   weight: 3.2 },
   { symbol: "COST", name: "Costco",     weight: 2.6 },
+  { symbol: "NFLX", name: "Netflix",    weight: 2.4 },
+  { symbol: "TMUS", name: "T-Mobile",   weight: 2.2 },
+  { symbol: "AMD",  name: "AMD",        weight: 2.0 },
 ];
 
 const POSITIVE_WORDS = [
@@ -101,6 +104,8 @@ export interface SentimentData {
     dayChange: number;
     weekChange: number;
     monthChange: number;
+    high52w: number | null;
+    low52w: number | null;
     history: HistoryPoint[];
   } | null;
   rsi: {
@@ -127,23 +132,24 @@ export interface SentimentData {
 
 export async function GET() {
   try {
-    const newsPromises = QQQ_TOP9.map((h) =>
+    const newsPromises = QQQ_TOP12.map((h) =>
       yf.search(h.name, { newsCount: 5, quotesCount: 0 })
     );
-    const earningsPromises = QQQ_TOP9.map((h) =>
+    const earningsPromises = QQQ_TOP12.map((h) =>
       yf.quoteSummary(h.symbol, { modules: ["calendarEvents", "financialData"] })
     );
-    const quotePromises = QQQ_TOP9.map((h) =>
+    const quotePromises = QQQ_TOP12.map((h) =>
       yf.quote(h.symbol, { fields: ["regularMarketChangePercent"] })
     );
 
     const period14 = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000);
     const period45 = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000);
 
-    const [[vixResult, tqqqResult, fgResult, tnxResult, irxResult, pcResult], newsResults, earningsResults, quoteResults] =
+    const [[vixResult, vixQuoteResult, tqqqResult, fgResult, tnxResult, irxResult, pcResult], newsResults, earningsResults, quoteResults] =
       await Promise.all([
         Promise.allSettled([
           yf.chart("^VIX", { period1: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000), interval: "1d" }),
+          yf.quote("^VIX", { fields: ["fiftyTwoWeekHigh", "fiftyTwoWeekLow"] }),
           yf.chart("TQQQ", { period1: period45, interval: "1d" }),
           fetch("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", {
             headers: {
@@ -174,11 +180,19 @@ export async function GET() {
           t: (q.date as Date).getTime(),
           v: Math.round((q.close as number) * 100) / 100,
         }));
+        const high52w = vixQuoteResult.status === "fulfilled"
+          ? (vixQuoteResult.value.fiftyTwoWeekHigh ?? null)
+          : null;
+        const low52w = vixQuoteResult.status === "fulfilled"
+          ? (vixQuoteResult.value.fiftyTwoWeekLow ?? null)
+          : null;
         vix = {
           current: Math.round(current * 100) / 100,
           dayChange: Math.round((current - yesterday) * 100) / 100,
           weekChange: Math.round((current - weekAgo) * 100) / 100,
           monthChange: Math.round((current - monthAgo) * 100) / 100,
+          high52w,
+          low52w,
           history,
         };
       }
@@ -277,7 +291,7 @@ export async function GET() {
       : null;
 
     // Holdings news + earnings
-    const holdings: HoldingSentiment[] = QQQ_TOP9.map((holding, i) => {
+    const holdings: HoldingSentiment[] = QQQ_TOP12.map((holding, i) => {
       const newsResult = newsResults[i];
       const earningsResult = earningsResults[i];
       const quoteResult = quoteResults[i];

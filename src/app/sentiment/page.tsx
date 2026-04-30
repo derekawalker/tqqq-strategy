@@ -80,10 +80,10 @@ function rsiLabel(rsi: number): string {
 }
 
 function sentimentColor(score: number): string {
-  if (score > 0.3) return "green";
-  if (score > 0) return "lime";
-  if (score === 0) return "gray";
-  if (score > -0.3) return "orange";
+  if (score > 0.5) return "green";
+  if (score > 0.2) return "lime";
+  if (score > -0.2) return "gray";
+  if (score > -0.5) return "orange";
   return "red";
 }
 
@@ -106,50 +106,7 @@ function articleSentimentColor(s: SentimentArticle["sentiment"]): string {
   return "gray";
 }
 
-function ChangeChip({
-  delta,
-  invert = false,
-}: {
-  delta: number;
-  invert?: boolean;
-}) {
-  // invert=true for VIX: higher VIX = worse sentiment, so negate display
-  const effective = invert ? -delta : delta;
-  if (Math.abs(delta) < 0.01) {
-    return (
-      <Badge
-        color="gray"
-        variant="light"
-        size="xs"
-        leftSection={<IconMinus size={10} />}
-      >
-        Flat
-      </Badge>
-    );
-  }
-  if (effective > 0) {
-    return (
-      <Badge
-        color="green"
-        variant="light"
-        size="xs"
-        leftSection={<IconTrendingUp size={10} />}
-      >
-        +{Math.abs(delta).toFixed(1)}
-      </Badge>
-    );
-  }
-  return (
-    <Badge
-      color="red"
-      variant="light"
-      size="xs"
-      leftSection={<IconTrendingDown size={10} />}
-    >
-      -{Math.abs(delta).toFixed(1)}
-    </Badge>
-  );
-}
+
 
 // ── sparkline ─────────────────────────────────────────────────────────────
 
@@ -208,9 +165,9 @@ function Sparkline({
   );
 }
 
-// ── fear & greed semicircle gauge ─────────────────────────────────────────
+// ── semicircle gauge ──────────────────────────────────────────────────────
 
-function FearGreedGauge({ score, color }: { score: number; color: string }) {
+function SemiGauge({ score, color, label }: { score: number; color: string; label: string }) {
   const R = 50;
   const CX = 60, CY = 62;
   const total = Math.PI * R;
@@ -221,9 +178,9 @@ function FearGreedGauge({ score, color }: { score: number; color: string }) {
       <path d={path} fill="none" stroke="var(--mantine-color-dark-4)" strokeWidth="10" strokeLinecap="round" />
       <path d={path} fill="none" stroke={`var(--mantine-color-${color}-5)`} strokeWidth="10" strokeLinecap="round"
         strokeDasharray={`${fill} ${total}`} />
-      <text x={CX} y={CY - 6} textAnchor="middle" fontSize="22" fontWeight="700"
+      <text x={CX} y={CY - 6} textAnchor="middle" fontSize={18} fontWeight="700"
         fill={`var(--mantine-color-${color}-4)`} fontFamily="inherit">
-        {score}
+        {label}
       </text>
     </svg>
   );
@@ -275,7 +232,7 @@ function FearGreedCard({ data }: { data: SentimentData["fearGreed"] }) {
             <Text style={{ fontSize: "1.75rem", fontWeight: 700, lineHeight: 1 }} c={`${color}.4`}>{data.current}</Text>
           </Box>
           <Box visibleFrom="sm">
-            <FearGreedGauge score={data.current} color={color} />
+            <SemiGauge score={data.current} color={color} label={String(data.current)} />
           </Box>
           <Badge color={color} variant="filled" size="xs">
             {fgLabel(data.current)}
@@ -289,15 +246,15 @@ function FearGreedCard({ data }: { data: SentimentData["fearGreed"] }) {
           <Stack gap={6} mt="xs">
             <Group justify="space-between">
               <Text size="xs" c="dimmed">Yesterday</Text>
-              <ChangeChip delta={data.current - data.previousClose} />
+              <Text size="xs" fw={600} c={`${fgColor(data.previousClose)}.4`}>{data.previousClose}</Text>
             </Group>
             <Group justify="space-between">
               <Text size="xs" c="dimmed">1 Week ago</Text>
-              <ChangeChip delta={data.current - data.oneWeekAgo} />
+              <Text size="xs" fw={600} c={`${fgColor(data.oneWeekAgo)}.4`}>{data.oneWeekAgo}</Text>
             </Group>
             <Group justify="space-between">
               <Text size="xs" c="dimmed">1 Month ago</Text>
-              <ChangeChip delta={data.current - data.oneMonthAgo} />
+              <Text size="xs" fw={600} c={`${fgColor(data.oneMonthAgo)}.4`}>{data.oneMonthAgo}</Text>
             </Group>
           </Stack>
         </Box>
@@ -333,12 +290,21 @@ function VixCard({ data }: { data: SentimentData["vix"] }) {
           <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center" hiddenFrom="sm">VIX</Text>
           <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center" visibleFrom="sm">VIX Volatility Index</Text>
           <Box style={{ minHeight: 120, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
-            <Text style={{ fontSize: "1.75rem", fontWeight: 700, lineHeight: 1 }} c={`${color}.4`}>
-              {data.current.toFixed(1)}
-            </Text>
-            <Text size="xs" c="dimmed">
+            <Box hiddenFrom="sm">
+              <Text style={{ fontSize: "1.75rem", fontWeight: 700, lineHeight: 1 }} c={`${color}.4`}>
+                {data.current.toFixed(1)}
+              </Text>
+            </Box>
+            <Box visibleFrom="sm">
+              <SemiGauge
+                score={Math.round(Math.max(0, Math.min(100, (data.current - 10) / 30 * 100)))}
+                color={color}
+                label={data.current.toFixed(1)}
+              />
+            </Box>
+            <Badge color={color} variant="filled" size="xs">
               {data.current < 15 ? "Calm" : data.current < 20 ? "Low" : data.current < 25 ? "Elevated" : data.current < 30 ? "High" : "Extreme"}
-            </Text>
+            </Badge>
           </Box>
           <Box visibleFrom="sm">
             <Box style={{ marginInline: "calc(-1 * var(--mantine-spacing-xs))" }}>
@@ -348,16 +314,15 @@ function VixCard({ data }: { data: SentimentData["vix"] }) {
             <Stack gap={6} mt="xs">
               <Group justify="space-between">
                 <Text size="xs" c="dimmed">Yesterday</Text>
-                {/* invert: lower VIX = improving sentiment */}
-                <ChangeChip delta={data.dayChange} invert />
+                <Text size="xs" fw={600} c={`${vixColor(data.current - data.dayChange)}.4`}>{(data.current - data.dayChange).toFixed(1)}</Text>
               </Group>
               <Group justify="space-between">
                 <Text size="xs" c="dimmed">1 Week ago</Text>
-                <ChangeChip delta={data.weekChange} invert />
+                <Text size="xs" fw={600} c={`${vixColor(data.current - data.weekChange)}.4`}>{(data.current - data.weekChange).toFixed(1)}</Text>
               </Group>
               <Group justify="space-between">
                 <Text size="xs" c="dimmed">1 Month ago</Text>
-                <ChangeChip delta={data.monthChange} invert />
+                <Text size="xs" fw={600} c={`${vixColor(data.current - data.monthChange)}.4`}>{(data.current - data.monthChange).toFixed(1)}</Text>
               </Group>
             </Stack>
           </Box>
@@ -392,9 +357,14 @@ function RsiCard({ data }: { data: SentimentData["rsi"] }) {
           <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center" hiddenFrom="sm">TQQQ RSI</Text>
           <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center" visibleFrom="sm">TQQQ RSI (14)</Text>
           <Box style={{ minHeight: 120, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
-            <Text style={{ fontSize: "1.75rem", fontWeight: 700, lineHeight: 1 }} c={`${color}.4`}>
-              {data.value.toFixed(1)}
-            </Text>
+            <Box hiddenFrom="sm">
+              <Text style={{ fontSize: "1.75rem", fontWeight: 700, lineHeight: 1 }} c={`${color}.4`}>
+                {data.value.toFixed(1)}
+              </Text>
+            </Box>
+            <Box visibleFrom="sm">
+              <SemiGauge score={data.value} color={color} label={data.value.toFixed(1)} />
+            </Box>
             <Badge color={color} variant="filled" size="xs">
               {rsiLabel(data.value)}
             </Badge>
@@ -584,6 +554,101 @@ function MacroSignals({ macro }: { macro: SentimentData["macro"] }) {
   );
 }
 
+// ── overall sentiment ─────────────────────────────────────────────────────
+
+function OverallSentiment({ data }: { data: SentimentData }) {
+  const clamp = (v: number) => Math.max(-1, Math.min(1, v));
+
+  const signals: { label: string; value: number }[] = [];
+  if (data.fearGreed)
+    signals.push({ label: "Fear & Greed", value: clamp((data.fearGreed.current - 50) / 50) });
+  if (data.vix)
+    signals.push({ label: "VIX", value: clamp((20 - data.vix.current) / 15) });
+  if (data.rsi)
+    signals.push({ label: "RSI", value: clamp((data.rsi.value - 50) / 30) });
+  if (data.macro.yieldSpread)
+    signals.push({ label: "Yield Curve", value: clamp(data.macro.yieldSpread.spread / 2) });
+  if (data.macro.putCallRatio != null)
+    signals.push({ label: "Put/Call", value: clamp((1 - data.macro.putCallRatio) / 0.5) });
+  const totalWeight = data.holdings.reduce((s, h) => s + h.weight, 0);
+  if (totalWeight > 0) {
+    const holdingsScore = data.holdings.reduce((s, h) => s + h.score * h.weight, 0) / totalWeight;
+    signals.push({ label: "Holdings", value: holdingsScore });
+  }
+
+  const overall = signals.length > 0
+    ? signals.reduce((s, sig) => s + sig.value, 0) / signals.length
+    : 0;
+
+  const color = sentimentColor(overall);
+  const label = sentimentLabel(overall);
+  const bg = useCardBg(color);
+  const markerPct = Math.round(((overall + 1) / 2) * 100);
+
+  return (
+    <Paper p="md" radius={CARD_RADIUS} style={{ background: bg }}>
+      <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center">Overall Market Sentiment</Text>
+      <Text style={{ fontSize: "2rem", fontWeight: 700, lineHeight: 1.1 }} ta="center" mt={4}>{label}</Text>
+
+      <Box mt="md">
+        <Box style={{ position: "relative", paddingTop: 28 }}>
+          {/* numeric score floats above the marker */}
+          <Box style={{
+            position: "absolute",
+            top: 0,
+            left: `${Math.min(Math.max(markerPct, 5), 95)}%`,
+            transform: "translateX(-50%)",
+            textAlign: "center",
+            whiteSpace: "nowrap",
+          }}>
+            <Text size="sm" fw={700} c={`${color}.4`}>{(overall >= 0 ? "+" : "")}{(overall * 100).toFixed(0)}</Text>
+          </Box>
+          <Box style={{ position: "relative", height: 8, margin: "5px 0" }}>
+            <Box style={{ position: "absolute", inset: 0, borderRadius: 4, overflow: "hidden", display: "flex" }}>
+              {[
+                { color: "red",    flex: 1 },
+                { color: "orange", flex: 1 },
+                { color: "gray",   flex: 0.8 },
+                { color: "lime",   flex: 1 },
+                { color: "green",  flex: 1 },
+              ].map((z, i) => (
+                <Box key={i} style={{ flex: z.flex, background: `var(--mantine-color-${z.color}-7)` }} />
+              ))}
+            </Box>
+            <Box style={{
+              position: "absolute",
+              left: `${Math.min(Math.max(markerPct, 1), 98)}%`,
+              top: -5, bottom: -5, width: 3,
+              transform: "translateX(-50%)",
+              background: "white",
+              borderRadius: 2,
+            }} />
+          </Box>
+        </Box>
+        <Group justify="space-between" mt={4}>
+          <Text size="10px" c="dimmed">Bearish</Text>
+          <Text size="10px" c="dimmed">Neutral</Text>
+          <Text size="10px" c="dimmed">Bullish</Text>
+        </Group>
+      </Box>
+
+      <SimpleGrid cols={{ base: 3, sm: 6 }} spacing="xs" mt="md">
+        {signals.map((sig) => {
+          const sigColor = sentimentColor(sig.value);
+          return (
+            <Box key={sig.label} style={{ textAlign: "center" }}>
+              <Text size="10px" c="dimmed" tt="uppercase" fw={600}>{sig.label}</Text>
+              <Badge color={sigColor} variant="light" size="xs" mt={2}>
+                {sig.value >= 0 ? "+" : ""}{(sig.value * 100).toFixed(0)}
+              </Badge>
+            </Box>
+          );
+        })}
+      </SimpleGrid>
+    </Paper>
+  );
+}
+
 // ── aggregate news sentiment ──────────────────────────────────────────────
 
 function AggregateSentiment({ holdings }: { holdings: HoldingSentiment[] }) {
@@ -599,14 +664,14 @@ function AggregateSentiment({ holdings }: { holdings: HoldingSentiment[] }) {
   const barWidth = Math.round(((weightedScore + 1) / 2) * 100);
 
   return (
-    <Paper p="md" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-6)" }}>
+    <Paper p="md" radius={CARD_RADIUS} style={{ background: "color-mix(in srgb, var(--mantine-color-dark-6) 25%, transparent)" }}>
       <Group justify="space-between" align="center" wrap="nowrap">
         <Box>
           <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
             Weighted News Sentiment
           </Text>
           <Text size="xs" c="dimmed" mt={2}>
-            Averaged by QQQ holding weight across top 9
+            Averaged by QQQ holding weight across top 12
           </Text>
         </Box>
         <Badge color={color} variant="filled" size="md" style={{ flexShrink: 0 }}>
@@ -697,12 +762,15 @@ function HoldingCard({ holding }: { holding: HoldingSentiment }) {
   const bg = useCardBg(color);
 
   return (
-    <Paper
-      p="md"
-      radius={CARD_RADIUS}
-      style={{ background: bg }}
-    >
-      <Stack gap="sm">
+    <Paper p="md" radius={CARD_RADIUS} style={{ background: "color-mix(in srgb, var(--mantine-color-dark-6) 25%, transparent)" }}>
+    <Stack gap="sm">
+      <Box style={{
+        background: bg,
+        margin: "calc(-1 * var(--mantine-spacing-md))",
+        marginBottom: 0,
+        padding: "var(--mantine-spacing-md)",
+        borderRadius: "24px 24px 0 0",
+      }}>
         <Group justify="space-between" wrap="nowrap">
           <Box>
             <Group gap={6} align="baseline">
@@ -718,63 +786,55 @@ function HoldingCard({ holding }: { holding: HoldingSentiment }) {
               <Text size="xs" c="dimmed">· {holding.weight.toFixed(1)}%</Text>
             </Group>
           </Box>
-          <Badge color={color} variant="filled" size="sm">
-            {label}
-          </Badge>
+          <Badge color={color} variant="filled" size="sm">{label}</Badge>
         </Group>
+      </Box>
 
-        {(holding.earnings.nextDate != null || holding.earnings.recommendationMean != null) && (
-          <>
-            <Divider />
-            <EarningsBadge earnings={holding.earnings} />
-            <Divider />
-          </>
-        )}
+      {(holding.earnings.nextDate != null || holding.earnings.recommendationMean != null) && (
+        <>
+          <EarningsBadge earnings={holding.earnings} />
+          <Divider />
+        </>
+      )}
 
-        {holding.articles.length === 0 ? (
-          <Text size="xs" c="dimmed">
-            No recent news
-          </Text>
-        ) : (
-          <Stack gap={6}>
-            {holding.articles.map((article, i) => (
-              <Group key={i} gap={6} wrap="nowrap" align="flex-start">
-                <ThemeIcon
-                  color={articleSentimentColor(article.sentiment)}
-                  variant="light"
-                  size={16}
-                  radius="xl"
-                  style={{ flexShrink: 0, marginTop: 2 }}
-                >
-                  {article.sentiment === "positive" ? (
-                    <IconTrendingUp size={10} />
-                  ) : article.sentiment === "negative" ? (
-                    <IconTrendingDown size={10} />
+      {holding.articles.length === 0 ? (
+        <Text size="xs" c="dimmed">No recent news</Text>
+      ) : (
+        <Stack gap={6}>
+          {holding.articles.map((article, i) => (
+            <Group key={i} gap={6} wrap="nowrap" align="flex-start">
+              <ThemeIcon
+                color={articleSentimentColor(article.sentiment)}
+                variant="light"
+                size={16}
+                radius="xl"
+                style={{ flexShrink: 0, marginTop: 2 }}
+              >
+                {article.sentiment === "positive" ? (
+                  <IconTrendingUp size={10} />
+                ) : article.sentiment === "negative" ? (
+                  <IconTrendingDown size={10} />
+                ) : (
+                  <IconMinus size={10} />
+                )}
+              </ThemeIcon>
+              <Tooltip label={article.publisher} withArrow position="top-start">
+                <Text size="xs" style={{ lineHeight: 1.4 }}>
+                  <Text span size="xs" c="dimmed" fw={500}>{formatArticleDate(article.providerPublishTime)} · </Text>
+                  {article.link ? (
+                    <Text span component="a" href={article.link} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "underline", textDecorationColor: "var(--mantine-color-dimmed)", textUnderlineOffset: 2 }}>
+                      {article.title}
+                    </Text>
                   ) : (
-                    <IconMinus size={10} />
+                    <Text span>{article.title}</Text>
                   )}
-                </ThemeIcon>
-                <Tooltip
-                  label={article.publisher}
-                  withArrow
-                  position="top-start"
-                >
-                  <Text size="xs" style={{ lineHeight: 1.4 }}>
-                    <Text span size="xs" c="dimmed" fw={500}>{formatArticleDate(article.providerPublishTime)} · </Text>
-                    {article.link ? (
-                      <Text span component="a" href={article.link} target="_blank" rel="noopener noreferrer" style={{ color: "inherit", textDecoration: "underline", textDecorationColor: "var(--mantine-color-dimmed)", textUnderlineOffset: 2 }}>
-                        {article.title}
-                      </Text>
-                    ) : (
-                      <Text span>{article.title}</Text>
-                    )}
-                  </Text>
-                </Tooltip>
-              </Group>
-            ))}
-          </Stack>
-        )}
-      </Stack>
+                </Text>
+              </Tooltip>
+            </Group>
+          ))}
+        </Stack>
+      )}
+    </Stack>
     </Paper>
   );
 }
@@ -806,6 +866,9 @@ export default function SentimentPage() {
         Market Sentiment
       </Text>
 
+      {/* Overall sentiment */}
+      {!loading && !error && data && <OverallSentiment data={data} />}
+
       {/* Indicators */}
       {loading ? (
         <SimpleGrid cols={3} spacing="xs">
@@ -836,7 +899,7 @@ export default function SentimentPage() {
       {!loading && !error && data && <MacroSignals macro={data.macro} />}
 
       {/* Holdings news */}
-      <Group gap="xs" align="center">
+      <Group gap="xs" align="center" justify="center">
         <IconNews size={18} />
         <Text fw={600} size="sm">
           QQQ Top Holdings — News Sentiment
@@ -848,12 +911,12 @@ export default function SentimentPage() {
 
       {loading ? (
         <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
-          {Array.from({ length: 9 }, (_, i) => (
+          {Array.from({ length: 12 }, (_, i) => (
             <Skeleton key={i} height={160} radius="xl" />
           ))}
         </SimpleGrid>
       ) : error ? null : (
-        <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
+        <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="xs">
           {(data?.holdings ?? []).map((holding) => (
             <HoldingCard key={holding.symbol} holding={holding} />
           ))}
