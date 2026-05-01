@@ -866,61 +866,48 @@ export default function SentimentPage() {
         Market Sentiment
       </Text>
 
-      {/* Overall sentiment */}
-      {!loading && !error && data && <OverallSentiment data={data} />}
-
-      {/* Indicators */}
       {loading ? (
-        <SimpleGrid cols={3} spacing="xs">
-          {[0, 1, 2].map((i) => (
-            <Skeleton key={i} height={120} radius="xl" />
-          ))}
-        </SimpleGrid>
+        <>
+          <Skeleton height={140} radius={CARD_RADIUS} />
+          <SimpleGrid cols={3} spacing="xs">
+            {[0, 1, 2].map((i) => <Skeleton key={i} height={250} radius={CARD_RADIUS} />)}
+          </SimpleGrid>
+          <SimpleGrid cols={3} spacing="xs">
+            {[0, 1, 2].map((i) => <Skeleton key={i} height={160} radius={CARD_RADIUS} />)}
+          </SimpleGrid>
+          <Skeleton height={28} radius="md" width="40%" mx="auto" />
+          <Skeleton height={70} radius={CARD_RADIUS} />
+          <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="xs">
+            {Array.from({ length: 12 }, (_, i) => <Skeleton key={i} height={200} radius={CARD_RADIUS} />)}
+          </SimpleGrid>
+        </>
       ) : error ? (
-        <Paper
-          p="md"
-          radius={CARD_RADIUS}
-          style={{ background: "var(--mantine-color-dark-6)" }}
-        >
+        <Paper p="md" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-6)" }}>
           <Group gap={6} c="red">
             <IconAlertTriangle size={16} />
             <Text size="sm">Failed to load sentiment data: {error}</Text>
           </Group>
         </Paper>
       ) : (
-        <SimpleGrid cols={3} spacing="xs">
-          <FearGreedCard data={data?.fearGreed ?? null} />
-          <VixCard data={data?.vix ?? null} />
-          <RsiCard data={data?.rsi ?? null} />
-        </SimpleGrid>
-      )}
-
-      {/* Macro signals */}
-      {!loading && !error && data && <MacroSignals macro={data.macro} />}
-
-      {/* Holdings news */}
-      <Group gap="xs" align="center" justify="center">
-        <IconNews size={18} />
-        <Text fw={600} size="sm">
-          QQQ Top Holdings — News Sentiment
-        </Text>
-      </Group>
-
-      {/* Aggregate news sentiment */}
-      {!loading && !error && data && <AggregateSentiment holdings={data.holdings} />}
-
-      {loading ? (
-        <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="md">
-          {Array.from({ length: 12 }, (_, i) => (
-            <Skeleton key={i} height={160} radius="xl" />
-          ))}
-        </SimpleGrid>
-      ) : error ? null : (
-        <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="xs">
-          {(data?.holdings ?? []).map((holding) => (
-            <HoldingCard key={holding.symbol} holding={holding} />
-          ))}
-        </SimpleGrid>
+        <>
+          <OverallSentiment data={data!} />
+          <SimpleGrid cols={3} spacing="xs">
+            <FearGreedCard data={data?.fearGreed ?? null} />
+            <VixCard data={data?.vix ?? null} />
+            <RsiCard data={data?.rsi ?? null} />
+          </SimpleGrid>
+          <MacroSignals macro={data!.macro} />
+          <Group gap="xs" align="center" justify="center">
+            <IconNews size={18} />
+            <Text fw={600} size="sm">QQQ Top Holdings — News Sentiment</Text>
+          </Group>
+          <AggregateSentiment holdings={data!.holdings} />
+          <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="xs">
+            {data!.holdings.map((holding) => (
+              <HoldingCard key={holding.symbol} holding={holding} />
+            ))}
+          </SimpleGrid>
+        </>
       )}
     </Stack>
   );
