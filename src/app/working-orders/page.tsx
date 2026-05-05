@@ -892,12 +892,11 @@ export default function WorkingOrdersPage() {
                                     : null;
                                   return order ? (
                                     <Badge
-                                      variant="filled"
+                                      variant="outline"
                                       size="md"
                                       fw={700}
+                                      color="teal"
                                       style={{
-                                        background: "var(--mantine-color-teal-7)",
-                                        color: "#fff",
                                         cursor: cancellingOrderId === String(order.orderId) ? "default" : "pointer",
                                         ...(isMobile ? { paddingInline: 8 } : {}),
                                       }}
@@ -1006,12 +1005,11 @@ export default function WorkingOrdersPage() {
                                     : null;
                                   return order ? (
                                     <Badge
-                                      variant="filled"
+                                      variant="outline"
                                       size="md"
                                       fw={700}
+                                      color="red"
                                       style={{
-                                        background: "var(--mantine-color-red-7)",
-                                        color: "#fff",
                                         cursor: cancellingOrderId === String(order.orderId) ? "default" : "pointer",
                                         ...(isMobile ? { paddingInline: 8 } : {}),
                                       }}
