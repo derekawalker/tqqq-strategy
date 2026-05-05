@@ -2,8 +2,33 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { useMediaQuery } from "@mantine/hooks";
-import { Table, ScrollArea, Text, Center, Skeleton, Stack, Badge, NumberInput, Group, Tooltip, ThemeIcon, Modal, Code, Button, CopyButton, Alert, Switch } from "@mantine/core";
-import { IconAlertTriangle, IconCheck, IconCopy, IconPlayerPlayFilled, IconShield, IconTrash } from "@tabler/icons-react";
+import {
+  Table,
+  ScrollArea,
+  Text,
+  Center,
+  Skeleton,
+  Stack,
+  Badge,
+  NumberInput,
+  Group,
+  Tooltip,
+  ThemeIcon,
+  Modal,
+  Code,
+  Button,
+  CopyButton,
+  Alert,
+  Switch,
+} from "@mantine/core";
+import {
+  IconAlertTriangle,
+  IconCheck,
+  IconCopy,
+  IconPlayerPlayFilled,
+  IconShield,
+  IconTrash,
+} from "@tabler/icons-react";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
 import { fmt, createMask } from "@/lib/format";
@@ -18,17 +43,25 @@ interface LevelRow {
   sells: number;
 }
 
-function buildTosText(side: "BUY" | "SELL", shares: number, buyPrice: number, sellPrice: number, count: number, endWithPrimary = false): string {
+function buildTosText(
+  side: "BUY" | "SELL",
+  shares: number,
+  buyPrice: number,
+  sellPrice: number,
+  count: number,
+  endWithPrimary = false,
+): string {
   const lines: string[] = [];
-  const pair = side === "BUY"
-    ? [
-        `BUY +${shares} TQQQ @${buyPrice.toFixed(2)} LMT GTC+EXTENDED OVERNIGHT`,
-        `SELL -${shares} TQQQ @${sellPrice.toFixed(2)} LMT GTC+EXTENDED OVERNIGHT TRG BY`,
-      ]
-    : [
-        `SELL -${shares} TQQQ @${sellPrice.toFixed(2)} LMT GTC+EXTENDED OVERNIGHT`,
-        `BUY +${shares} TQQQ @${buyPrice.toFixed(2)} LMT GTC+EXTENDED OVERNIGHT TRG BY`,
-      ];
+  const pair =
+    side === "BUY"
+      ? [
+          `BUY +${shares} TQQQ @${buyPrice.toFixed(2)} LMT GTC+EXTENDED OVERNIGHT`,
+          `SELL -${shares} TQQQ @${sellPrice.toFixed(2)} LMT GTC+EXTENDED OVERNIGHT TRG BY`,
+        ]
+      : [
+          `SELL -${shares} TQQQ @${sellPrice.toFixed(2)} LMT GTC+EXTENDED OVERNIGHT`,
+          `BUY +${shares} TQQQ @${buyPrice.toFixed(2)} LMT GTC+EXTENDED OVERNIGHT TRG BY`,
+        ];
 
   for (let i = 0; i < count; i++) {
     lines.push(i === 0 ? pair[0] : pair[0] + " TRG BY");
@@ -46,20 +79,34 @@ interface PlaceOrderModal {
 }
 
 export default function WorkingOrdersPage() {
-  const { workingOrders, snapshotLoading, privacyMode, activeAccount, updateAccountSettings, quote, tickRefresh } = useApp();
+  const {
+    workingOrders,
+    snapshotLoading,
+    privacyMode,
+    activeAccount,
+    updateAccountSettings,
+    quote,
+    tickRefresh,
+  } = useApp();
   const levelsSummary = useLevels();
   const accountColor = useAccountColor();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [tosModal, setTosModal] = useState<{ text: string } | null>(null);
-  const [placeOrderModal, setPlaceOrderModal] = useState<PlaceOrderModal | null>(null);
+  const [placeOrderModal, setPlaceOrderModal] =
+    useState<PlaceOrderModal | null>(null);
   const [orderLoading, setOrderLoading] = useState(false);
-  const [orderResult, setOrderResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [orderResult, setOrderResult] = useState<{
+    ok: boolean;
+    message: string;
+  } | null>(null);
   const [sandboxMode, setSandboxMode] = useState(false);
   const isTastytrade = activeAccount?.broker === "tastytrade";
 
   useEffect(() => {
     if (!isTastytrade) return;
-    fetch("/api/tastytrade/sandbox").then((r) => r.json()).then((d) => setSandboxMode(d.enabled ?? false));
+    fetch("/api/tastytrade/sandbox")
+      .then((r) => r.json())
+      .then((d) => setSandboxMode(d.enabled ?? false));
   }, [isTastytrade]);
 
   const toggleSandbox = async (val: boolean) => {
@@ -71,8 +118,16 @@ export default function WorkingOrdersPage() {
     });
   };
 
-  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
-  const [cancelConfirm, setCancelConfirm] = useState<{ orderId: string; accountNumber: string; side: "BUY" | "SELL"; shares: number; price: number } | null>(null);
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(
+    null,
+  );
+  const [cancelConfirm, setCancelConfirm] = useState<{
+    orderId: string;
+    accountNumber: string;
+    side: "BUY" | "SELL";
+    shares: number;
+    price: number;
+  } | null>(null);
 
   const confirmCancel = async () => {
     if (!cancelConfirm) return;
@@ -91,8 +146,11 @@ export default function WorkingOrdersPage() {
     }
   };
 
-  const openPlaceOrder = (side: "BUY" | "SELL", shares: number, price: number) =>
-    setPlaceOrderModal({ side, shares, price });
+  const openPlaceOrder = (
+    side: "BUY" | "SELL",
+    shares: number,
+    price: number,
+  ) => setPlaceOrderModal({ side, shares, price });
 
   const closePlaceOrder = () => {
     setPlaceOrderModal(null);
@@ -116,7 +174,11 @@ export default function WorkingOrdersPage() {
       });
       const json = await res.json();
       if (!res.ok) {
-        const raw = json?.error?.errors?.[0]?.message ?? json?.error?.message ?? json?.error?.error ?? json?.error;
+        const raw =
+          json?.error?.errors?.[0]?.message ??
+          json?.error?.message ??
+          json?.error?.error ??
+          json?.error;
         const detail = typeof raw === "string" ? raw : JSON.stringify(raw);
         setOrderResult({ ok: false, message: detail ?? "Order failed" });
       } else {
@@ -124,7 +186,10 @@ export default function WorkingOrdersPage() {
         tickRefresh();
       }
     } catch {
-      setOrderResult({ ok: false, message: "Network error — order not placed." });
+      setOrderResult({
+        ok: false,
+        message: "Network error — order not placed.",
+      });
     } finally {
       setOrderLoading(false);
     }
@@ -137,23 +202,34 @@ export default function WorkingOrdersPage() {
   const bufferSize = buffer ?? 0;
 
   const setWarnBelow = (v: number | string) =>
-    updateAccountSettings(activeAccount!.accountNumber, { orderWarnBelow: typeof v === "number" ? v : null });
+    updateAccountSettings(activeAccount!.accountNumber, {
+      orderWarnBelow: typeof v === "number" ? v : null,
+    });
   const setBuffer = (v: number | string) =>
-    updateAccountSettings(activeAccount!.accountNumber, { orderBuffer: typeof v === "number" ? v : null });
+    updateAccountSettings(activeAccount!.accountNumber, {
+      orderBuffer: typeof v === "number" ? v : null,
+    });
 
   const rows = useMemo<LevelRow[]>(() => {
     const counts = new Map<number, { buys: number; sells: number }>();
     for (const o of workingOrders) {
       const c = counts.get(o.shares) ?? { buys: 0, sells: 0 };
-      if (o.side === "BUY") c.buys++; else c.sells++;
+      if (o.side === "BUY") c.buys++;
+      else c.sells++;
       counts.set(o.shares, c);
     }
 
     if (!levelsSummary) {
       // No settings — show orders without level matching
-      const rows: LevelRow[] = Array.from(counts.entries()).map(([shares, c]) => ({
-        levelIndex: -1, shares, buyPrice: null, sellPrice: null, ...c,
-      }));
+      const rows: LevelRow[] = Array.from(counts.entries()).map(
+        ([shares, c]) => ({
+          levelIndex: -1,
+          shares,
+          buyPrice: null,
+          sellPrice: null,
+          ...c,
+        }),
+      );
       rows.sort((a, b) => a.shares - b.shares);
       return rows;
     }
@@ -186,7 +262,13 @@ export default function WorkingOrdersPage() {
     for (const [shares, c] of counts) {
       const matched = levelsSummary.levels.some((l) => l.shares === shares);
       if (!matched) {
-        rows.push({ levelIndex: -1, shares, buyPrice: null, sellPrice: null, ...c });
+        rows.push({
+          levelIndex: -1,
+          shares,
+          buyPrice: null,
+          sellPrice: null,
+          ...c,
+        });
       }
     }
 
@@ -210,7 +292,6 @@ export default function WorkingOrdersPage() {
     return dupes;
   }, [workingOrders]);
 
-
   if (snapshotLoading) {
     const colWidths = [40, 55, 30, 30, 70, 70, 60];
     return (
@@ -218,7 +299,10 @@ export default function WorkingOrdersPage() {
         <Group justify="space-between" wrap="nowrap" align="flex-end">
           <Skeleton height={28} width={185} radius="sm" />
           <Group wrap="nowrap" gap="md">
-            {[["Warn Qty", 90], ["Buffer levels", 90]].map(([label, w]) => (
+            {[
+              ["Warn Qty", 90],
+              ["Buffer levels", 90],
+            ].map(([label, w]) => (
               <Stack key={label} gap={4}>
                 <Skeleton height={11} width={Number(w) - 10} radius="sm" />
                 <Skeleton height={30} width={Number(w)} radius="sm" />
@@ -231,9 +315,23 @@ export default function WorkingOrdersPage() {
           <Table>
             <Table.Thead>
               <Table.Tr>
-                {["Level", "Qty", "Buys", "Sells", "Buy Price", "Sell Price", "Cost"].map((col) => (
+                {[
+                  "Level",
+                  "Qty",
+                  "Buys",
+                  "Sells",
+                  "Buy Price",
+                  "Sell Price",
+                  "Cost",
+                ].map((col) => (
                   <Table.Th key={col} ta="center">
-                    <Center><Skeleton height={11} width={col.length * 6.5} radius="sm" /></Center>
+                    <Center>
+                      <Skeleton
+                        height={11}
+                        width={col.length * 6.5}
+                        radius="sm"
+                      />
+                    </Center>
                   </Table.Th>
                 ))}
               </Table.Tr>
@@ -243,7 +341,13 @@ export default function WorkingOrdersPage() {
                 <Table.Tr key={i} style={{ opacity: i > 6 ? 0.4 : 1 }}>
                   {colWidths.map((w, j) => (
                     <Table.Td key={j} ta="center">
-                      <Center><Skeleton height={13} width={w + (i % 3 === 0 && j > 3 ? 10 : 0)} radius="sm" /></Center>
+                      <Center>
+                        <Skeleton
+                          height={13}
+                          width={w + (i % 3 === 0 && j > 3 ? 10 : 0)}
+                          radius="sm"
+                        />
+                      </Center>
                     </Table.Td>
                   ))}
                 </Table.Tr>
@@ -258,377 +362,814 @@ export default function WorkingOrdersPage() {
   if (rows.length === 0) {
     return (
       <Center h={200}>
-        <Text c="dimmed" size="sm">No working orders.</Text>
+        <Text c="dimmed" size="sm">
+          No working orders.
+        </Text>
       </Center>
     );
   }
 
   return (
     <>
-    <Modal
-      opened={tosModal !== null}
-      onClose={() => setTosModal(null)}
-      title="ThinkorSwim Order Text"
-      size="lg"
-    >
-      <Stack gap="md">
-        <Code block style={{ whiteSpace: "pre", fontFamily: "monospace", fontSize: 13, lineHeight: 1.6 }}>
-          {tosModal?.text}
-        </Code>
-        <CopyButton value={tosModal?.text ?? ""}>
-          {({ copied, copy }) => (
-            <Button
-              leftSection={<IconCopy size={16} />}
-              variant={copied ? "filled" : "light"}
-              color={copied ? "teal" : "blue"}
-              onClick={copy}
-            >
-              {copied ? "Copied!" : "Copy to clipboard"}
-            </Button>
+      <Modal
+        opened={tosModal !== null}
+        onClose={() => setTosModal(null)}
+        title="ThinkorSwim Order Text"
+        size="lg"
+      >
+        <Stack gap="md">
+          <Code
+            block
+            style={{
+              whiteSpace: "pre",
+              fontFamily: "monospace",
+              fontSize: 13,
+              lineHeight: 1.6,
+            }}
+          >
+            {tosModal?.text}
+          </Code>
+          <CopyButton value={tosModal?.text ?? ""}>
+            {({ copied, copy }) => (
+              <Button
+                leftSection={<IconCopy size={16} />}
+                variant={copied ? "filled" : "light"}
+                color={copied ? "teal" : "blue"}
+                onClick={copy}
+              >
+                {copied ? "Copied!" : "Copy to clipboard"}
+              </Button>
+            )}
+          </CopyButton>
+        </Stack>
+      </Modal>
+
+      <Modal
+        opened={cancelConfirm !== null}
+        onClose={() => setCancelConfirm(null)}
+        title="Cancel Order"
+        size="sm"
+      >
+        <Stack gap="md">
+          {cancelConfirm && (
+            <Text size="sm">
+              Cancel{" "}
+              <Text
+                span
+                fw={700}
+                c={cancelConfirm.side === "BUY" ? "teal" : "red"}
+              >
+                {cancelConfirm.side}
+              </Text>{" "}
+              {fmt(cancelConfirm.shares, 0)} TQQQ @ ${fmt(cancelConfirm.price)}?
+            </Text>
           )}
-        </CopyButton>
-      </Stack>
-    </Modal>
-
-    <Modal
-      opened={cancelConfirm !== null}
-      onClose={() => setCancelConfirm(null)}
-      title="Cancel Order"
-      size="sm"
-    >
-      <Stack gap="md">
-        {cancelConfirm && (
-          <Text size="sm">
-            Cancel{" "}
-            <Text span fw={700} c={cancelConfirm.side === "BUY" ? "teal" : "red"}>
-              {cancelConfirm.side}
-            </Text>
-            {" "}{fmt(cancelConfirm.shares, 0)} TQQQ @ ${fmt(cancelConfirm.price)}?
-          </Text>
-        )}
-        <Group justify="flex-end">
-          <Button variant="subtle" color="gray" onClick={() => setCancelConfirm(null)}>Keep</Button>
-          <Button color="red" onClick={confirmCancel}>Cancel Order</Button>
-        </Group>
-      </Stack>
-    </Modal>
-
-    <Modal
-      opened={placeOrderModal !== null}
-      onClose={closePlaceOrder}
-      title={
-        <Group gap="xs">
-          <Text fw={700}>Place Order{sandboxMode ? " — SANDBOX" : ""}</Text>
-          {sandboxMode && <IconShield size={16} color="var(--mantine-color-orange-5)" />}
-        </Group>
-      }
-    >
-      <Stack gap="md">
-        {sandboxMode && (
-          <Alert color="orange" variant="light" icon={<IconShield size={16} />}>
-            Sandbox mode — this will NOT place a real order.
-          </Alert>
-        )}
-        {placeOrderModal && (
-          <Text size="sm">
-            <Text span fw={700} c={placeOrderModal.side === "BUY" ? "teal" : "red"}>
-              {placeOrderModal.side}
-            </Text>
-            {" "}{fmt(placeOrderModal.shares, 0)} TQQQ @ ${fmt(placeOrderModal.price)} GTC Ext Overnight limit
-          </Text>
-        )}
-        {orderResult && (
-          <Alert color={orderResult.ok ? "teal" : "red"} variant="light">
-            {orderResult.message}
-          </Alert>
-        )}
-        {!orderResult && (
           <Group justify="flex-end">
-            <Button variant="subtle" color="gray" onClick={closePlaceOrder} disabled={orderLoading}>
-              Cancel
-            </Button>
             <Button
-              color={placeOrderModal?.side === "BUY" ? "teal" : "red"}
-              loading={orderLoading}
-              onClick={submitOrder}
+              variant="subtle"
+              color="gray"
+              onClick={() => setCancelConfirm(null)}
             >
-              Confirm
+              Keep
+            </Button>
+            <Button color="red" onClick={confirmCancel}>
+              Cancel Order
             </Button>
           </Group>
-        )}
-        {orderResult && (
-          <Button variant="subtle" onClick={closePlaceOrder}>Close</Button>
-        )}
-      </Stack>
-    </Modal>
+        </Stack>
+      </Modal>
 
-    <Stack gap="md">
-      <Group justify="space-between" wrap="nowrap" align="flex-end">
-        <Group gap="xs" align="center">
-          <Text fw={700} size="xl">Working Orders</Text>
-          {isTastytrade && sandboxMode && (
-            <Badge color="orange" variant="filled" size="sm" leftSection={<IconShield size={10} />}>
-              Sandbox
-            </Badge>
-          )}
-        </Group>
-        <Group wrap="nowrap" align="flex-end" gap="md">
-          {isTastytrade && (
-            <Switch
-              label="Sandbox orders"
-              checked={sandboxMode}
-              onChange={(e) => toggleSandbox(e.currentTarget.checked)}
+      <Modal
+        opened={placeOrderModal !== null}
+        onClose={closePlaceOrder}
+        title={
+          <Group gap="xs">
+            <Text fw={700}>Place Order{sandboxMode ? " — SANDBOX" : ""}</Text>
+            {sandboxMode && (
+              <IconShield size={16} color="var(--mantine-color-orange-5)" />
+            )}
+          </Group>
+        }
+      >
+        <Stack gap="md">
+          {sandboxMode && (
+            <Alert
               color="orange"
-              size="xs"
-            />
+              variant="light"
+              icon={<IconShield size={16} />}
+            >
+              Sandbox mode — this will NOT place a real order.
+            </Alert>
           )}
-          <Group wrap="nowrap" align="flex-end" gap="xs">
-            {!isTastytrade && (
-              <NumberInput
-                key={`warn-${activeAccount?.accountNumber}`}
-                label="Warn Qty"
-                value={warnBelow ?? ""}
-                onChange={setWarnBelow}
-                min={0}
-                max={99}
-                w={90}
+          {placeOrderModal && (
+            <Text size="sm">
+              <Text
+                span
+                fw={700}
+                c={placeOrderModal.side === "BUY" ? "teal" : "red"}
+              >
+                {placeOrderModal.side}
+              </Text>{" "}
+              {fmt(placeOrderModal.shares, 0)} TQQQ @ $
+              {fmt(placeOrderModal.price)} GTC Ext Overnight limit
+            </Text>
+          )}
+          {orderResult && (
+            <Alert color={orderResult.ok ? "teal" : "red"} variant="light">
+              {orderResult.message}
+            </Alert>
+          )}
+          {!orderResult && (
+            <Group justify="flex-end">
+              <Button
+                variant="subtle"
+                color="gray"
+                onClick={closePlaceOrder}
+                disabled={orderLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                color={placeOrderModal?.side === "BUY" ? "teal" : "red"}
+                loading={orderLoading}
+                onClick={submitOrder}
+              >
+                Confirm
+              </Button>
+            </Group>
+          )}
+          {orderResult && (
+            <Button variant="subtle" onClick={closePlaceOrder}>
+              Close
+            </Button>
+          )}
+        </Stack>
+      </Modal>
+
+      <Stack gap="md">
+        <Group justify="space-between" wrap="nowrap" align="flex-end">
+          <Group gap="xs" align="center">
+            <Text fw={700} size="xl">
+              Working Orders
+            </Text>
+            {isTastytrade && sandboxMode && (
+              <Badge
+                color="orange"
+                variant="filled"
+                size="sm"
+                leftSection={<IconShield size={10} />}
+              >
+                Sandbox
+              </Badge>
+            )}
+          </Group>
+          <Group wrap="nowrap" align="flex-end" gap="md">
+            {isTastytrade && (
+              <Switch
+                label="Sandbox orders"
+                checked={sandboxMode}
+                onChange={(e) => toggleSandbox(e.currentTarget.checked)}
+                color="orange"
                 size="xs"
               />
             )}
-            <NumberInput
-              key={`buffer-${activeAccount?.accountNumber}`}
-              label="Buffer levels"
-              value={buffer ?? ""}
-              onChange={setBuffer}
-              min={0}
-              max={50}
-              w={90}
-              size="xs"
-            />
+            <Group wrap="nowrap" align="flex-end" gap="xs">
+              {!isTastytrade && (
+                <NumberInput
+                  key={`warn-${activeAccount?.accountNumber}`}
+                  label="Warn Qty"
+                  value={warnBelow ?? ""}
+                  onChange={setWarnBelow}
+                  min={0}
+                  max={99}
+                  w={90}
+                  size="xs"
+                />
+              )}
+              <NumberInput
+                key={`buffer-${activeAccount?.accountNumber}`}
+                label="Buffer levels"
+                value={buffer ?? ""}
+                onChange={setBuffer}
+                min={0}
+                max={50}
+                w={90}
+                size="xs"
+              />
+            </Group>
           </Group>
         </Group>
-      </Group>
 
-      <ScrollArea>
-        <Table>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th ta="center">Level</Table.Th>
-              <Table.Th ta="center">Qty</Table.Th>
-              <Table.Th ta="center">Buys</Table.Th>
-              <Table.Th ta="center">Sells</Table.Th>
-              <Table.Th ta="center">Buy Price</Table.Th>
-              <Table.Th ta="center">Sell Price</Table.Th>
-              <Table.Th ta="center" className="hide-mobile">Cost</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {(() => {
-              const rowsWithOrders = rows.filter((r) => r.buys > 0 || r.sells > 0);
-              const activeIndices = rowsWithOrders.map((r) => r.levelIndex).filter((i) => i >= 0);
-              const maxOrderIdx = activeIndices.length > 0 ? Math.max(...activeIndices) : -1;
-              const minActiveIdx = activeIndices.length > 0 ? Math.min(...activeIndices) : -1;
-              const topPlusIdx = levelsSummary && maxOrderIdx >= 0 ? maxOrderIdx + 1 : -1;
-              const bottomPlusIdx = minActiveIdx > 0 ? minActiveIdx - 1 : -1;
-              const topPlusInRows = rows.some((r) => r.levelIndex === topPlusIdx);
-              const topLevel = !topPlusInRows && topPlusIdx >= 0 ? (levelsSummary?.levels[topPlusIdx] ?? null) : null;
-              return (<>
-              {topLevel && (() => {
-                const cost = topLevel.buyPrice != null ? topLevel.shares * topLevel.buyPrice : null;
+        <ScrollArea>
+          <Table>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th ta="center">Level</Table.Th>
+                <Table.Th ta="center">Qty</Table.Th>
+                <Table.Th ta="center">Buys</Table.Th>
+                <Table.Th ta="center">Sells</Table.Th>
+                <Table.Th ta="center">Buy Price</Table.Th>
+                <Table.Th ta="center">Sell Price</Table.Th>
+                <Table.Th ta="center" className="hide-mobile">
+                  Cost
+                </Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {(() => {
+                const rowsWithOrders = rows.filter(
+                  (r) => r.buys > 0 || r.sells > 0,
+                );
+                const activeIndices = rowsWithOrders
+                  .map((r) => r.levelIndex)
+                  .filter((i) => i >= 0);
+                const maxOrderIdx =
+                  activeIndices.length > 0 ? Math.max(...activeIndices) : -1;
+                const minActiveIdx =
+                  activeIndices.length > 0 ? Math.min(...activeIndices) : -1;
+                const topPlusIdx =
+                  levelsSummary && maxOrderIdx >= 0 ? maxOrderIdx + 1 : -1;
+                const bottomPlusIdx = minActiveIdx > 0 ? minActiveIdx - 1 : -1;
+                const topPlusInRows = rows.some(
+                  (r) => r.levelIndex === topPlusIdx,
+                );
+                const topLevel =
+                  !topPlusInRows && topPlusIdx >= 0
+                    ? (levelsSummary?.levels[topPlusIdx] ?? null)
+                    : null;
                 return (
-                  <Table.Tr key="next-level" style={{ borderBottom: "2px solid rgba(255,255,255,0.08)" }}>
-                    <Table.Td ta="center">
-                      <Text size="sm" fw={500} c="dimmed">{topPlusIdx}</Text>
-                    </Table.Td>
-                    <Table.Td ta="center"><Text size="sm" c="dimmed">{fmt(topLevel.shares, 0)}</Text></Table.Td>
-                    <Table.Td ta="center">
-                      <Badge variant="filled" size="md" fw={700}
-                        style={{ background: "var(--mantine-color-teal-7)", color: "#fff", cursor: topLevel.buyPrice != null ? "pointer" : "default" }}
-                        onClick={() => {
-                          if (topLevel.buyPrice == null) return;
-                          isTastytrade
-                            ? openPlaceOrder("BUY", topLevel.shares, topLevel.buyPrice!)
-                            : topLevel.sellPrice != null && setTosModal({ text: buildTosText("BUY", topLevel.shares, topLevel.buyPrice!, topLevel.sellPrice!, 4) });
-                        }}
-                      >+</Badge>
-                    </Table.Td>
-                    <Table.Td ta="center">
-                      {!isTastytrade && (
-                        <Badge variant="filled" size="md" fw={700}
-                          style={{ background: "var(--mantine-color-red-7)", color: "#fff", cursor: topLevel.buyPrice != null && topLevel.sellPrice != null ? "pointer" : "default" }}
-                          onClick={() => topLevel.buyPrice != null && topLevel.sellPrice != null && setTosModal({ text: buildTosText("SELL", topLevel.shares, topLevel.buyPrice!, topLevel.sellPrice!, 4) })}
-                        >+</Badge>
-                      )}
-                    </Table.Td>
-                    <Table.Td ta="center">
-                      <Text size="sm" c="dimmed">{topLevel.buyPrice != null ? mask(`$${fmt(topLevel.buyPrice)}`) : "—"}</Text>
-                    </Table.Td>
-                    <Table.Td ta="center">
-                      <Text size="sm" c="dimmed">{topLevel.sellPrice != null ? mask(`$${fmt(topLevel.sellPrice)}`) : "—"}</Text>
-                    </Table.Td>
-                    <Table.Td ta="center" className="hide-mobile">
-                      <Text size="sm" c="dimmed">{cost != null ? mask(`$${fmt(cost)}`) : "—"}</Text>
-                    </Table.Td>
-                  </Table.Tr>
+                  <>
+                    {topLevel &&
+                      (() => {
+                        const cost =
+                          topLevel.buyPrice != null
+                            ? topLevel.shares * topLevel.buyPrice
+                            : null;
+                        return (
+                          <Table.Tr
+                            key="next-level"
+                            style={{
+                              borderBottom: "2px solid rgba(255,255,255,0.08)",
+                            }}
+                          >
+                            <Table.Td ta="center">
+                              <Text size="sm" fw={500} c="dimmed">
+                                {topPlusIdx}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td ta="center">
+                              <Text size="sm" c="dimmed">
+                                {fmt(topLevel.shares, 0)}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td ta="center">
+                              <Badge
+                                variant="filled"
+                                size="md"
+                                fw={700}
+                                style={{
+                                  background: "var(--mantine-color-teal-7)",
+                                  color: "#fff",
+                                  cursor:
+                                    topLevel.buyPrice != null
+                                      ? "pointer"
+                                      : "default",
+                                }}
+                                onClick={() => {
+                                  if (topLevel.buyPrice == null) return;
+                                  isTastytrade
+                                    ? openPlaceOrder(
+                                        "BUY",
+                                        topLevel.shares,
+                                        topLevel.buyPrice!,
+                                      )
+                                    : topLevel.sellPrice != null &&
+                                      setTosModal({
+                                        text: buildTosText(
+                                          "BUY",
+                                          topLevel.shares,
+                                          topLevel.buyPrice!,
+                                          topLevel.sellPrice!,
+                                          4,
+                                        ),
+                                      });
+                                }}
+                              >
+                                +
+                              </Badge>
+                            </Table.Td>
+                            <Table.Td ta="center">
+                              {!isTastytrade && (
+                                <Badge
+                                  variant="filled"
+                                  size="md"
+                                  fw={700}
+                                  style={{
+                                    background: "var(--mantine-color-red-7)",
+                                    color: "#fff",
+                                    cursor:
+                                      topLevel.buyPrice != null &&
+                                      topLevel.sellPrice != null
+                                        ? "pointer"
+                                        : "default",
+                                  }}
+                                  onClick={() =>
+                                    topLevel.buyPrice != null &&
+                                    topLevel.sellPrice != null &&
+                                    setTosModal({
+                                      text: buildTosText(
+                                        "SELL",
+                                        topLevel.shares,
+                                        topLevel.buyPrice!,
+                                        topLevel.sellPrice!,
+                                        4,
+                                      ),
+                                    })
+                                  }
+                                >
+                                  +
+                                </Badge>
+                              )}
+                            </Table.Td>
+                            <Table.Td ta="center">
+                              <Text size="sm" c="dimmed">
+                                {topLevel.buyPrice != null
+                                  ? mask(`$${fmt(topLevel.buyPrice)}`)
+                                  : "—"}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td ta="center">
+                              <Text size="sm" c="dimmed">
+                                {topLevel.sellPrice != null
+                                  ? mask(`$${fmt(topLevel.sellPrice)}`)
+                                  : "—"}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td ta="center" className="hide-mobile">
+                              <Text size="sm" c="dimmed">
+                                {cost != null ? mask(`$${fmt(cost)}`) : "—"}
+                              </Text>
+                            </Table.Td>
+                          </Table.Tr>
+                        );
+                      })()}
+                    {rows.map((row) => {
+                      const hasOrders = row.buys > 0 || row.sells > 0;
+                      const isBottomPlus = row.levelIndex === bottomPlusIdx;
+                      const isTopPlus = row.levelIndex === topPlusIdx;
+                      const cost =
+                        row.buyPrice != null ? row.shares * row.buyPrice : null;
+                      const currentLevel = levelsSummary?.currentLevel ?? -1;
+                      const inBuffer =
+                        bufferSize > 0 &&
+                        row.levelIndex >= 0 &&
+                        row.levelIndex !== currentLevel &&
+                        Math.abs(row.levelIndex - currentLevel) <= bufferSize;
+                      // tastytrade: max 1 order per level — warn only if the level has no orders at all
+                      const bufferMissing =
+                        inBuffer &&
+                        (isTastytrade
+                          ? row.buys === 0 && row.sells === 0
+                          : row.buys === 0 || row.sells === 0);
+                      const rowWarn =
+                        hasOrders &&
+                        threshold > 0 &&
+                        (row.buys < threshold || row.sells < threshold);
+                      const buyWarn = rowWarn;
+                      const sellWarn = rowWarn;
+                      // tastytrade: suppress a column when the other direction already has an order,
+                      // and when both are empty only show the expected direction
+                      // (higher levelIndex = lower price = expects BUY; lower = higher price = expects SELL)
+                      const buyColVisible =
+                        !isTastytrade ||
+                        (row.sells === 0 &&
+                          (currentLevel < 0 || row.levelIndex >= currentLevel));
+                      const sellColVisible =
+                        !isTastytrade ||
+                        (row.buys === 0 &&
+                          currentLevel >= 0 &&
+                          row.levelIndex <= currentLevel);
+                      const isCurrent =
+                        row.levelIndex === currentLevel && currentLevel >= 0;
+                      const priceInRange =
+                        !quote.loading &&
+                        row.buyPrice != null &&
+                        row.sellPrice != null &&
+                        quote.price >= row.buyPrice &&
+                        quote.price <= row.sellPrice;
+                      const isOwned =
+                        row.levelIndex >= 0 &&
+                        currentLevel >= 0 &&
+                        row.levelIndex <= currentLevel;
+                      const hasDuplicate = duplicateShares.has(row.shares);
+
+                      return (
+                        <Table.Tr
+                          key={`${row.shares}-${row.levelIndex}`}
+                          bg={
+                            hasDuplicate
+                              ? "rgba(250,82,82,0.1)"
+                              : isCurrent
+                                ? "rgba(255,255,255,0.12)"
+                                : bufferMissing
+                                  ? "rgba(251,146,60,0.1)"
+                                  : undefined
+                          }
+                          style={{
+                            opacity: 1,
+                            ...(hasDuplicate
+                              ? { borderLeft: "5px solid rgba(250,82,82,0.8)" }
+                              : bufferMissing
+                                ? {
+                                    borderLeft:
+                                      "5px solid rgba(251,146,60,0.8)",
+                                  }
+                                : {}),
+                          }}
+                        >
+                          <Table.Td
+                            ta="center"
+                            style={{ position: "relative" }}
+                          >
+                            {priceInRange && (
+                              <Tooltip
+                                label={`Current price $${fmt(quote.price)} is between buy and sell`}
+                                withArrow
+                              >
+                                <IconPlayerPlayFilled
+                                  size={10}
+                                  color={
+                                    bufferMissing
+                                      ? "var(--mantine-color-orange-5)"
+                                      : `var(--mantine-color-${accountColor}-5)`
+                                  }
+                                  style={{
+                                    position: "absolute",
+                                    left: -4,
+                                    top: "50%",
+                                    transform: "translateY(-50%)",
+                                    cursor: "default",
+                                  }}
+                                />
+                              </Tooltip>
+                            )}
+                            <Group justify="center" gap={4} wrap="nowrap">
+                              {isOwned && (
+                                <ThemeIcon
+                                  variant="subtle"
+                                  color="teal"
+                                  size="sm"
+                                >
+                                  <IconCheck size={12} />
+                                </ThemeIcon>
+                              )}
+                              {hasDuplicate && (
+                                <Tooltip
+                                  label="Duplicate WORKING orders detected on this level"
+                                  withArrow
+                                >
+                                  <IconCopy
+                                    size={14}
+                                    color="rgba(250,82,82,0.9)"
+                                    style={{ cursor: "default" }}
+                                  />
+                                </Tooltip>
+                              )}
+                              <Text size="sm" fw={500}>
+                                {row.levelIndex >= 0 ? row.levelIndex : "—"}
+                              </Text>
+                            </Group>
+                          </Table.Td>
+                          <Table.Td ta="center">
+                            <Text size="sm">{fmt(row.shares, 0)}</Text>
+                          </Table.Td>
+                          <Table.Td ta="center">
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: isMobile ? "column" : "row",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: isMobile ? 2 : 4,
+                              }}
+                            >
+                              {buyColVisible && inBuffer && row.buys === 0 && (
+                                <Tooltip
+                                  label="Buffer zone — buy order should be open on this level"
+                                  withArrow
+                                >
+                                  <IconAlertTriangle
+                                    size={14}
+                                    color="var(--mantine-color-orange-5)"
+                                    style={{ cursor: "default" }}
+                                  />
+                                </Tooltip>
+                              )}
+                              {buyWarn ? (
+                                <Badge
+                                  variant="filled"
+                                  size="md"
+                                  fw={700}
+                                  style={{
+                                    background: "rgba(251,146,60,0.9)",
+                                    color: "#fff",
+                                    cursor: "pointer",
+                                  }}
+                                  onClick={() =>
+                                    row.buyPrice != null &&
+                                    row.sellPrice != null &&
+                                    setTosModal({
+                                      text: buildTosText(
+                                        "SELL",
+                                        row.shares,
+                                        row.buyPrice,
+                                        row.sellPrice,
+                                        3,
+                                      ),
+                                    })
+                                  }
+                                >
+                                  {row.buys}
+                                </Badge>
+                              ) : row.buys > 0 ? (
+                                (() => {
+                                  const order = isTastytrade
+                                    ? workingOrders.find(
+                                        (o) =>
+                                          o.side === "BUY" &&
+                                          o.shares === row.shares,
+                                      )
+                                    : null;
+                                  return (
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        flexDirection: isMobile
+                                          ? "column"
+                                          : "row",
+                                        alignItems: "center",
+                                        gap: isMobile ? 2 : 4,
+                                      }}
+                                    >
+                                      <Text size="sm" c="teal">
+                                        {row.buys}
+                                      </Text>
+                                      {order && (
+                                        <Badge
+                                          variant="outline"
+                                          size="md"
+                                          fw={700}
+                                          style={{
+                                            color: "var(--mantine-color-red-5)",
+                                            borderColor:
+                                              "var(--mantine-color-red-5)",
+                                            cursor:
+                                              cancellingOrderId ===
+                                              String(order.orderId)
+                                                ? "default"
+                                                : "pointer",
+                                            ...(isMobile
+                                              ? { paddingInline: 8 }
+                                              : {}),
+                                          }}
+                                          onClick={() =>
+                                            cancellingOrderId == null &&
+                                            setCancelConfirm({
+                                              orderId: String(order.orderId),
+                                              accountNumber:
+                                                order.accountNumber,
+                                              side: order.side,
+                                              shares: order.shares,
+                                              price: order.limitPrice,
+                                            })
+                                          }
+                                        >
+                                          <IconTrash size={10} />
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  );
+                                })()
+                              ) : buyColVisible ? (
+                                <Badge
+                                  variant="filled"
+                                  size="md"
+                                  fw={700}
+                                  style={{
+                                    background: bufferMissing
+                                      ? "rgba(251,146,60,0.9)"
+                                      : "var(--mantine-color-teal-7)",
+                                    color: "#fff",
+                                    cursor:
+                                      row.buyPrice != null
+                                        ? "pointer"
+                                        : "default",
+                                    ...(isMobile ? { paddingInline: 8 } : {}),
+                                  }}
+                                  onClick={() => {
+                                    if (row.buyPrice == null) return;
+                                    isTastytrade
+                                      ? openPlaceOrder(
+                                          "BUY",
+                                          row.shares,
+                                          row.buyPrice,
+                                        )
+                                      : row.sellPrice != null &&
+                                        setTosModal({
+                                          text: buildTosText(
+                                            "BUY",
+                                            row.shares,
+                                            row.buyPrice,
+                                            row.sellPrice,
+                                            4,
+                                          ),
+                                        });
+                                  }}
+                                >
+                                  +
+                                </Badge>
+                              ) : null}
+                            </div>
+                          </Table.Td>
+                          <Table.Td ta="center">
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: isMobile ? "column" : "row",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: isMobile ? 2 : 4,
+                              }}
+                            >
+                              {sellColVisible &&
+                                inBuffer &&
+                                row.sells === 0 && (
+                                  <Tooltip
+                                    label="Buffer zone — sell order should be open on this level"
+                                    withArrow
+                                  >
+                                    <IconAlertTriangle
+                                      size={14}
+                                      color="var(--mantine-color-orange-5)"
+                                      style={{ cursor: "default" }}
+                                    />
+                                  </Tooltip>
+                                )}
+                              {sellWarn ? (
+                                <Badge
+                                  variant="filled"
+                                  size="md"
+                                  fw={700}
+                                  style={{
+                                    background: "rgba(251,146,60,0.9)",
+                                    color: "#fff",
+                                    cursor: "pointer",
+                                  }}
+                                  onClick={() =>
+                                    row.buyPrice != null &&
+                                    row.sellPrice != null &&
+                                    setTosModal({
+                                      text: buildTosText(
+                                        "BUY",
+                                        row.shares,
+                                        row.buyPrice,
+                                        row.sellPrice,
+                                        3,
+                                      ),
+                                    })
+                                  }
+                                >
+                                  {row.sells}
+                                </Badge>
+                              ) : row.sells > 0 ? (
+                                (() => {
+                                  const order = isTastytrade
+                                    ? workingOrders.find(
+                                        (o) =>
+                                          o.side === "SELL" &&
+                                          o.shares === row.shares,
+                                      )
+                                    : null;
+                                  return (
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        flexDirection: isMobile
+                                          ? "column"
+                                          : "row",
+                                        alignItems: "center",
+                                        gap: isMobile ? 2 : 4,
+                                      }}
+                                    >
+                                      <Text size="sm" c="red">
+                                        {row.sells}
+                                      </Text>
+                                      {order && (
+                                        <Badge
+                                          variant="outline"
+                                          size="md"
+                                          fw={700}
+                                          style={{
+                                            color: "var(--mantine-color-red-5)",
+                                            borderColor:
+                                              "var(--mantine-color-red-5)",
+                                            cursor:
+                                              cancellingOrderId ===
+                                              String(order.orderId)
+                                                ? "default"
+                                                : "pointer",
+                                            ...(isMobile
+                                              ? { paddingInline: 8 }
+                                              : {}),
+                                          }}
+                                          onClick={() =>
+                                            cancellingOrderId == null &&
+                                            setCancelConfirm({
+                                              orderId: String(order.orderId),
+                                              accountNumber:
+                                                order.accountNumber,
+                                              side: order.side,
+                                              shares: order.shares,
+                                              price: order.limitPrice,
+                                            })
+                                          }
+                                        >
+                                          <IconTrash size={10} />
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  );
+                                })()
+                              ) : sellColVisible ? (
+                                <Badge
+                                  variant="filled"
+                                  size="md"
+                                  fw={700}
+                                  style={{
+                                    background: bufferMissing
+                                      ? "rgba(251,146,60,0.9)"
+                                      : "var(--mantine-color-red-7)",
+                                    color: "#fff",
+                                    cursor:
+                                      row.sellPrice != null
+                                        ? "pointer"
+                                        : "default",
+                                    ...(isMobile ? { paddingInline: 8 } : {}),
+                                  }}
+                                  onClick={() => {
+                                    if (row.sellPrice == null) return;
+                                    isTastytrade
+                                      ? openPlaceOrder(
+                                          "SELL",
+                                          row.shares,
+                                          row.sellPrice,
+                                        )
+                                      : row.buyPrice != null &&
+                                        setTosModal({
+                                          text: buildTosText(
+                                            "SELL",
+                                            row.shares,
+                                            row.buyPrice,
+                                            row.sellPrice,
+                                            4,
+                                          ),
+                                        });
+                                  }}
+                                >
+                                  +
+                                </Badge>
+                              ) : null}
+                            </div>
+                          </Table.Td>
+                          <Table.Td ta="center">
+                            <Text size="sm" c="dimmed">
+                              {row.buyPrice != null
+                                ? mask(`$${fmt(row.buyPrice)}`)
+                                : "—"}
+                            </Text>
+                          </Table.Td>
+                          <Table.Td ta="center">
+                            <Text size="sm" c="dimmed">
+                              {row.sellPrice != null
+                                ? mask(`$${fmt(row.sellPrice)}`)
+                                : "—"}
+                            </Text>
+                          </Table.Td>
+                          <Table.Td ta="center" className="hide-mobile">
+                            <Text size="sm" c="dimmed">
+                              {cost != null ? mask(`$${fmt(cost)}`) : "—"}
+                            </Text>
+                          </Table.Td>
+                        </Table.Tr>
+                      );
+                    })}
+                  </>
                 );
               })()}
-              {rows.map((row) => {
-              const hasOrders = row.buys > 0 || row.sells > 0;
-              const isBottomPlus = row.levelIndex === bottomPlusIdx;
-              const isTopPlus = row.levelIndex === topPlusIdx;
-              const cost = row.buyPrice != null ? row.shares * row.buyPrice : null;
-              const currentLevel = levelsSummary?.currentLevel ?? -1;
-              const inBuffer = bufferSize > 0 && row.levelIndex >= 0
-                && row.levelIndex !== currentLevel
-                && Math.abs(row.levelIndex - currentLevel) <= bufferSize;
-              // tastytrade: max 1 order per level — warn only if the level has no orders at all
-              const bufferMissing = inBuffer && (
-                isTastytrade
-                  ? (row.buys === 0 && row.sells === 0)
-                  : (row.buys === 0 || row.sells === 0)
-              );
-              const rowWarn = hasOrders && threshold > 0 && (row.buys < threshold || row.sells < threshold);
-              const buyWarn = rowWarn;
-              const sellWarn = rowWarn;
-              // tastytrade: suppress a column when the other direction already has an order,
-              // and when both are empty only show the expected direction
-              // (higher levelIndex = lower price = expects BUY; lower = higher price = expects SELL)
-              const buyColVisible = !isTastytrade || (row.sells === 0 && (currentLevel < 0 || row.levelIndex >= currentLevel));
-              const sellColVisible = !isTastytrade || (row.buys === 0 && (currentLevel < 0 || row.levelIndex <= currentLevel));
-              const isCurrent = row.levelIndex === currentLevel && currentLevel >= 0;
-              const priceInRange = !quote.loading && row.buyPrice != null && row.sellPrice != null
-                && quote.price >= row.buyPrice && quote.price <= row.sellPrice;
-              const isOwned = row.levelIndex >= 0 && currentLevel >= 0 && row.levelIndex <= currentLevel;
-              const hasDuplicate = duplicateShares.has(row.shares);
-
-              return (
-                <Table.Tr
-                key={`${row.shares}-${row.levelIndex}`}
-                bg={hasDuplicate ? "rgba(250,82,82,0.1)" : isCurrent ? "rgba(255,255,255,0.12)" : bufferMissing ? "rgba(251,146,60,0.1)" : undefined}
-                style={{ opacity: 1, ...(hasDuplicate ? { borderLeft: "5px solid rgba(250,82,82,0.8)" } : bufferMissing ? { borderLeft: "5px solid rgba(251,146,60,0.8)" } : {}) }}
-              >
-                  <Table.Td ta="center" style={{ position: "relative" }}>
-                    {priceInRange && (
-                      <Tooltip label={`Current price $${fmt(quote.price)} is between buy and sell`} withArrow>
-                        <IconPlayerPlayFilled
-                          size={10}
-                          color={bufferMissing ? "var(--mantine-color-orange-5)" : `var(--mantine-color-${accountColor}-5)`}
-                          style={{ position: "absolute", left: -4, top: "50%", transform: "translateY(-50%)", cursor: "default" }}
-                        />
-                      </Tooltip>
-                    )}
-                    <Group justify="center" gap={4} wrap="nowrap">
-                      {isOwned && (
-                        <ThemeIcon variant="subtle" color="teal" size="sm">
-                          <IconCheck size={12} />
-                        </ThemeIcon>
-                      )}
-                      {hasDuplicate && (
-                        <Tooltip label="Duplicate WORKING orders detected on this level" withArrow>
-                          <IconCopy size={14} color="rgba(250,82,82,0.9)" style={{ cursor: "default" }} />
-                        </Tooltip>
-                      )}
-                      <Text size="sm" fw={500}>{row.levelIndex >= 0 ? row.levelIndex : "—"}</Text>
-                    </Group>
-                  </Table.Td>
-                  <Table.Td ta="center"><Text size="sm">{fmt(row.shares, 0)}</Text></Table.Td>
-                  <Table.Td ta="center">
-                    <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: "center", justifyContent: "center", gap: isMobile ? 2 : 4 }}>
-                      {buyColVisible && inBuffer && row.buys === 0 && (
-                        <Tooltip label="Buffer zone — buy order should be open on this level" withArrow>
-                          <IconAlertTriangle size={14} color="var(--mantine-color-orange-5)" style={{ cursor: "default" }} />
-                        </Tooltip>
-                      )}
-                      {buyWarn
-                        ? <Badge variant="filled" size="md" fw={700} style={{ background: "rgba(251,146,60,0.9)", color: "#fff", cursor: "pointer" }}
-                            onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("SELL", row.shares, row.buyPrice, row.sellPrice, 3) })}
-                          >{row.buys}</Badge>
-                        : row.buys > 0
-                          ? (() => {
-                              const order = isTastytrade ? workingOrders.find((o) => o.side === "BUY" && o.shares === row.shares) : null;
-                              return (
-                                <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: "center", gap: isMobile ? 2 : 4 }}>
-                                  <Text size="sm" c="teal">{row.buys}</Text>
-                                  {order && (
-                                    <Badge variant="outline" size="md" fw={700}
-                                      style={{ color: "var(--mantine-color-red-5)", borderColor: "var(--mantine-color-red-5)", cursor: cancellingOrderId === String(order.orderId) ? "default" : "pointer", ...(isMobile ? { paddingInline: 4 } : {}) }}
-                                      onClick={() => cancellingOrderId == null && setCancelConfirm({ orderId: String(order.orderId), accountNumber: order.accountNumber, side: order.side, shares: order.shares, price: order.limitPrice })}>
-                                      <IconTrash size={10} />
-                                    </Badge>
-                                  )}
-                                </div>
-                              );
-                            })()
-                          : buyColVisible
-                            ? <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-teal-7)", color: "#fff", cursor: row.buyPrice != null ? "pointer" : "default", ...(isMobile ? { paddingInline: 4 } : {}) }}
-                                onClick={() => {
-                                  if (row.buyPrice == null) return;
-                                  isTastytrade
-                                    ? openPlaceOrder("BUY", row.shares, row.buyPrice)
-                                    : row.sellPrice != null && setTosModal({ text: buildTosText("BUY", row.shares, row.buyPrice, row.sellPrice, 4) });
-                                }}
-                              >+</Badge>
-                            : null}
-                    </div>
-                  </Table.Td>
-                  <Table.Td ta="center">
-                    <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: "center", justifyContent: "center", gap: isMobile ? 2 : 4 }}>
-                      {sellColVisible && inBuffer && row.sells === 0 && (
-                        <Tooltip label="Buffer zone — sell order should be open on this level" withArrow>
-                          <IconAlertTriangle size={14} color="var(--mantine-color-orange-5)" style={{ cursor: "default" }} />
-                        </Tooltip>
-                      )}
-                      {sellWarn
-                        ? <Badge variant="filled" size="md" fw={700} style={{ background: "rgba(251,146,60,0.9)", color: "#fff", cursor: "pointer" }}
-                            onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("BUY", row.shares, row.buyPrice, row.sellPrice, 3) })}
-                          >{row.sells}</Badge>
-                        : row.sells > 0
-                          ? (() => {
-                              const order = isTastytrade ? workingOrders.find((o) => o.side === "SELL" && o.shares === row.shares) : null;
-                              return (
-                                <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: "center", gap: isMobile ? 2 : 4 }}>
-                                  <Text size="sm" c="red">{row.sells}</Text>
-                                  {order && (
-                                    <Badge variant="outline" size="md" fw={700}
-                                      style={{ color: "var(--mantine-color-red-5)", borderColor: "var(--mantine-color-red-5)", cursor: cancellingOrderId === String(order.orderId) ? "default" : "pointer", ...(isMobile ? { paddingInline: 4 } : {}) }}
-                                      onClick={() => cancellingOrderId == null && setCancelConfirm({ orderId: String(order.orderId), accountNumber: order.accountNumber, side: order.side, shares: order.shares, price: order.limitPrice })}>
-                                      <IconTrash size={10} />
-                                    </Badge>
-                                  )}
-                                </div>
-                              );
-                            })()
-                          : sellColVisible
-                            ? <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-red-7)", color: "#fff", cursor: row.sellPrice != null ? "pointer" : "default", ...(isMobile ? { paddingInline: 4 } : {}) }}
-                                onClick={() => {
-                                  if (row.sellPrice == null) return;
-                                  isTastytrade
-                                    ? openPlaceOrder("SELL", row.shares, row.sellPrice)
-                                    : row.buyPrice != null && setTosModal({ text: buildTosText("SELL", row.shares, row.buyPrice, row.sellPrice, 4) });
-                                }}
-                              >+</Badge>
-                            : null}
-                    </div>
-                  </Table.Td>
-                  <Table.Td ta="center">
-                    <Text size="sm" c="dimmed">{row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text>
-                  </Table.Td>
-                  <Table.Td ta="center">
-                    <Text size="sm" c="dimmed">{row.sellPrice != null ? mask(`$${fmt(row.sellPrice)}`) : "—"}</Text>
-                  </Table.Td>
-                  <Table.Td ta="center" className="hide-mobile">
-                    <Text size="sm" c="dimmed">{cost != null ? mask(`$${fmt(cost)}`) : "—"}</Text>
-                  </Table.Td>
-                </Table.Tr>
-              );
-            })}
-            </>);
-            })()}
-          </Table.Tbody>
-        </Table>
-      </ScrollArea>
-    </Stack>
+            </Table.Tbody>
+          </Table>
+        </ScrollArea>
+      </Stack>
     </>
   );
-
 }
