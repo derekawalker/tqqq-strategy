@@ -22,12 +22,10 @@ import {
   Switch,
 } from "@mantine/core";
 import {
-  IconAlertTriangle,
   IconCheck,
   IconCopy,
   IconPlayerPlayFilled,
   IconShield,
-  IconTrash,
 } from "@tabler/icons-react";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
@@ -857,18 +855,6 @@ export default function WorkingOrdersPage() {
                                 gap: isMobile ? 2 : 4,
                               }}
                             >
-                              {buyColVisible && inBuffer && row.buys === 0 && (
-                                <Tooltip
-                                  label="Buffer zone — buy order should be open on this level"
-                                  withArrow
-                                >
-                                  <IconAlertTriangle
-                                    size={14}
-                                    color="var(--mantine-color-orange-5)"
-                                    style={{ cursor: "default" }}
-                                  />
-                                </Tooltip>
-                              )}
                               {buyWarn ? (
                                 <Badge
                                   variant="filled"
@@ -904,54 +890,32 @@ export default function WorkingOrdersPage() {
                                           o.shares === row.shares,
                                       )
                                     : null;
-                                  return (
-                                    <div
+                                  return order ? (
+                                    <Badge
+                                      variant="filled"
+                                      size="md"
+                                      fw={700}
                                       style={{
-                                        display: "flex",
-                                        flexDirection: isMobile
-                                          ? "column"
-                                          : "row",
-                                        alignItems: "center",
-                                        gap: isMobile ? 2 : 4,
+                                        background: "var(--mantine-color-teal-7)",
+                                        color: "#fff",
+                                        cursor: cancellingOrderId === String(order.orderId) ? "default" : "pointer",
+                                        ...(isMobile ? { paddingInline: 8 } : {}),
                                       }}
+                                      onClick={() =>
+                                        cancellingOrderId == null &&
+                                        setCancelConfirm({
+                                          orderId: String(order.orderId),
+                                          accountNumber: order.accountNumber,
+                                          side: order.side,
+                                          shares: order.shares,
+                                          price: order.limitPrice,
+                                        })
+                                      }
                                     >
-                                      <Text size="sm" c="teal">
-                                        {row.buys}
-                                      </Text>
-                                      {order && (
-                                        <Badge
-                                          variant="outline"
-                                          size="md"
-                                          fw={700}
-                                          style={{
-                                            color: "var(--mantine-color-red-5)",
-                                            borderColor:
-                                              "var(--mantine-color-red-5)",
-                                            cursor:
-                                              cancellingOrderId ===
-                                              String(order.orderId)
-                                                ? "default"
-                                                : "pointer",
-                                            ...(isMobile
-                                              ? { paddingInline: 8 }
-                                              : {}),
-                                          }}
-                                          onClick={() =>
-                                            cancellingOrderId == null &&
-                                            setCancelConfirm({
-                                              orderId: String(order.orderId),
-                                              accountNumber:
-                                                order.accountNumber,
-                                              side: order.side,
-                                              shares: order.shares,
-                                              price: order.limitPrice,
-                                            })
-                                          }
-                                        >
-                                          <IconTrash size={10} />
-                                        </Badge>
-                                      )}
-                                    </div>
+                                      {row.buys}
+                                    </Badge>
+                                  ) : (
+                                    <Text size="sm" c="teal">{row.buys}</Text>
                                   );
                                 })()
                               ) : buyColVisible ? (
@@ -1005,20 +969,6 @@ export default function WorkingOrdersPage() {
                                 gap: isMobile ? 2 : 4,
                               }}
                             >
-                              {sellColVisible &&
-                                inBuffer &&
-                                row.sells === 0 && (
-                                  <Tooltip
-                                    label="Buffer zone — sell order should be open on this level"
-                                    withArrow
-                                  >
-                                    <IconAlertTriangle
-                                      size={14}
-                                      color="var(--mantine-color-orange-5)"
-                                      style={{ cursor: "default" }}
-                                    />
-                                  </Tooltip>
-                                )}
                               {sellWarn ? (
                                 <Badge
                                   variant="filled"
@@ -1054,54 +1004,32 @@ export default function WorkingOrdersPage() {
                                           o.shares === row.shares,
                                       )
                                     : null;
-                                  return (
-                                    <div
+                                  return order ? (
+                                    <Badge
+                                      variant="filled"
+                                      size="md"
+                                      fw={700}
                                       style={{
-                                        display: "flex",
-                                        flexDirection: isMobile
-                                          ? "column"
-                                          : "row",
-                                        alignItems: "center",
-                                        gap: isMobile ? 2 : 4,
+                                        background: "var(--mantine-color-red-7)",
+                                        color: "#fff",
+                                        cursor: cancellingOrderId === String(order.orderId) ? "default" : "pointer",
+                                        ...(isMobile ? { paddingInline: 8 } : {}),
                                       }}
+                                      onClick={() =>
+                                        cancellingOrderId == null &&
+                                        setCancelConfirm({
+                                          orderId: String(order.orderId),
+                                          accountNumber: order.accountNumber,
+                                          side: order.side,
+                                          shares: order.shares,
+                                          price: order.limitPrice,
+                                        })
+                                      }
                                     >
-                                      <Text size="sm" c="red">
-                                        {row.sells}
-                                      </Text>
-                                      {order && (
-                                        <Badge
-                                          variant="outline"
-                                          size="md"
-                                          fw={700}
-                                          style={{
-                                            color: "var(--mantine-color-red-5)",
-                                            borderColor:
-                                              "var(--mantine-color-red-5)",
-                                            cursor:
-                                              cancellingOrderId ===
-                                              String(order.orderId)
-                                                ? "default"
-                                                : "pointer",
-                                            ...(isMobile
-                                              ? { paddingInline: 8 }
-                                              : {}),
-                                          }}
-                                          onClick={() =>
-                                            cancellingOrderId == null &&
-                                            setCancelConfirm({
-                                              orderId: String(order.orderId),
-                                              accountNumber:
-                                                order.accountNumber,
-                                              side: order.side,
-                                              shares: order.shares,
-                                              price: order.limitPrice,
-                                            })
-                                          }
-                                        >
-                                          <IconTrash size={10} />
-                                        </Badge>
-                                      )}
-                                    </div>
+                                      {row.sells}
+                                    </Badge>
+                                  ) : (
+                                    <Text size="sm" c="red">{row.sells}</Text>
                                   );
                                 })()
                               ) : sellColVisible ? (
