@@ -1,10 +1,12 @@
 import { readTokens, writeTokens, clearTokens, isExpired, TokenSet } from "./tokens";
+import { BASE_URL, SANDBOX, SANDBOX_URL } from "./config";
 
-const BASE_URL = "https://api.tastyworks.com";
+export { SANDBOX };
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 
 const BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
+// Live credentials — used for data fetching and MFA auth flow
 const LOGIN_BODY = () => ({
   login: process.env.TASTYTRADE_USERNAME!,
   password: process.env.TASTYTRADE_PASSWORD!,
@@ -73,11 +75,10 @@ async function login(): Promise<TokenSet> {
 }
 
 async function refreshSession(rememberMeToken: string): Promise<TokenSet> {
-  const username = process.env.TASTYTRADE_USERNAME!;
   const res = await fetch(`${BASE_URL}/sessions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ login: username, "remember-me-token": rememberMeToken }),
+    body: JSON.stringify({ login: process.env.TASTYTRADE_USERNAME!, "remember-me-token": rememberMeToken }),
   });
   if (!res.ok) {
     // Remember-me token rejected — clear stored tokens so UI shows disconnected
@@ -94,7 +95,7 @@ async function refreshSession(rememberMeToken: string): Promise<TokenSet> {
   return tokens;
 }
 
-// Module-level token cache — avoids a Supabase read on every tastyFetch call
+// Live session cache
 let cachedSessionToken: string | null = null;
 let cachedSessionExpiry = 0;
 
@@ -118,12 +119,62 @@ export function invalidateSessionCache(): void {
   cachedSessionExpiry = 0;
 }
 
+/** Fetch against the live tastytrade API. Always uses live credentials and token. */
 export async function tastyFetch(path: string, init?: RequestInit): Promise<Response> {
   const token = await getSessionToken();
   return fetch(`${BASE_URL}${path}`, {
     ...init,
     headers: {
       Authorization: token,
+      Accept: "application/json",
+      "User-Agent": BROWSER_UA,
+      ...(init?.headers ?? {}),
+    },
+  });
+}
+
+// Sandbox OAuth2 token cache (in-memory; access tokens last 15 min)
+let cachedSandboxToken: string | null = null;
+let cachedSandboxExpiry = 0;
+
+async function getSandboxSessionToken(): Promise<string> {
+  const now = Date.now();
+  if (cachedSandboxToken && now < cachedSandboxExpiry) return cachedSandboxToken;
+
+  const clientSecret = process.env.TASTYTRADE_SANDBOX_CLIENT_SECRET;
+  const refreshToken = process.env.TASTYTRADE_SANDBOX_REFRESH_TOKEN;
+  if (!clientSecret || !refreshToken) {
+    throw new Error("Sandbox OAuth not configured — set TASTYTRADE_SANDBOX_CLIENT_SECRET and TASTYTRADE_SANDBOX_REFRESH_TOKEN");
+  }
+
+  const res = await fetch(`${SANDBOX_URL}/oauth/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ grant_type: "refresh_token", client_secret: clientSecret, refresh_token: refreshToken }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Sandbox OAuth failed (${res.status}): ${text.slice(0, 300)}`);
+  }
+  const json = await res.json();
+  const expiresIn: number = json.expires_in ?? 900;
+  cachedSandboxToken = json.access_token;
+  cachedSandboxExpiry = now + (expiresIn - 60) * 1000;
+  return cachedSandboxToken!;
+}
+
+/**
+ * Fetch used exclusively for order placement.
+ * Routes to the sandbox API when sandbox=true (defaults to TASTYTRADE_SANDBOX env var).
+ */
+export async function tastyOrderFetch(path: string, init?: RequestInit, sandbox = SANDBOX): Promise<Response> {
+  if (!sandbox) return tastyFetch(path, init);
+
+  const token = await getSandboxSessionToken();
+  return fetch(`${SANDBOX_URL}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
       Accept: "application/json",
       "User-Agent": BROWSER_UA,
       ...(init?.headers ?? {}),

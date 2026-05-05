@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Table, ScrollArea, Text, Center, Skeleton, Stack, Badge, NumberInput, Group, Tooltip, ThemeIcon, Modal, Code, Button, CopyButton } from "@mantine/core";
-import { IconAlertTriangle, IconCheck, IconCopy, IconPlayerPlayFilled } from "@tabler/icons-react";
+import { useMemo, useState, useEffect } from "react";
+import { useMediaQuery } from "@mantine/hooks";
+import { Table, ScrollArea, Text, Center, Skeleton, Stack, Badge, NumberInput, Group, Tooltip, ThemeIcon, Modal, Code, Button, CopyButton, Alert, Switch } from "@mantine/core";
+import { IconAlertTriangle, IconCheck, IconCopy, IconPlayerPlayFilled, IconShield, IconTrash } from "@tabler/icons-react";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
 import { fmt, createMask } from "@/lib/format";
@@ -38,13 +39,97 @@ function buildTosText(side: "BUY" | "SELL", shares: number, buyPrice: number, se
   return lines.join("\n");
 }
 
+interface PlaceOrderModal {
+  side: "BUY" | "SELL";
+  shares: number;
+  price: number;
+}
+
 export default function WorkingOrdersPage() {
-  const { workingOrders, snapshotLoading, privacyMode, activeAccount, updateAccountSettings, quote } = useApp();
+  const { workingOrders, snapshotLoading, privacyMode, activeAccount, updateAccountSettings, quote, tickRefresh } = useApp();
   const levelsSummary = useLevels();
   const accountColor = useAccountColor();
+  const isMobile = useMediaQuery("(max-width: 768px)");
   const [tosModal, setTosModal] = useState<{ text: string } | null>(null);
-
+  const [placeOrderModal, setPlaceOrderModal] = useState<PlaceOrderModal | null>(null);
+  const [orderLoading, setOrderLoading] = useState(false);
+  const [orderResult, setOrderResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [sandboxMode, setSandboxMode] = useState(false);
   const isTastytrade = activeAccount?.broker === "tastytrade";
+
+  useEffect(() => {
+    if (!isTastytrade) return;
+    fetch("/api/tastytrade/sandbox").then((r) => r.json()).then((d) => setSandboxMode(d.enabled ?? false));
+  }, [isTastytrade]);
+
+  const toggleSandbox = async (val: boolean) => {
+    setSandboxMode(val);
+    await fetch("/api/tastytrade/sandbox", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: val }),
+    });
+  };
+
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
+  const [cancelConfirm, setCancelConfirm] = useState<{ orderId: string; accountNumber: string; side: "BUY" | "SELL"; shares: number; price: number } | null>(null);
+
+  const confirmCancel = async () => {
+    if (!cancelConfirm) return;
+    const { orderId, accountNumber } = cancelConfirm;
+    setCancellingOrderId(orderId);
+    setCancelConfirm(null);
+    try {
+      await fetch("/api/tastytrade/orders", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderId, accountNumber }),
+      });
+      tickRefresh();
+    } finally {
+      setCancellingOrderId(null);
+    }
+  };
+
+  const openPlaceOrder = (side: "BUY" | "SELL", shares: number, price: number) =>
+    setPlaceOrderModal({ side, shares, price });
+
+  const closePlaceOrder = () => {
+    setPlaceOrderModal(null);
+    setOrderResult(null);
+  };
+
+  const submitOrder = async () => {
+    if (!placeOrderModal || !activeAccount) return;
+    setOrderLoading(true);
+    setOrderResult(null);
+    try {
+      const res = await fetch("/api/tastytrade/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          accountNumber: activeAccount.accountNumber,
+          side: placeOrderModal.side,
+          shares: placeOrderModal.shares,
+          price: placeOrderModal.price,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        const raw = json?.error?.errors?.[0]?.message ?? json?.error?.message ?? json?.error?.error ?? json?.error;
+        const detail = typeof raw === "string" ? raw : JSON.stringify(raw);
+        setOrderResult({ ok: false, message: detail ?? "Order failed" });
+      } else {
+        setOrderResult({ ok: true, message: "Order placed successfully." });
+        tickRefresh();
+      }
+    } catch {
+      setOrderResult({ ok: false, message: "Network error — order not placed." });
+    } finally {
+      setOrderLoading(false);
+    }
+  };
+
   const warnBelow = activeAccount?.settings.orderWarnBelow ?? 3;
   const buffer = activeAccount?.settings.orderBuffer ?? 5;
   // tastytrade enforces max 1 order per level — qty warning doesn't apply
@@ -204,10 +289,99 @@ export default function WorkingOrdersPage() {
         </CopyButton>
       </Stack>
     </Modal>
+
+    <Modal
+      opened={cancelConfirm !== null}
+      onClose={() => setCancelConfirm(null)}
+      title="Cancel Order"
+      size="sm"
+    >
+      <Stack gap="md">
+        {cancelConfirm && (
+          <Text size="sm">
+            Cancel{" "}
+            <Text span fw={700} c={cancelConfirm.side === "BUY" ? "teal" : "red"}>
+              {cancelConfirm.side}
+            </Text>
+            {" "}{fmt(cancelConfirm.shares, 0)} TQQQ @ ${fmt(cancelConfirm.price)}?
+          </Text>
+        )}
+        <Group justify="flex-end">
+          <Button variant="subtle" color="gray" onClick={() => setCancelConfirm(null)}>Keep</Button>
+          <Button color="red" onClick={confirmCancel}>Cancel Order</Button>
+        </Group>
+      </Stack>
+    </Modal>
+
+    <Modal
+      opened={placeOrderModal !== null}
+      onClose={closePlaceOrder}
+      title={
+        <Group gap="xs">
+          <Text fw={700}>Place Order{sandboxMode ? " — SANDBOX" : ""}</Text>
+          {sandboxMode && <IconShield size={16} color="var(--mantine-color-orange-5)" />}
+        </Group>
+      }
+    >
+      <Stack gap="md">
+        {sandboxMode && (
+          <Alert color="orange" variant="light" icon={<IconShield size={16} />}>
+            Sandbox mode — this will NOT place a real order.
+          </Alert>
+        )}
+        {placeOrderModal && (
+          <Text size="sm">
+            <Text span fw={700} c={placeOrderModal.side === "BUY" ? "teal" : "red"}>
+              {placeOrderModal.side}
+            </Text>
+            {" "}{fmt(placeOrderModal.shares, 0)} TQQQ @ ${fmt(placeOrderModal.price)} GTC Ext Overnight limit
+          </Text>
+        )}
+        {orderResult && (
+          <Alert color={orderResult.ok ? "teal" : "red"} variant="light">
+            {orderResult.message}
+          </Alert>
+        )}
+        {!orderResult && (
+          <Group justify="flex-end">
+            <Button variant="subtle" color="gray" onClick={closePlaceOrder} disabled={orderLoading}>
+              Cancel
+            </Button>
+            <Button
+              color={placeOrderModal?.side === "BUY" ? "teal" : "red"}
+              loading={orderLoading}
+              onClick={submitOrder}
+            >
+              Confirm
+            </Button>
+          </Group>
+        )}
+        {orderResult && (
+          <Button variant="subtle" onClick={closePlaceOrder}>Close</Button>
+        )}
+      </Stack>
+    </Modal>
+
     <Stack gap="md">
       <Group justify="space-between" wrap="nowrap" align="flex-end">
-        <Text fw={700} size="xl">Working Orders</Text>
+        <Group gap="xs" align="center">
+          <Text fw={700} size="xl">Working Orders</Text>
+          {isTastytrade && sandboxMode && (
+            <Badge color="orange" variant="filled" size="sm" leftSection={<IconShield size={10} />}>
+              Sandbox
+            </Badge>
+          )}
+        </Group>
         <Group wrap="nowrap" align="flex-end" gap="md">
+          {isTastytrade && (
+            <Switch
+              label="Sandbox orders"
+              checked={sandboxMode}
+              onChange={(e) => toggleSandbox(e.currentTarget.checked)}
+              color="orange"
+              size="xs"
+            />
+          )}
           <Group wrap="nowrap" align="flex-end" gap="xs">
             {!isTastytrade && (
               <NumberInput
@@ -269,8 +443,13 @@ export default function WorkingOrdersPage() {
                     <Table.Td ta="center"><Text size="sm" c="dimmed">{fmt(topLevel.shares, 0)}</Text></Table.Td>
                     <Table.Td ta="center">
                       <Badge variant="filled" size="md" fw={700}
-                        style={{ background: "var(--mantine-color-teal-7)", color: "#fff", cursor: topLevel.buyPrice != null && topLevel.sellPrice != null ? "pointer" : "default" }}
-                        onClick={() => topLevel.buyPrice != null && topLevel.sellPrice != null && setTosModal({ text: buildTosText("BUY", topLevel.shares, topLevel.buyPrice!, topLevel.sellPrice!, 4) })}
+                        style={{ background: "var(--mantine-color-teal-7)", color: "#fff", cursor: topLevel.buyPrice != null ? "pointer" : "default" }}
+                        onClick={() => {
+                          if (topLevel.buyPrice == null) return;
+                          isTastytrade
+                            ? openPlaceOrder("BUY", topLevel.shares, topLevel.buyPrice!)
+                            : topLevel.sellPrice != null && setTosModal({ text: buildTosText("BUY", topLevel.shares, topLevel.buyPrice!, topLevel.sellPrice!, 4) });
+                        }}
                       >+</Badge>
                     </Table.Td>
                     <Table.Td ta="center">
@@ -354,7 +533,7 @@ export default function WorkingOrdersPage() {
                   </Table.Td>
                   <Table.Td ta="center"><Text size="sm">{fmt(row.shares, 0)}</Text></Table.Td>
                   <Table.Td ta="center">
-                    <Group justify="center" gap={4} wrap="nowrap">
+                    <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: "center", justifyContent: "center", gap: isMobile ? 2 : 4 }}>
                       {buyColVisible && inBuffer && row.buys === 0 && (
                         <Tooltip label="Buffer zone — buy order should be open on this level" withArrow>
                           <IconAlertTriangle size={14} color="var(--mantine-color-orange-5)" style={{ cursor: "default" }} />
@@ -365,16 +544,35 @@ export default function WorkingOrdersPage() {
                             onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("SELL", row.shares, row.buyPrice, row.sellPrice, 3) })}
                           >{row.buys}</Badge>
                         : row.buys > 0
-                          ? <Text size="sm" c="teal">{row.buys}</Text>
+                          ? (() => {
+                              const order = isTastytrade ? workingOrders.find((o) => o.side === "BUY" && o.shares === row.shares) : null;
+                              return (
+                                <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: "center", gap: isMobile ? 2 : 4 }}>
+                                  <Text size="sm" c="teal">{row.buys}</Text>
+                                  {order && (
+                                    <Badge variant="outline" size="md" fw={700}
+                                      style={{ color: "var(--mantine-color-red-5)", borderColor: "var(--mantine-color-red-5)", cursor: cancellingOrderId === String(order.orderId) ? "default" : "pointer", ...(isMobile ? { paddingInline: 4 } : {}) }}
+                                      onClick={() => cancellingOrderId == null && setCancelConfirm({ orderId: String(order.orderId), accountNumber: order.accountNumber, side: order.side, shares: order.shares, price: order.limitPrice })}>
+                                      <IconTrash size={10} />
+                                    </Badge>
+                                  )}
+                                </div>
+                              );
+                            })()
                           : buyColVisible
-                            ? <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-teal-7)", color: "#fff", cursor: row.buyPrice != null && row.sellPrice != null ? "pointer" : "default" }}
-                                onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("BUY", row.shares, row.buyPrice, row.sellPrice, 4) })}
+                            ? <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-teal-7)", color: "#fff", cursor: row.buyPrice != null ? "pointer" : "default", ...(isMobile ? { paddingInline: 4 } : {}) }}
+                                onClick={() => {
+                                  if (row.buyPrice == null) return;
+                                  isTastytrade
+                                    ? openPlaceOrder("BUY", row.shares, row.buyPrice)
+                                    : row.sellPrice != null && setTosModal({ text: buildTosText("BUY", row.shares, row.buyPrice, row.sellPrice, 4) });
+                                }}
                               >+</Badge>
                             : null}
-                    </Group>
+                    </div>
                   </Table.Td>
                   <Table.Td ta="center">
-                    <Group justify="center" gap={4} wrap="nowrap">
+                    <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: "center", justifyContent: "center", gap: isMobile ? 2 : 4 }}>
                       {sellColVisible && inBuffer && row.sells === 0 && (
                         <Tooltip label="Buffer zone — sell order should be open on this level" withArrow>
                           <IconAlertTriangle size={14} color="var(--mantine-color-orange-5)" style={{ cursor: "default" }} />
@@ -385,13 +583,32 @@ export default function WorkingOrdersPage() {
                             onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("BUY", row.shares, row.buyPrice, row.sellPrice, 3) })}
                           >{row.sells}</Badge>
                         : row.sells > 0
-                          ? <Text size="sm" c="red">{row.sells}</Text>
+                          ? (() => {
+                              const order = isTastytrade ? workingOrders.find((o) => o.side === "SELL" && o.shares === row.shares) : null;
+                              return (
+                                <div style={{ display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: "center", gap: isMobile ? 2 : 4 }}>
+                                  <Text size="sm" c="red">{row.sells}</Text>
+                                  {order && (
+                                    <Badge variant="outline" size="md" fw={700}
+                                      style={{ color: "var(--mantine-color-red-5)", borderColor: "var(--mantine-color-red-5)", cursor: cancellingOrderId === String(order.orderId) ? "default" : "pointer", ...(isMobile ? { paddingInline: 4 } : {}) }}
+                                      onClick={() => cancellingOrderId == null && setCancelConfirm({ orderId: String(order.orderId), accountNumber: order.accountNumber, side: order.side, shares: order.shares, price: order.limitPrice })}>
+                                      <IconTrash size={10} />
+                                    </Badge>
+                                  )}
+                                </div>
+                              );
+                            })()
                           : sellColVisible
-                            ? <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-red-7)", color: "#fff", cursor: row.buyPrice != null && row.sellPrice != null ? "pointer" : "default" }}
-                                onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("SELL", row.shares, row.buyPrice, row.sellPrice, 4) })}
+                            ? <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-red-7)", color: "#fff", cursor: row.sellPrice != null ? "pointer" : "default", ...(isMobile ? { paddingInline: 4 } : {}) }}
+                                onClick={() => {
+                                  if (row.sellPrice == null) return;
+                                  isTastytrade
+                                    ? openPlaceOrder("SELL", row.shares, row.sellPrice)
+                                    : row.buyPrice != null && setTosModal({ text: buildTosText("SELL", row.shares, row.buyPrice, row.sellPrice, 4) });
+                                }}
                               >+</Badge>
                             : null}
-                    </Group>
+                    </div>
                   </Table.Td>
                   <Table.Td ta="center">
                     <Text size="sm" c="dimmed">{row.buyPrice != null ? mask(`$${fmt(row.buyPrice)}`) : "—"}</Text>

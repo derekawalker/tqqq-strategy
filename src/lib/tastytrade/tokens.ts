@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { TOKEN_ID } from "./config";
 
 export interface TokenSet {
   sessionToken: string;
@@ -12,12 +13,12 @@ function supabase() {
   return createClient(url, key);
 }
 
-// Uses id=2 in the same tokens table as Schwab (id=1)
+// Uses TOKEN_ID in the same tokens table as Schwab (id=1). Sandbox uses id=3.
 export async function readTokens(): Promise<TokenSet | null> {
   const { data, error } = await supabase()
     .from("tokens")
     .select("access_token, refresh_token, expires_at")
-    .eq("id", 2)
+    .eq("id", TOKEN_ID)
     .single();
   if (error || !data) return null;
   return {
@@ -29,7 +30,7 @@ export async function readTokens(): Promise<TokenSet | null> {
 
 export async function writeTokens(tokens: TokenSet): Promise<void> {
   await supabase().from("tokens").upsert({
-    id: 2,
+    id: TOKEN_ID,
     access_token: tokens.sessionToken,
     refresh_token: tokens.rememberMeToken,
     expires_at: tokens.expiresAt,
@@ -37,7 +38,7 @@ export async function writeTokens(tokens: TokenSet): Promise<void> {
 }
 
 export async function clearTokens(): Promise<void> {
-  await supabase().from("tokens").delete().eq("id", 2);
+  await supabase().from("tokens").delete().eq("id", TOKEN_ID);
 }
 
 export function isExpired(tokens: TokenSet): boolean {
