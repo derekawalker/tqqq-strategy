@@ -588,7 +588,11 @@ export default function WorkingOrdersPage() {
                 const minActiveIdx =
                   activeIndices.length > 0 ? Math.min(...activeIndices) : -1;
                 const topPlusIdx =
-                  levelsSummary && maxOrderIdx >= 0 ? maxOrderIdx + 1 : -1;
+                  levelsSummary && maxOrderIdx >= 0
+                    ? maxOrderIdx + 1
+                    : isTastytrade && levelsSummary
+                      ? levelsSummary.currentLevel + bufferSize + 1
+                      : -1;
                 const bottomPlusIdx = minActiveIdx > 0 ? minActiveIdx - 1 : -1;
                 const topPlusInRows = rows.some(
                   (r) => r.levelIndex === topPlusIdx,
