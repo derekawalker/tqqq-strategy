@@ -1,4 +1,5 @@
 import YahooFinance from "yahoo-finance2";
+import { getEquityMark } from "@/lib/tastytrade/quotes";
 
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
@@ -25,6 +26,14 @@ export async function GET() {
 
     if (price == null || previousClose == null) {
       return Response.json({ error: "Missing price data" }, { status: 502 });
+    }
+
+    // Outside regular market hours, run DXLink in parallel to get the live tastytrade price
+    if (marketState !== "REGULAR") {
+      const tastyPrice = await getEquityMark("TQQQ");
+      if (tastyPrice != null && tastyPrice > 0) {
+        price = tastyPrice;
+      }
     }
 
     const changePercent = ((price - previousClose) / previousClose) * 100;

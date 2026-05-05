@@ -856,7 +856,7 @@ function AccountsPageInner() {
           All Accounts
         </Text>
         <Group gap="md" align="flex-start" justify="center" wrap="nowrap">
-          {[0, 1, 2].map((i) => (
+          {["a", "b", "c"].map((i) => (
             <Stack
               key={i}
               gap="md"

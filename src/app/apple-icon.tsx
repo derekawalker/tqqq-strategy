@@ -19,9 +19,9 @@ export default function AppleIcon() {
         <span
           style={{
             color: "#40c057",
-            fontSize: 96,
+            fontSize: 80,
             fontWeight: 700,
-            letterSpacing: "-6px",
+            letterSpacing: "-3px",
           }}
         >
           TQ

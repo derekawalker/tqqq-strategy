@@ -23,6 +23,7 @@ export interface Account {
   accountNumber: string;
   accountName: string;
   color: string;
+  broker?: "schwab" | "tastytrade";
   settings: AccountSettings;
 }
 
@@ -84,6 +85,8 @@ interface AppContextValue {
   setAlerts: React.Dispatch<React.SetStateAction<Alerts>>;
   schwabConnected: boolean | null; // null = loading
   checkSchwabAuth: () => Promise<void>;
+  tastytradeConnected: boolean | null; // null = loading
+  checkTastytradeAuth: () => Promise<void>;
   filledOrders: FilledOrder[];
   filledOptionOrders: FilledOptionOrder[];
   expiredOptionOrders: ExpiredOptionOrder[];
@@ -148,6 +151,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [privacyMode, setPrivacyMode] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [schwabConnected, setSchwabConnected] = useState<boolean | null>(null);
+  const [tastytradeConnected, setTastytradeConnected] = useState<boolean | null>(null);
 
   const syncAccountsFromSchwab = async () => {
     try {
@@ -157,26 +161,71 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       setAccounts((prev) => {
         const colors = ["blue", "teal", "violet", "orange", "pink", "grape"];
+        const nonSchwab = prev.filter((a) => a.broker === "tastytrade"); // undefined = legacy schwab, exclude
         const merged = schwabAccounts.map((sa: { accountNumber: string; nickName: string }, i: number) => {
           const existing = prev.find((a) => a.accountNumber === sa.accountNumber);
           return existing
-            ? { ...existing, accountName: sa.nickName }
+            ? { ...existing, accountName: sa.nickName, broker: "schwab" as const }
             : {
                 accountNumber: sa.accountNumber,
                 accountName: sa.nickName,
                 color: colors[i % colors.length],
+                broker: "schwab" as const,
                 settings: { ...DEFAULT_SETTINGS },
               };
         });
+        const allAccounts = [...merged, ...nonSchwab];
         setActiveAccount((active) => {
           const savedNumber = localStorage.getItem(ACTIVE_ACCOUNT_KEY);
           const preferred = savedNumber ?? active?.accountNumber;
-          return merged.find((a) => a.accountNumber === preferred) ?? merged[0] ?? null;
+          return allAccounts.find((a) => a.accountNumber === preferred) ?? allAccounts[0] ?? null;
         });
-        return merged;
+        return allAccounts;
       });
     } catch {
       // silently ignore — accounts remain as-is
+    }
+  };
+
+  const syncAccountsFromTastytrade = async () => {
+    try {
+      const res = await fetch("/api/tastytrade/accounts");
+      if (!res.ok) return;
+      const tastyAccounts = await res.json();
+      if (!Array.isArray(tastyAccounts)) return;
+
+      setAccounts((prev) => {
+        const colors = ["blue", "teal", "violet", "orange", "pink", "grape"];
+        const nonTasty = prev.filter((a) => a.broker !== "tastytrade"); // keep schwab + legacy (undefined)
+        const merged = tastyAccounts.map((ta: { accountNumber: string; nickName: string }, i: number) => {
+          const existing = prev.find((a) => a.accountNumber === ta.accountNumber);
+          const colorIdx = nonTasty.length + i;
+          return existing
+            ? { ...existing, accountName: ta.nickName, broker: "tastytrade" as const }
+            : {
+                accountNumber: ta.accountNumber,
+                accountName: ta.nickName,
+                color: colors[colorIdx % colors.length],
+                broker: "tastytrade" as const,
+                settings: { ...DEFAULT_SETTINGS },
+              };
+        });
+        return [...nonTasty, ...merged];
+      });
+    } catch {
+      // silently ignore
+    }
+  };
+
+  const checkTastytradeAuth = async () => {
+    try {
+      const res = await fetch("/api/tastytrade/auth");
+      const data = await res.json();
+      const connected = data.connected === true;
+      setTastytradeConnected(connected);
+      if (connected) await syncAccountsFromTastytrade();
+    } catch {
+      setTastytradeConnected(false);
     }
   };
 
@@ -186,6 +235,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const data = await res.json();
       const connected = data.authenticated === true;
       setSchwabConnected(connected);
+      await checkTastytradeAuth();
       if (connected) await syncAccountsFromSchwab();
     } catch {
       setSchwabConnected(false);
@@ -214,6 +264,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         const connected = authData.authenticated === true;
         setSchwabConnected(connected);
+        await checkTastytradeAuth();
         if (connected) {
           await syncAccountsFromSchwab(); // sets activeAccount internally
         } else {
@@ -261,18 +312,67 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async function load() {
       setSnapshotLoading(true);
       try {
-        const res = await fetch("/api/schwab/data");
-        const data = await res.json();
+        const [schwabResult, tastyResult] = await Promise.allSettled([
+          fetch("/api/schwab/data").then((r) => r.json()),
+          fetch("/api/tastytrade/data").then((r) => (r.ok ? r.json() : null)),
+        ]);
         if (cancelled) return;
-        if (data.filledOrders) setAllFilledOrders(data.filledOrders);
-        if (data.filledOptionOrders) setAllFilledOptionOrders(data.filledOptionOrders);
-        if (data.expiredOptionOrders) setAllExpiredOptionOrders(data.expiredOptionOrders);
-        if (data.workingOrders) setAllWorkingOrders(data.workingOrders);
-        if (data.optionPositions) setAllOptionPositions(data.optionPositions);
-        if (data.tqqqShares) setAllTqqqShares(data.tqqqShares);
-        if (data.tqqqAvgPrice) setAllTqqqAvgPrice(data.tqqqAvgPrice);
-        if (data.balances) setAllBalances(data.balances);
-        if (data.transactions) setAllTransactions(data.transactions);
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const s: any = schwabResult.status === "fulfilled" ? schwabResult.value : null;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const t: any = tastyResult.status === "fulfilled" ? tastyResult.value : null;
+
+        function mergeByTime<T>(a: T[] = [], b: T[] = [], key: keyof T): T[] {
+          return [...a, ...b].sort(
+            (x, y) =>
+              new Date(y[key] as string).getTime() - new Date(x[key] as string).getTime(),
+          );
+        }
+
+        // Identify tastytrade accounts so we can preserve each broker's data on failure
+        const tastyNums = new Set(
+          accounts.filter(a => a.broker === "tastytrade").map(a => a.accountNumber)
+        );
+        const sOk = Array.isArray(s?.filledOrders);
+        const tOk = Array.isArray(t?.filledOrders);
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        function safeSetOrders<T extends { accountNumber: string }>(
+          setter: React.Dispatch<React.SetStateAction<T[]>>,
+          sData: T[] | undefined,
+          tData: T[] | undefined,
+          key: keyof T,
+        ) {
+          setter(prev => {
+            const prevSchwab = prev.filter(o => !tastyNums.has(o.accountNumber));
+            const prevTasty = prev.filter(o => tastyNums.has(o.accountNumber));
+            return mergeByTime(
+              Array.isArray(sData) ? sData : prevSchwab,
+              Array.isArray(tData) ? tData : prevTasty,
+              key,
+            );
+          });
+        }
+
+        safeSetOrders(setAllFilledOrders, s?.filledOrders, t?.filledOrders, "time" as never);
+        safeSetOrders(setAllFilledOptionOrders, s?.filledOptionOrders, t?.filledOptionOrders, "time" as never);
+        safeSetOrders(setAllExpiredOptionOrders, s?.expiredOptionOrders, t?.expiredOptionOrders, "time" as never);
+        safeSetOrders(setAllWorkingOrders, s?.workingOrders, t?.workingOrders, "enteredTime" as never);
+
+        if (sOk || tOk) {
+          setAllOptionPositions(prev => [
+            ...(sOk ? (s?.optionPositions ?? []) : prev.filter(p => !tastyNums.has(p.accountNumber))),
+            ...(tOk ? (t?.optionPositions ?? []) : prev.filter(p => tastyNums.has(p.accountNumber))),
+          ]);
+          setAllTqqqShares(prev => ({ ...prev, ...(s?.tqqqShares ?? {}), ...(t?.tqqqShares ?? {}) }));
+          setAllTqqqAvgPrice(prev => ({ ...prev, ...(s?.tqqqAvgPrice ?? {}), ...(t?.tqqqAvgPrice ?? {}) }));
+          setAllBalances(prev => [
+            ...(sOk ? (s?.balances ?? []) : prev.filter(b => !tastyNums.has(b.accountNumber))),
+            ...(tOk ? (t?.balances ?? []) : prev.filter(b => tastyNums.has(b.accountNumber))),
+          ]);
+          safeSetOrders(setAllTransactions, s?.transactions, t?.transactions, "time" as never);
+        }
       } catch {
         // ignore
       } finally {
@@ -382,6 +482,8 @@ const togglePrivacy = () => setPrivacyMode((p) => !p);
         setAlerts,
         schwabConnected,
         checkSchwabAuth,
+        tastytradeConnected,
+        checkTastytradeAuth,
         filledOrders,
         filledOptionOrders,
         expiredOptionOrders,

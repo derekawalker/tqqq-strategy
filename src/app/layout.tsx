@@ -64,8 +64,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-<body>
+    <html lang="en" suppressHydrationWarning>
+      <body>
         <MantineProvider theme={theme} forceColorScheme="dark">
           <AppProvider>
             <Notifications />

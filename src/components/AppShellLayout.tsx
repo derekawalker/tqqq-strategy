@@ -27,7 +27,8 @@ function AppShellInner({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const s = activeAccount?.settings;
-    const threshold = s?.orderWarnBelow ?? 0;
+    const isTastytrade = activeAccount?.broker === "tastytrade";
+    const threshold = isTastytrade ? 0 : (s?.orderWarnBelow ?? 0);
     const bufferSize = s?.orderBuffer ?? 0;
     const currentLevel = levelsSummary?.currentLevel ?? -1;
 
@@ -44,7 +45,10 @@ function AppShellInner({ children }: { children: ReactNode }) {
         const level = levelsSummary.levels[i];
         const c = counts.get(level.shares) ?? { buys: 0, sells: 0 };
         const inBuffer = bufferSize > 0 && i !== currentLevel && Math.abs(i - currentLevel) <= bufferSize;
-        if (inBuffer && (c.buys === 0 || c.sells === 0)) { hasWarning = true; break; }
+        const bufferMissing = isTastytrade
+          ? (c.buys === 0 && c.sells === 0)
+          : (c.buys === 0 || c.sells === 0);
+        if (inBuffer && bufferMissing) { hasWarning = true; break; }
         if ((c.buys > 0 || c.sells > 0) && threshold > 0 && (c.buys < threshold || c.sells < threshold)) { hasWarning = true; break; }
       }
     }

@@ -44,9 +44,11 @@ export default function WorkingOrdersPage() {
   const accountColor = useAccountColor();
   const [tosModal, setTosModal] = useState<{ text: string } | null>(null);
 
+  const isTastytrade = activeAccount?.broker === "tastytrade";
   const warnBelow = activeAccount?.settings.orderWarnBelow ?? 3;
   const buffer = activeAccount?.settings.orderBuffer ?? 5;
-  const threshold = warnBelow ?? 0;
+  // tastytrade enforces max 1 order per level — qty warning doesn't apply
+  const threshold = isTastytrade ? 0 : (warnBelow ?? 0);
   const bufferSize = buffer ?? 0;
 
   const setWarnBelow = (v: number | string) =>
@@ -207,16 +209,18 @@ export default function WorkingOrdersPage() {
         <Text fw={700} size="xl">Working Orders</Text>
         <Group wrap="nowrap" align="flex-end" gap="md">
           <Group wrap="nowrap" align="flex-end" gap="xs">
-            <NumberInput
-              key={`warn-${activeAccount?.accountNumber}`}
-              label="Warn Qty"
-              value={warnBelow ?? ""}
-              onChange={setWarnBelow}
-              min={0}
-              max={99}
-              w={90}
-              size="xs"
-            />
+            {!isTastytrade && (
+              <NumberInput
+                key={`warn-${activeAccount?.accountNumber}`}
+                label="Warn Qty"
+                value={warnBelow ?? ""}
+                onChange={setWarnBelow}
+                min={0}
+                max={99}
+                w={90}
+                size="xs"
+              />
+            )}
             <NumberInput
               key={`buffer-${activeAccount?.accountNumber}`}
               label="Buffer levels"
@@ -270,10 +274,12 @@ export default function WorkingOrdersPage() {
                       >+</Badge>
                     </Table.Td>
                     <Table.Td ta="center">
-                      <Badge variant="filled" size="md" fw={700}
-                        style={{ background: "var(--mantine-color-red-7)", color: "#fff", cursor: topLevel.buyPrice != null && topLevel.sellPrice != null ? "pointer" : "default" }}
-                        onClick={() => topLevel.buyPrice != null && topLevel.sellPrice != null && setTosModal({ text: buildTosText("SELL", topLevel.shares, topLevel.buyPrice!, topLevel.sellPrice!, 4) })}
-                      >+</Badge>
+                      {!isTastytrade && (
+                        <Badge variant="filled" size="md" fw={700}
+                          style={{ background: "var(--mantine-color-red-7)", color: "#fff", cursor: topLevel.buyPrice != null && topLevel.sellPrice != null ? "pointer" : "default" }}
+                          onClick={() => topLevel.buyPrice != null && topLevel.sellPrice != null && setTosModal({ text: buildTosText("SELL", topLevel.shares, topLevel.buyPrice!, topLevel.sellPrice!, 4) })}
+                        >+</Badge>
+                      )}
                     </Table.Td>
                     <Table.Td ta="center">
                       <Text size="sm" c="dimmed">{topLevel.buyPrice != null ? mask(`$${fmt(topLevel.buyPrice)}`) : "—"}</Text>
@@ -296,10 +302,20 @@ export default function WorkingOrdersPage() {
               const inBuffer = bufferSize > 0 && row.levelIndex >= 0
                 && row.levelIndex !== currentLevel
                 && Math.abs(row.levelIndex - currentLevel) <= bufferSize;
-              const bufferMissing = inBuffer && (row.buys === 0 || row.sells === 0);
+              // tastytrade: max 1 order per level — warn only if the level has no orders at all
+              const bufferMissing = inBuffer && (
+                isTastytrade
+                  ? (row.buys === 0 && row.sells === 0)
+                  : (row.buys === 0 || row.sells === 0)
+              );
               const rowWarn = hasOrders && threshold > 0 && (row.buys < threshold || row.sells < threshold);
               const buyWarn = rowWarn;
               const sellWarn = rowWarn;
+              // tastytrade: suppress a column when the other direction already has an order,
+              // and when both are empty only show the expected direction
+              // (higher levelIndex = lower price = expects BUY; lower = higher price = expects SELL)
+              const buyColVisible = !isTastytrade || (row.sells === 0 && (currentLevel < 0 || row.levelIndex >= currentLevel));
+              const sellColVisible = !isTastytrade || (row.buys === 0 && (currentLevel < 0 || row.levelIndex <= currentLevel));
               const isCurrent = row.levelIndex === currentLevel && currentLevel >= 0;
               const priceInRange = !quote.loading && row.buyPrice != null && row.sellPrice != null
                 && quote.price >= row.buyPrice && quote.price <= row.sellPrice;
@@ -308,7 +324,7 @@ export default function WorkingOrdersPage() {
 
               return (
                 <Table.Tr
-                key={row.shares}
+                key={`${row.shares}-${row.levelIndex}`}
                 bg={hasDuplicate ? "rgba(250,82,82,0.1)" : isCurrent ? "rgba(255,255,255,0.12)" : bufferMissing ? "rgba(251,146,60,0.1)" : undefined}
                 style={{ opacity: 1, ...(hasDuplicate ? { borderLeft: "5px solid rgba(250,82,82,0.8)" } : bufferMissing ? { borderLeft: "5px solid rgba(251,146,60,0.8)" } : {}) }}
               >
@@ -339,7 +355,7 @@ export default function WorkingOrdersPage() {
                   <Table.Td ta="center"><Text size="sm">{fmt(row.shares, 0)}</Text></Table.Td>
                   <Table.Td ta="center">
                     <Group justify="center" gap={4} wrap="nowrap">
-                      {inBuffer && row.buys === 0 && (
+                      {buyColVisible && inBuffer && row.buys === 0 && (
                         <Tooltip label="Buffer zone — buy order should be open on this level" withArrow>
                           <IconAlertTriangle size={14} color="var(--mantine-color-orange-5)" style={{ cursor: "default" }} />
                         </Tooltip>
@@ -350,14 +366,16 @@ export default function WorkingOrdersPage() {
                           >{row.buys}</Badge>
                         : row.buys > 0
                           ? <Text size="sm" c="teal">{row.buys}</Text>
-                          : <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-teal-7)", color: "#fff", cursor: row.buyPrice != null && row.sellPrice != null ? "pointer" : "default" }}
-                              onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("BUY", row.shares, row.buyPrice, row.sellPrice, 4) })}
-                            >+</Badge>}
+                          : buyColVisible
+                            ? <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-teal-7)", color: "#fff", cursor: row.buyPrice != null && row.sellPrice != null ? "pointer" : "default" }}
+                                onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("BUY", row.shares, row.buyPrice, row.sellPrice, 4) })}
+                              >+</Badge>
+                            : null}
                     </Group>
                   </Table.Td>
                   <Table.Td ta="center">
                     <Group justify="center" gap={4} wrap="nowrap">
-                      {inBuffer && row.sells === 0 && (
+                      {sellColVisible && inBuffer && row.sells === 0 && (
                         <Tooltip label="Buffer zone — sell order should be open on this level" withArrow>
                           <IconAlertTriangle size={14} color="var(--mantine-color-orange-5)" style={{ cursor: "default" }} />
                         </Tooltip>
@@ -368,9 +386,11 @@ export default function WorkingOrdersPage() {
                           >{row.sells}</Badge>
                         : row.sells > 0
                           ? <Text size="sm" c="red">{row.sells}</Text>
-                          : <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-red-7)", color: "#fff", cursor: row.buyPrice != null && row.sellPrice != null ? "pointer" : "default" }}
-                              onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("SELL", row.shares, row.buyPrice, row.sellPrice, 4) })}
-                            >+</Badge>}
+                          : sellColVisible
+                            ? <Badge variant="filled" size="md" fw={700} style={{ background: bufferMissing ? "rgba(251,146,60,0.9)" : "var(--mantine-color-red-7)", color: "#fff", cursor: row.buyPrice != null && row.sellPrice != null ? "pointer" : "default" }}
+                                onClick={() => row.buyPrice != null && row.sellPrice != null && setTosModal({ text: buildTosText("SELL", row.shares, row.buyPrice, row.sellPrice, 4) })}
+                              >+</Badge>
+                            : null}
                     </Group>
                   </Table.Td>
                   <Table.Td ta="center">

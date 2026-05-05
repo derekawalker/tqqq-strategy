@@ -1,4 +1,4 @@
-const CACHE = "tqqq-v1";
+const CACHE = "tqqq-v2";
 
 const PRECACHE = ["/", "/levels", "/chart", "/options"];
 

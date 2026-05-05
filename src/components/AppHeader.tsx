@@ -11,18 +11,19 @@ import {
   Select,
   Stack,
   Menu,
+  Modal,
+  PinInput,
 } from "@mantine/core";
-import { useMediaQuery } from "@mantine/hooks";
+import { useMediaQuery, useDisclosure } from "@mantine/hooks";
 import {
   IconSettings,
   IconEye,
   IconEyeOff,
   IconRefresh,
-  IconPlugConnected,
-  IconPlugConnectedX,
   IconChartLine,
   IconRefreshDot,
 } from "@tabler/icons-react";
+import { useState } from "react";
 import { useApp } from "@/lib/context/AppContext";
 import { useRouter, usePathname } from "next/navigation";
 
@@ -32,10 +33,16 @@ interface AppHeaderProps {
 }
 
 export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps) {
-  const { accounts, activeAccount, setActiveAccount, privacyMode, togglePrivacy, quote, schwabConnected, checkSchwabAuth, tickQuoteRefresh } = useApp();
+  const { accounts, activeAccount, setActiveAccount, privacyMode, togglePrivacy, quote, schwabConnected, checkSchwabAuth, tastytradeConnected, checkTastytradeAuth, tickQuoteRefresh } = useApp();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const router = useRouter();
   const pathname = usePathname();
+  const [otpOpen, { open: openOtp, close: closeOtp }] = useDisclosure(false);
+  const [otpStep, setOtpStep] = useState<"initiate" | "complete">("initiate");
+  const [mfaToken, setMfaToken] = useState("");
+  const [otp, setOtp] = useState("");
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [otpLoading, setOtpLoading] = useState(false);
   const isAllAccounts = pathname === "/accounts";
 
   const priceColor = quote.changePercent >= 0 ? "teal" : "red";
@@ -84,17 +91,84 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
     }
   };
 
+  const handleTastytradeClick = () => {
+    if (tastytradeConnected) return;
+    setOtp("");
+    setOtpError(null);
+    setOtpStep("initiate");
+    openOtp();
+  };
+
+  const handleSendSms = async () => {
+    setOtpLoading(true);
+    setOtpError(null);
+    try {
+      const res = await fetch("/api/tastytrade/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "initiate" }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setOtpError(data.error ?? "Login failed — check your credentials in Vercel env vars");
+      } else if (data.connected) {
+        await checkTastytradeAuth();
+        closeOtp();
+      } else if (data.mfaToken) {
+        setMfaToken(data.mfaToken);
+        setOtpStep("complete");
+      }
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const handleOtpSubmit = async () => {
+    if (otp.length < 6) return;
+    setOtpLoading(true);
+    setOtpError(null);
+    try {
+      const res = await fetch("/api/tastytrade/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "complete", mfaToken, otp }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setOtpError("Invalid code — check your SMS and try again");
+      } else if (data.success) {
+        await checkTastytradeAuth();
+        closeOtp();
+      }
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const tastytradeLabel = tastytradeConnected === null
+    ? "Checking tastytrade…"
+    : tastytradeConnected
+      ? "tastytrade connected"
+      : "tastytrade — click to connect";
+
   const actionIcons = (
     <Group gap={4} wrap="nowrap">
       <Tooltip label={schwabLabel}>
         <ActionIcon
           {...aiProps}
-          color={schwabConnected ? "teal" : schwabConnected === null ? "gray.5" : "red.6"}
+          color={schwabConnected ? "green" : schwabConnected === null ? "gray.5" : "red"}
           onClick={handleSchwabClick}
         >
-          {schwabConnected === false
-            ? <IconPlugConnectedX size={14} />
-            : <IconPlugConnected size={14} />}
+          <Text size="xs" fw={700} lh={1}>SC</Text>
+        </ActionIcon>
+      </Tooltip>
+      <Tooltip label={tastytradeLabel}>
+        <ActionIcon
+          {...aiProps}
+          color={tastytradeConnected ? "green" : tastytradeConnected === null ? "gray.5" : "red"}
+          onClick={handleTastytradeClick}
+        >
+          <Text size="xs" fw={700} lh={1}>TT</Text>
         </ActionIcon>
       </Tooltip>
       <Tooltip label="Settings">
@@ -129,8 +203,57 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
     ? `color-mix(in srgb, var(--mantine-color-${activeAccount.color}-7) 12%, var(--mantine-color-dark-8))`
     : undefined;
 
+  const otpModal = (
+    <Modal
+      opened={otpOpen}
+      onClose={closeOtp}
+      title="Connect tastytrade"
+      centered
+      size="sm"
+    >
+      {otpStep === "initiate" ? (
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            Click the button below to send an SMS verification code to your phone.
+          </Text>
+          {otpError && <Text size="sm" c="red" ta="center">{otpError}</Text>}
+          <Button onClick={handleSendSms} loading={otpLoading} color="orange">
+            Send SMS code
+          </Button>
+        </Stack>
+      ) : (
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            Enter the 6-digit code from your SMS. The app will store a session token
+            so you won&apos;t need to do this again.
+          </Text>
+          <PinInput
+            length={6}
+            type="number"
+            value={otp}
+            onChange={setOtp}
+            onComplete={handleOtpSubmit}
+            disabled={otpLoading}
+            mx="auto"
+          />
+          {otpError && <Text size="sm" c="red" ta="center">{otpError}</Text>}
+          <Button
+            onClick={handleOtpSubmit}
+            loading={otpLoading}
+            disabled={otp.length < 6}
+            color="orange"
+          >
+            Connect
+          </Button>
+        </Stack>
+      )}
+    </Modal>
+  );
+
   if (isMobile) {
     return (
+      <>
+        {otpModal}
       <Group h="100%" px="md" justify="space-between" align="center" wrap="nowrap" style={{ background: headerBg }}>
         {/* Left: title + account select */}
         <Stack gap={8}>
@@ -169,46 +292,50 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
           {actionIcons}
         </Stack>
       </Group>
+    </>
     );
   }
 
   return (
-    <Group h="100%" px="md" justify="space-between" align="center" wrap="nowrap" style={{ background: headerBg }}>
-      {/* Left: App name + TQQQ price */}
-      <Group gap="lg" wrap="nowrap">
-        <Text fw={700} size="lg" style={{ whiteSpace: "nowrap" }}>
-          TQQQ Strategy
-        </Text>
-        {priceInfo}
-      </Group>
+    <>
+      {otpModal}
+      <Group h="100%" px="md" justify="space-between" align="center" wrap="nowrap" style={{ background: headerBg }}>
+        {/* Left: App name + TQQQ price */}
+        <Group gap="lg" wrap="nowrap">
+          <Text fw={700} size="lg" style={{ whiteSpace: "nowrap" }}>
+            TQQQ Strategy
+          </Text>
+          {priceInfo}
+        </Group>
 
-      {/* Right: Accounts + action buttons */}
-      <Group gap="xs" wrap="nowrap">
-        <Button
-          size="xs"
-          color="gray.5"
-          radius="md"
-          variant={isAllAccounts ? "light" : "subtle"}
-          onClick={() => router.push("/accounts")}
-        >
-          All Accounts
-        </Button>
-        {accounts.map((account) => (
+        {/* Right: Accounts + action buttons */}
+        <Group gap="xs" wrap="nowrap">
           <Button
-            key={account.accountNumber}
             size="xs"
-            color={`${account.color}.7`}
-            radius={"md"}
-            variant={!isAllAccounts && activeAccount?.accountNumber === account.accountNumber ? "light" : "subtle"}
-            onClick={() => { setActiveAccount(account); if (isAllAccounts) router.push("/"); }}
+            color="gray.5"
+            radius="md"
+            variant={isAllAccounts ? "light" : "subtle"}
+            onClick={() => router.push("/accounts")}
           >
-            {privacyMode
-              ? `•••${account.accountNumber.slice(-3)}`
-              : account.accountName}
+            All Accounts
           </Button>
-        ))}
-        {actionIcons}
+          {accounts.map((account) => (
+            <Button
+              key={account.accountNumber}
+              size="xs"
+              color={`${account.color}.7`}
+              radius={"md"}
+              variant={!isAllAccounts && activeAccount?.accountNumber === account.accountNumber ? "light" : "subtle"}
+              onClick={() => { setActiveAccount(account); if (isAllAccounts) router.push("/"); }}
+            >
+              {privacyMode
+                ? `•••${account.accountNumber.slice(-3)}`
+                : account.accountName}
+            </Button>
+          ))}
+          {actionIcons}
+        </Group>
       </Group>
-    </Group>
+    </>
   );
 }
