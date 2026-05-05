@@ -257,14 +257,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       if (cancelled) return;
 
-      // 2. Check Schwab auth; if connected, merge account list (preserves settings from step 1)
+      // 2. Check both auth statuses in parallel — faster startup, no sequential blocking
       try {
-        const res = await fetch("/api/auth/status");
-        const authData = await res.json();
+        const [schwabRes, tastyRes] = await Promise.allSettled([
+          fetch("/api/auth/status").then((r) => r.json()),
+          fetch("/api/tastytrade/auth").then((r) => r.json()),
+        ]);
         if (cancelled) return;
-        const connected = authData.authenticated === true;
+
+        const connected = schwabRes.status === "fulfilled" && schwabRes.value?.authenticated === true;
+        const tastyConnected = tastyRes.status === "fulfilled" && tastyRes.value?.connected === true;
         setSchwabConnected(connected);
-        await checkTastytradeAuth();
+        setTastytradeConnected(tastyConnected);
+
+        if (tastyConnected) await syncAccountsFromTastytrade();
+        if (cancelled) return;
         if (connected) {
           await syncAccountsFromSchwab(); // sets activeAccount internally
         } else {
@@ -278,6 +285,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } catch {
         if (!cancelled) {
           setSchwabConnected(false);
+          setTastytradeConnected(false);
           const savedNumber = localStorage.getItem(ACTIVE_ACCOUNT_KEY);
           setActiveAccount(
             (savedNumber ? remoteAccounts.find((a) => a.accountNumber === savedNumber) : null) ??
@@ -336,6 +344,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         );
         const sOk = Array.isArray(s?.filledOrders);
         const tOk = Array.isArray(t?.filledOrders);
+
+        // If tastytrade data failed, re-check auth so the TT button reflects disconnected state
+        if (tastyResult.status === "fulfilled" && tastyResult.value === null) {
+          checkTastytradeAuth();
+        }
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         function safeSetOrders<T extends { accountNumber: string }>(

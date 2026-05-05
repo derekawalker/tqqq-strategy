@@ -36,6 +36,10 @@ export async function writeTokens(tokens: TokenSet): Promise<void> {
   });
 }
 
+export async function clearTokens(): Promise<void> {
+  await supabase().from("tokens").delete().eq("id", 2);
+}
+
 export function isExpired(tokens: TokenSet): boolean {
   return Date.now() >= tokens.expiresAt - 60_000;
 }

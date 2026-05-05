@@ -17,10 +17,39 @@ import type { AccountBalance, Transaction } from "@/app/api/schwab/data/route";
 
 const MONEY_MARKET_SYMBOLS = ["SGOV", "BIL", "SHV"];
 
+/** Fetch all pages of a tastytrade paginated endpoint in parallel batches. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchAllPages(baseUrl: string): Promise<any[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const all: any[] = [];
+  const sep = baseUrl.includes("?") ? "&" : "?";
+  const BATCH = 5;   // pages fetched in parallel per round
+  const MAX_PAGES = 100; // up to 10,000 orders
+
+  for (let start = 0; start < MAX_PAGES; start += BATCH) {
+    const pages = Array.from({ length: BATCH }, (_, i) => start + i);
+    const results = await Promise.all(
+      pages.map((p) => tastyFetch(`${baseUrl}${sep}page-offset=${p}`).then((r) => r.ok ? r.json() : null))
+    );
+
+    let done = false;
+    for (const json of results) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const items: any[] = json?.data?.items ?? [];
+      all.push(...items);
+      if (items.length === 0) { done = true; break; }
+    }
+    if (done) break;
+  }
+
+  return all;
+}
+
 async function fetchAccountData(accountNumber: string, from365: string, to: string) {
-  const [filledRes, workingRes, positionsRes, rxDeliverRes, divIntRes, balanceRes] =
+  // Filled orders are paginated — fetch all pages; other endpoints fit in one page
+  const [filledRaw, workingRes, positionsRes, rxDeliverRes, divIntRes, balanceRes] =
     await Promise.all([
-      tastyFetch(`/accounts/${accountNumber}/orders?status[]=Filled&start-date=${from365}&end-date=${to}`),
+      fetchAllPages(`/accounts/${accountNumber}/orders?status[]=Filled&start-date=${from365}&end-date=${to}`),
       tastyFetch(`/accounts/${accountNumber}/orders?status[]=Live&status[]=Pending&status[]=Received`),
       tastyFetch(`/accounts/${accountNumber}/positions`),
       tastyFetch(`/accounts/${accountNumber}/transactions?types[]=Receive+Deliver&start-date=${from365}&end-date=${to}`),
@@ -28,10 +57,6 @@ async function fetchAccountData(accountNumber: string, from365: string, to: stri
       tastyFetch(`/accounts/${accountNumber}/balances`),
     ]);
 
-  // Fetch real-time marks in parallel with processing below
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const filledRaw: any[] = filledRes.ok ? (await filledRes.json()).data?.items ?? [] : [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const workingRaw: any[] = workingRes.ok ? (await workingRes.json()).data?.items ?? [] : [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

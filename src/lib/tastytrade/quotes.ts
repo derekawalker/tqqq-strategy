@@ -117,8 +117,14 @@ async function dxlinkMarks(symbols: string[]): Promise<Map<string, number>> {
   return result;
 }
 
+// Module-level cache — avoids opening multiple WebSocket connections in rapid succession
+const CACHE_TTL_MS = 30_000;
+let marksCache: Map<string, number> = new Map();
+let marksCacheTime = 0;
+
 /**
  * Real-time marks for OCC option symbols via DXLink.
+ * Results are cached for 30 seconds to avoid redundant WebSocket connections.
  * Returns trimmed OCC symbol → mark price per share.
  */
 export async function getOptionMarks(occSymbols: string[]): Promise<Map<string, number>> {
@@ -131,12 +137,29 @@ export async function getOptionMarks(occSymbols: string[]): Promise<Map<string, 
       streamerToOcc.set(streamer, occ.trim());
     }
   }
+  // Return from cache if fresh enough — avoids a new WebSocket per rapid refresh
+  const now = Date.now();
+  const allCached = occSymbols.every((s) => marksCache.has(s.trim()));
+  if (allCached && now - marksCacheTime < CACHE_TTL_MS) {
+    const cached = new Map<string, number>();
+    for (const occ of occSymbols) {
+      const mark = marksCache.get(occ.trim());
+      if (mark !== undefined) cached.set(occ.trim(), mark);
+    }
+    return cached;
+  }
+
   const raw = await dxlinkMarks(streamerSymbols);
   const result = new Map<string, number>();
   for (const [streamer, mark] of raw) {
     const occ = streamerToOcc.get(streamer);
     if (occ) result.set(occ, mark);
   }
+
+  // Update cache with fresh marks
+  for (const [sym, mark] of result) marksCache.set(sym, mark);
+  marksCacheTime = now;
+
   return result;
 }
 
@@ -146,6 +169,16 @@ export async function getOptionMarks(occSymbols: string[]): Promise<Map<string, 
  */
 export async function getEquityMark(symbol: string): Promise<number | null> {
   if (!process.env.TASTYTRADE_USERNAME) return null;
+  // Use cache if fresh
+  const now = Date.now();
+  if (marksCache.has(symbol) && now - marksCacheTime < CACHE_TTL_MS) {
+    return marksCache.get(symbol) ?? null;
+  }
   const marks = await dxlinkMarks([symbol]);
-  return marks.get(symbol) ?? null;
+  const mark = marks.get(symbol) ?? null;
+  if (mark !== null) {
+    marksCache.set(symbol, mark);
+    marksCacheTime = now;
+  }
+  return mark;
 }

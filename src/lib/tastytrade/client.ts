@@ -1,4 +1,4 @@
-import { readTokens, writeTokens, isExpired, TokenSet } from "./tokens";
+import { readTokens, writeTokens, clearTokens, isExpired, TokenSet } from "./tokens";
 
 const BASE_URL = "https://api.tastyworks.com";
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -65,6 +65,7 @@ export async function completeMfaLogin(challengeToken: string, otp: string): Pro
     rememberMeToken: json.data["remember-me-token"],
     expiresAt: Date.now() + SESSION_TTL_MS,
   });
+  invalidateSessionCache();
 }
 
 async function login(): Promise<TokenSet> {
@@ -78,7 +79,11 @@ async function refreshSession(rememberMeToken: string): Promise<TokenSet> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ login: username, "remember-me-token": rememberMeToken }),
   });
-  if (!res.ok) return login();
+  if (!res.ok) {
+    // Remember-me token rejected — clear stored tokens so UI shows disconnected
+    await clearTokens();
+    throw new Error("tastytrade session expired — reconnect via the TT button");
+  }
   const json = await res.json();
   const tokens: TokenSet = {
     sessionToken: json.data["session-token"],
@@ -89,11 +94,28 @@ async function refreshSession(rememberMeToken: string): Promise<TokenSet> {
   return tokens;
 }
 
+// Module-level token cache — avoids a Supabase read on every tastyFetch call
+let cachedSessionToken: string | null = null;
+let cachedSessionExpiry = 0;
+
 export async function getSessionToken(): Promise<string> {
+  const now = Date.now();
+  if (cachedSessionToken && now < cachedSessionExpiry) return cachedSessionToken;
+
   let tokens = await readTokens();
   if (!tokens) tokens = await login();
   else if (isExpired(tokens)) tokens = await refreshSession(tokens.rememberMeToken);
-  return tokens.sessionToken;
+
+  // Cache until 60s before the token expires
+  cachedSessionToken = tokens.sessionToken;
+  cachedSessionExpiry = tokens.expiresAt - 60_000;
+  return cachedSessionToken;
+}
+
+/** Call after writing new tokens (MFA login, refresh) to keep the cache in sync. */
+export function invalidateSessionCache(): void {
+  cachedSessionToken = null;
+  cachedSessionExpiry = 0;
 }
 
 export async function tastyFetch(path: string, init?: RequestInit): Promise<Response> {
