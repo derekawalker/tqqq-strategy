@@ -17,6 +17,86 @@ import type { AccountBalance, Transaction } from "@/app/api/schwab/data/route";
 
 const MONEY_MARKET_SYMBOLS = ["SGOV", "BIL", "SHV"];
 
+const PARTIAL_FILL_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+
+/**
+ * Tastytrade sometimes fills a single order in multiple separate order records
+ * (e.g., 1 share + 221 shares for a 222-share level). Merge them into one so
+ * matchLevel can identify the correct level.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mergePartialFills(orders: any[]): any[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isTqqqEquity = (o: any) =>
+    (o.legs ?? []).some(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (l: any) => l["instrument-type"] === "Equity" && l.symbol === "TQQQ",
+    );
+
+  const equity = orders
+    .filter(isTqqqEquity)
+    .sort((a, b) => {
+      const ta = new Date(a["terminal-at"] ?? a["received-at"] ?? 0).getTime();
+      const tb = new Date(b["terminal-at"] ?? b["received-at"] ?? 0).getTime();
+      return ta - tb;
+    });
+  const other = orders.filter((o) => !isTqqqEquity(o));
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result: any[] = [];
+  const used = new Set<number>();
+
+  for (let i = 0; i < equity.length; i++) {
+    if (used.has(i)) continue;
+    const base = equity[i];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const baseLeg = (base.legs ?? []).find((l: any) => l["instrument-type"] === "Equity" && l.symbol === "TQQQ");
+    const baseTime = new Date(base["terminal-at"] ?? base["received-at"] ?? 0).getTime();
+    const basePrice = parseFloat(base.price ?? "0");
+    const baseAction: string = baseLeg?.action ?? "";
+
+    const group = [i];
+    for (let j = i + 1; j < equity.length; j++) {
+      if (used.has(j)) continue;
+      const o = equity[j];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const oLeg = (o.legs ?? []).find((l: any) => l["instrument-type"] === "Equity" && l.symbol === "TQQQ");
+      const oTime = new Date(o["terminal-at"] ?? o["received-at"] ?? 0).getTime();
+      if (oTime - baseTime > PARTIAL_FILL_WINDOW_MS) break;
+      if (Math.abs(parseFloat(o.price ?? "0") - basePrice) > 0.02) continue;
+      if ((oLeg?.action ?? "") !== baseAction) continue;
+      group.push(j);
+    }
+
+    if (group.length === 1) {
+      result.push(base);
+    } else {
+      // Merge all fills into a single synthetic order
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const combinedFills = group.flatMap((idx) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const leg = (equity[idx].legs ?? []).find((l: any) => l["instrument-type"] === "Equity" && l.symbol === "TQQQ");
+        return leg?.fills ?? [];
+      });
+      result.push({
+        ...base,
+        status: "Filled",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        legs: (base.legs ?? []).map((l: any) => {
+          if (l["instrument-type"] === "Equity" && l.symbol === "TQQQ") {
+            return { ...l, fills: combinedFills };
+          }
+          return l;
+        }),
+        "terminal-at": equity[group[group.length - 1]]["terminal-at"] ?? base["terminal-at"],
+      });
+      group.forEach((idx) => used.add(idx));
+    }
+  }
+
+  return [...other, ...result];
+}
+
 /** Fetch all pages of a tastytrade paginated endpoint in parallel batches. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchAllPages(baseUrl: string): Promise<any[]> {
@@ -49,7 +129,7 @@ async function fetchAccountData(accountNumber: string, from365: string, to: stri
   // Filled orders are paginated — fetch all pages; other endpoints fit in one page
   const [filledRaw, workingRes, positionsRes, rxDeliverRes, divIntRes, balanceRes] =
     await Promise.all([
-      fetchAllPages(`/accounts/${accountNumber}/orders?status[]=Filled&start-date=${from365}&end-date=${to}`),
+      fetchAllPages(`/accounts/${accountNumber}/orders?status[]=Filled&status[]=Partially+Filled&start-date=${from365}&end-date=${to}`),
       tastyFetch(`/accounts/${accountNumber}/orders?status[]=Live&status[]=Pending&status[]=Received`),
       tastyFetch(`/accounts/${accountNumber}/positions`),
       tastyFetch(`/accounts/${accountNumber}/transactions?types[]=Receive+Deliver&start-date=${from365}&end-date=${to}`),
@@ -82,11 +162,13 @@ async function fetchAccountData(accountNumber: string, from365: string, to: stri
     }
   }
 
-  const filled: FilledOrder[] = filledRaw
+  const mergedRaw = mergePartialFills(filledRaw);
+
+  const filled: FilledOrder[] = mergedRaw
     .map((o) => parseFilledOrder(o, accountNumber))
     .filter((o): o is FilledOrder => o !== null);
 
-  const filledOptions: FilledOptionOrder[] = filledRaw.flatMap((o) =>
+  const filledOptions: FilledOptionOrder[] = mergedRaw.flatMap((o) =>
     parseFilledOptionOrder(o, accountNumber),
   );
 
