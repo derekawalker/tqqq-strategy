@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useMemo, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode } from "react";
 import type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition } from "@/lib/schwab/parse";
 import type { Transaction, AccountBalance } from "@/app/api/schwab/data/route";
 export type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition, Transaction, AccountBalance };
@@ -105,8 +105,6 @@ interface AppContextValue {
   balancesLoading: boolean;
 }
 
-const ACTIVE_ACCOUNT_KEY = "tqqq-active-account";
-
 const DEFAULT_ACCOUNTS: Account[] = [];
 
 export function deserializeAccount(a: Account): Account {
@@ -131,29 +129,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [activeAccount, setActiveAccount] = useState<Account | null>(DEFAULT_ACCOUNTS[0] ?? null);
   // initialized becomes true after settings are loaded from the database — persists only fire after this
   const [initialized, setInitialized] = useState(false);
+  // ref-based guard so the persist effects only fire on changes AFTER init, not during the initial load
+  const persistReadyRef = useRef(false);
 
   // Persist accounts to Supabase whenever they change (after initial load)
   useEffect(() => {
-    if (!initialized) return;
+    if (!persistReadyRef.current) return;
     fetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key: "accounts", value: accounts }),
     }).catch(() => {});
-  }, [initialized, accounts]);
+  }, [accounts]);
 
-  // Persist active account selection
+  // Persist active account selection to Supabase
   useEffect(() => {
-    if (!initialized) return;
-    if (activeAccount) localStorage.setItem(ACTIVE_ACCOUNT_KEY, activeAccount.accountNumber);
-  }, [initialized, activeAccount]);
+    if (!persistReadyRef.current) return;
+    if (!activeAccount) return;
+    fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "activeAccountNumber", value: activeAccount.accountNumber }),
+    }).catch(() => {});
+  }, [activeAccount]);
 
   const [privacyMode, setPrivacyMode] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [schwabConnected, setSchwabConnected] = useState<boolean | null>(null);
   const [tastytradeConnected, setTastytradeConnected] = useState<boolean | null>(null);
 
-  const syncAccountsFromSchwab = async () => {
+  const syncAccountsFromSchwab = async (preferredAccountNumber?: string | null) => {
     try {
       const res = await fetch("/api/schwab/accounts");
       const schwabAccounts = await res.json();
@@ -176,8 +181,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
         const allAccounts = [...merged, ...nonSchwab];
         setActiveAccount((active) => {
-          const savedNumber = localStorage.getItem(ACTIVE_ACCOUNT_KEY);
-          const preferred = savedNumber ?? active?.accountNumber;
+          const preferred = preferredAccountNumber ?? active?.accountNumber;
           return allAccounts.find((a) => a.accountNumber === preferred) ?? allAccounts[0] ?? null;
         });
         return allAccounts;
@@ -245,13 +249,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     async function init() {
-      // 1. Load accounts from Supabase (source of truth)
+      // 1. Load accounts + saved active account from Supabase (source of truth)
       let remoteAccounts: Account[] = [];
+      let savedNumber: string | null = null;
       try {
-        const data = await fetch("/api/settings?key=accounts").then((r) => r.json());
-        if (!cancelled && data.value) {
-          remoteAccounts = (data.value as Account[]).map(deserializeAccount);
-          setAccounts(remoteAccounts);
+        const [accountsData, activeNumData] = await Promise.allSettled([
+          fetch("/api/settings?key=accounts").then((r) => r.json()),
+          fetch("/api/settings?key=activeAccountNumber").then((r) => r.json()),
+        ]);
+        if (!cancelled) {
+          if (accountsData.status === "fulfilled" && accountsData.value?.value) {
+            remoteAccounts = (accountsData.value.value as Account[]).map(deserializeAccount);
+            setAccounts(remoteAccounts);
+          }
+          if (activeNumData.status === "fulfilled" && activeNumData.value?.value) {
+            savedNumber = activeNumData.value.value as string;
+          }
         }
       } catch {}
 
@@ -273,9 +286,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (tastyConnected) await syncAccountsFromTastytrade();
         if (cancelled) return;
         if (connected) {
-          await syncAccountsFromSchwab(); // sets activeAccount internally
+          await syncAccountsFromSchwab(savedNumber); // sets activeAccount internally
         } else {
-          const savedNumber = localStorage.getItem(ACTIVE_ACCOUNT_KEY);
           setActiveAccount(
             (savedNumber ? remoteAccounts.find((a) => a.accountNumber === savedNumber) : null) ??
               remoteAccounts[0] ??
@@ -286,7 +298,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (!cancelled) {
           setSchwabConnected(false);
           setTastytradeConnected(false);
-          const savedNumber = localStorage.getItem(ACTIVE_ACCOUNT_KEY);
           setActiveAccount(
             (savedNumber ? remoteAccounts.find((a) => a.accountNumber === savedNumber) : null) ??
               remoteAccounts[0] ??
@@ -296,7 +307,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       // 3. Enable persistence writes now that initial load is complete
-      if (!cancelled) setInitialized(true);
+      if (!cancelled) {
+        persistReadyRef.current = true;
+        setInitialized(true);
+      }
     }
     init();
     return () => { cancelled = true; };

@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import {
   Modal,
   Stack,
@@ -9,11 +10,12 @@ import {
   NumberInput,
   Divider,
   SimpleGrid,
+  Button,
 } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { DatePickerInput } from "@mantine/dates";
 import { IconCheck } from "@tabler/icons-react";
-import { useApp } from "@/lib/context/AppContext";
+import { useApp, type AccountSettings } from "@/lib/context/AppContext";
 
 const COLORS = [
   "red",
@@ -35,9 +37,36 @@ interface SettingsModalProps {
   onClose: () => void;
 }
 
+const EMPTY_SETTINGS: AccountSettings = {
+  initialCash: null,
+  levelStartingCash: null,
+  startingDate: null,
+  initialLotPrice: null,
+  sellPercentage: null,
+  reductionFactor: null,
+  orderWarnBelow: null,
+  orderBuffer: null,
+  callSafetyLevels: null,
+  putSafetyLevels: null,
+  levelResetDate: null,
+};
+
 export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
   const { activeAccount, updateAccountColor, updateAccountSettings } = useApp();
   const isMobile = useMediaQuery("(max-width: 768px)");
+  const [draft, setDraft] = useState<AccountSettings>(EMPTY_SETTINGS);
+
+  useEffect(() => {
+    if (opened && activeAccount) {
+      setDraft({ ...EMPTY_SETTINGS, ...activeAccount.settings });
+    }
+  }, [opened, activeAccount?.accountNumber]);
+
+  const handleSave = () => {
+    if (!activeAccount) return;
+    updateAccountSettings(activeAccount.accountNumber, draft);
+    onClose();
+  };
 
   if (!activeAccount) {
     return (
@@ -55,8 +84,6 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
     );
   }
 
-  const s = activeAccount.settings;
-
   return (
     <Modal
       opened={opened}
@@ -71,26 +98,14 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
             <DatePickerInput
               label="Starting Date"
               placeholder="Pick a date"
-              value={s.startingDate}
+              value={draft.startingDate}
               onChange={(val) => {
-                if (!val) {
-                  updateAccountSettings(activeAccount.accountNumber, {
-                    startingDate: null,
-                  });
-                  return;
-                }
+                if (!val) { setDraft((d) => ({ ...d, startingDate: null })); return; }
                 const [y, m, day] =
                   typeof val === "string"
                     ? val.split("-").map(Number)
-                    : [
-                        (val as Date).getFullYear(),
-                        (val as Date).getMonth() + 1,
-                        (val as Date).getDate(),
-                      ];
-                const d = new Date(y, m - 1, day, 12, 0, 0, 0);
-                updateAccountSettings(activeAccount.accountNumber, {
-                  startingDate: d,
-                });
+                    : [(val as Date).getFullYear(), (val as Date).getMonth() + 1, (val as Date).getDate()];
+                setDraft((d) => ({ ...d, startingDate: new Date(y, m - 1, day, 12, 0, 0, 0) }));
               }}
             />
             <NumberInput
@@ -100,12 +115,8 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
               decimalScale={2}
               step={0.01}
               thousandSeparator=","
-              value={s.initialCash ?? ""}
-              onChange={(val) =>
-                updateAccountSettings(activeAccount.accountNumber, {
-                  initialCash: val === "" ? null : Number(val),
-                })
-              }
+              value={draft.initialCash ?? ""}
+              onChange={(val) => setDraft((d) => ({ ...d, initialCash: val === "" ? null : Number(val) }))}
             />
           </SimpleGrid>
 
@@ -116,26 +127,14 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
             description="Ignore fills before this date for level detection"
             placeholder="No reset"
             clearable
-            value={s.levelResetDate}
+            value={draft.levelResetDate}
             onChange={(val) => {
-              if (!val) {
-                updateAccountSettings(activeAccount.accountNumber, {
-                  levelResetDate: null,
-                });
-                return;
-              }
+              if (!val) { setDraft((d) => ({ ...d, levelResetDate: null })); return; }
               const [y, m, day] =
                 typeof val === "string"
                   ? val.split("-").map(Number)
-                  : [
-                      (val as Date).getFullYear(),
-                      (val as Date).getMonth() + 1,
-                      (val as Date).getDate(),
-                    ];
-              const d = new Date(y, m - 1, day, 0, 0, 0, 0);
-              updateAccountSettings(activeAccount.accountNumber, {
-                levelResetDate: d,
-              });
+                  : [(val as Date).getFullYear(), (val as Date).getMonth() + 1, (val as Date).getDate()];
+              setDraft((d) => ({ ...d, levelResetDate: new Date(y, m - 1, day, 0, 0, 0, 0) }));
             }}
           />
           <SimpleGrid cols={2} spacing="sm">
@@ -146,12 +145,8 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
               decimalScale={2}
               step={0.01}
               thousandSeparator=","
-              value={s.levelStartingCash ?? ""}
-              onChange={(val) =>
-                updateAccountSettings(activeAccount.accountNumber, {
-                  levelStartingCash: val === "" ? null : Number(val),
-                })
-              }
+              value={draft.levelStartingCash ?? ""}
+              onChange={(val) => setDraft((d) => ({ ...d, levelStartingCash: val === "" ? null : Number(val) }))}
             />
             <NumberInput
               label="Initial Lot Price"
@@ -160,12 +155,8 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
               decimalScale={2}
               step={0.01}
               thousandSeparator=","
-              value={s.initialLotPrice ?? ""}
-              onChange={(val) =>
-                updateAccountSettings(activeAccount.accountNumber, {
-                  initialLotPrice: val === "" ? null : Number(val),
-                })
-              }
+              value={draft.initialLotPrice ?? ""}
+              onChange={(val) => setDraft((d) => ({ ...d, initialLotPrice: val === "" ? null : Number(val) }))}
             />
             <NumberInput
               label="Sell Percentage"
@@ -173,24 +164,16 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
               suffix="%"
               decimalScale={2}
               step={0.01}
-              value={s.sellPercentage ?? ""}
-              onChange={(val) =>
-                updateAccountSettings(activeAccount.accountNumber, {
-                  sellPercentage: val === "" ? null : Number(val),
-                })
-              }
+              value={draft.sellPercentage ?? ""}
+              onChange={(val) => setDraft((d) => ({ ...d, sellPercentage: val === "" ? null : Number(val) }))}
             />
             <NumberInput
               label="Reduction Factor"
               placeholder="0.000"
               decimalScale={3}
               step={0.001}
-              value={s.reductionFactor ?? ""}
-              onChange={(val) =>
-                updateAccountSettings(activeAccount.accountNumber, {
-                  reductionFactor: val === "" ? null : Number(val),
-                })
-              }
+              value={draft.reductionFactor ?? ""}
+              onChange={(val) => setDraft((d) => ({ ...d, reductionFactor: val === "" ? null : Number(val) }))}
             />
           </SimpleGrid>
         </Stack>
@@ -223,6 +206,10 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
             ))}
           </Group>
         </div>
+
+        <Button onClick={handleSave} fullWidth>
+          Save
+        </Button>
       </Stack>
     </Modal>
   );
