@@ -14,7 +14,7 @@ const LOGIN_BODY = () => ({
   "client-domain": "tastyworks_customers",
 });
 
-/** Step 1: POST credentials, triggers SMS. Returns the challenge token for step 2. */
+/** Step 1: POST credentials, triggers 2FA. Returns the challenge token for step 2. */
 export async function initiateMfaLogin(): Promise<string> {
   const res = await fetch(`${BASE_URL}/sessions`, {
     method: "POST",
@@ -45,7 +45,7 @@ export async function initiateMfaLogin(): Promise<string> {
   throw new Error(`Login failed (${res.status}): ${text.slice(0, 300)}`);
 }
 
-/** Step 2: Submit the SMS code + challenge token as headers to complete login. */
+/** Step 2: Submit the OTP + challenge token as headers to complete login. */
 export async function completeMfaLogin(challengeToken: string, otp: string): Promise<void> {
   const res = await fetch(`${BASE_URL}/sessions`, {
     method: "POST",

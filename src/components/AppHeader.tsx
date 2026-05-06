@@ -91,17 +91,13 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
     }
   };
 
-  const handleTastytradeClick = () => {
+  const handleTastytradeClick = async () => {
     if (tastytradeConnected) return;
     setOtp("");
     setOtpError(null);
     setOtpStep("initiate");
     openOtp();
-  };
-
-  const handleSendSms = async () => {
     setOtpLoading(true);
-    setOtpError(null);
     try {
       const res = await fetch("/api/tastytrade/auth", {
         method: "POST",
@@ -135,7 +131,7 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
       });
       const data = await res.json();
       if (!res.ok) {
-        setOtpError("Invalid code — check your SMS and try again");
+        setOtpError("Invalid code — check your authenticator app and try again");
       } else if (data.success) {
         await checkTastytradeAuth();
         closeOtp();
@@ -214,17 +210,14 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
       {otpStep === "initiate" ? (
         <Stack gap="md">
           <Text size="sm" c="dimmed">
-            Click the button below to send an SMS verification code to your phone.
+            Connecting to tastytrade…
           </Text>
           {otpError && <Text size="sm" c="red" ta="center">{otpError}</Text>}
-          <Button onClick={handleSendSms} loading={otpLoading} color="orange">
-            Send SMS code
-          </Button>
         </Stack>
       ) : (
         <Stack gap="md">
           <Text size="sm" c="dimmed">
-            Enter the 6-digit code from your SMS. The app will store a session token
+            Enter the 6-digit code from your authenticator app. The app will store a session token
             so you won&apos;t need to do this again.
           </Text>
           <PinInput
