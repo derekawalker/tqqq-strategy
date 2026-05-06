@@ -63,7 +63,7 @@ function mergePartialFills(orders: any[]): any[] {
       const oLeg = (o.legs ?? []).find((l: any) => l["instrument-type"] === "Equity" && l.symbol === "TQQQ");
       const oTime = new Date(o["terminal-at"] ?? o["received-at"] ?? 0).getTime();
       if (oTime - baseTime > PARTIAL_FILL_WINDOW_MS) break;
-      if (Math.abs(parseFloat(o.price ?? "0") - basePrice) > 0.02) continue;
+      if (Math.abs(parseFloat(o.price ?? "0") - basePrice) > 0.10) continue;
       if ((oLeg?.action ?? "") !== baseAction) continue;
       group.push(j);
     }

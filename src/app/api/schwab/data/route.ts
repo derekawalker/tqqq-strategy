@@ -65,6 +65,54 @@ function parseTransaction(t: any, accountNumber: string): Transaction | null {
   return { activityId: t.activityId, accountNumber, time: t.time, description, symbol: null, amount, category };
 }
 
+const PARTIAL_FILL_WINDOW_MS = 5 * 60 * 1000;
+const PARTIAL_FILL_PRICE_TOLERANCE = 0.05;
+
+function mergePartialFills(orders: FilledOrder[]): FilledOrder[] {
+  const sorted = [...orders].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+  const result: FilledOrder[] = [];
+  const used = new Set<number>();
+
+  for (let i = 0; i < sorted.length; i++) {
+    if (used.has(i)) continue;
+    const base = sorted[i];
+    const baseTime = new Date(base.time).getTime();
+    const group = [i];
+
+    for (let j = i + 1; j < sorted.length; j++) {
+      if (used.has(j)) continue;
+      const o = sorted[j];
+      if (o.side !== base.side) continue;
+      if (new Date(o.time).getTime() - baseTime > PARTIAL_FILL_WINDOW_MS) break;
+      if (Math.abs(o.fillPrice - base.fillPrice) > PARTIAL_FILL_PRICE_TOLERANCE) continue;
+      group.push(j);
+    }
+
+    if (group.length === 1) {
+      result.push(base);
+      continue;
+    }
+
+    const totalShares = group.reduce((sum, idx) => sum + sorted[idx].shares, 0);
+    const totalValue = group.reduce((sum, idx) => sum + sorted[idx].fillPrice * sorted[idx].shares, 0);
+    const totalFees = group.reduce((sum, idx) => sum + sorted[idx].fees, 0);
+    const fillPrice = totalValue / totalShares;
+    result.push({
+      orderId: base.orderId,
+      accountNumber: base.accountNumber,
+      side: base.side,
+      shares: totalShares,
+      fillPrice,
+      total: fillPrice * totalShares,
+      fees: totalFees,
+      time: sorted[group[group.length - 1]].time,
+    });
+    group.forEach((idx) => used.add(idx));
+  }
+
+  return result;
+}
+
 async function fetchAccountData(
   accountNumber: string,
   hash: string,
@@ -120,10 +168,11 @@ async function fetchAccountData(
 
   // --- Orders ---
   const flatFilled = flattenOrders(Array.isArray(filledRaw) ? filledRaw : []);
-  const filled = flatFilled
+  const parsedFilled = flatFilled
     .map((o) => parseFilledOrder(o, accountNumber))
     .filter((o): o is FilledOrder => o !== null)
     .map((o) => ({ ...o, fees: feeByOrderId.get(o.orderId) ?? 0 }));
+  const filled = mergePartialFills(parsedFilled);
 
   const filledOptionsRaw = flatFilled.flatMap((o) => parseFilledOptionOrder(o, accountNumber));
   // Look up fees per leg by orderId+symbol (exact match, no proration needed)
