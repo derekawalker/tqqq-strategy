@@ -266,15 +266,16 @@ export async function GET() {
       }
     }
 
-    // Put/Call ratio from QQQ nearest expiry
+    // Put/Call ratio from QQQ — aggregate open interest across first 3 expirations
     let putCallRatio: number | null = null;
     if (pcResult.status === "fulfilled") {
-      const chain = pcResult.value.options?.[0];
-      if (chain) {
-        const putVol = chain.puts.reduce((s, p) => s + (p.volume ?? 0), 0);
-        const callVol = chain.calls.reduce((s, c) => s + (c.volume ?? 0), 0);
-        if (callVol > 0) putCallRatio = Math.round((putVol / callVol) * 100) / 100;
+      const chains = (pcResult.value.options ?? []).slice(0, 3);
+      let putOI = 0, callOI = 0;
+      for (const chain of chains) {
+        putOI += chain.puts.reduce((s, p) => s + (p.openInterest ?? 0), 0);
+        callOI += chain.calls.reduce((s, c) => s + (c.openInterest ?? 0), 0);
       }
+      if (callOI > 0) putCallRatio = Math.round((putOI / callOI) * 100) / 100;
     }
 
     // FOMC next meeting

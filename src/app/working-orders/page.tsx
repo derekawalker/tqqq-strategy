@@ -27,6 +27,8 @@ import {
   IconPlayerPlayFilled,
   IconShield,
 } from "@tabler/icons-react";
+import { MiniChartCard } from "@/components/MiniChartCard";
+import { CARD_RADIUS } from "@/lib/cardStyles";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
 import { fmt, createMask } from "@/lib/format";
@@ -368,7 +370,14 @@ export default function WorkingOrdersPage() {
   }
 
   return (
-    <>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        minHeight:
+          "calc(100dvh - var(--app-shell-header-height) - var(--mantine-spacing-md) * 2)",
+      }}
+    >
       <Modal
         opened={tosModal !== null}
         onClose={() => setTosModal(null)}
@@ -1100,6 +1109,22 @@ export default function WorkingOrdersPage() {
           </Table>
         </ScrollArea>
       </Stack>
-    </>
+
+      <div
+        style={{
+          marginTop: "auto",
+          position: "sticky",
+          bottom: isMobile ? 56 : 0,
+          zIndex: 10,
+          borderTop: "1px solid var(--mantine-color-dark-4)",
+          borderLeft: "1px solid var(--mantine-color-dark-4)",
+          borderRight: "1px solid var(--mantine-color-dark-4)",
+          borderRadius: `${CARD_RADIUS} ${CARD_RADIUS} 0 0`,
+          overflow: "hidden",
+        }}
+      >
+        <MiniChartCard bottomFlush height={isMobile ? 160 : 220} />
+      </div>
+    </div>
   );
 }
