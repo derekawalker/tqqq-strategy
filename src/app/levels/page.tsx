@@ -1,11 +1,12 @@
 "use client";
 
-import { Fragment, useRef, useEffect } from "react";
-import { Table, Text, Center, ThemeIcon, Stack, Tooltip } from "@mantine/core";
+import { Fragment, useRef, useEffect, useState } from "react";
+import { Table, Text, Center, ThemeIcon, Stack, Tooltip, Group, Badge, NumberInput } from "@mantine/core";
 import { IconCheck, IconPlayerPlayFilled } from "@tabler/icons-react";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
+import { useBalances } from "@/lib/hooks/useBalances";
 import { fmt, createMask } from "@/lib/format";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { MiniChartCard } from "@/components/MiniChartCard";
@@ -56,6 +57,12 @@ export default function LevelsPage() {
   const { activeAccount, privacyMode, quote } = useApp();
   const summary = useLevels();
   const accountColor = useAccountColor();
+  const { balance } = useBalances();
+  const [customBalances, setCustomBalances] = useState<Record<string, number | string>>({});
+  const accountKey = activeAccount?.accountNumber ?? "";
+  const customBalance = customBalances[accountKey] ?? "";
+  const setCustomBalance = (val: number | string) =>
+    setCustomBalances((prev) => ({ ...prev, [accountKey]: val }));
   const currentRowRef = useRef<HTMLTableRowElement>(null);
 
   useEffect(() => {
@@ -77,6 +84,19 @@ export default function LevelsPage() {
 
   const { levels, currentLevel, ownedLevels } = summary;
 
+  const settings = activeAccount?.settings;
+  const R = settings?.reductionFactor ?? null;
+  const effectiveBalance =
+    typeof customBalance === "number" && customBalance > 0
+      ? customBalance
+      : (balance?.totalValue ?? null);
+  const level0Shares: number | null =
+    R !== null && !quote.loading && quote.price > 0 && effectiveBalance
+      ? Math.round(
+          (effectiveBalance * ((1 - R) / (1 - Math.pow(R, 88)))) / quote.price
+        )
+      : null;
+
   const totalShares = ownedLevels.reduce((sum, l) => sum + l.shares, 0);
   const totalCost = ownedLevels.reduce((sum, l) => sum + l.cost, 0);
   const totalGainLoss = ownedLevels.reduce(
@@ -90,9 +110,55 @@ export default function LevelsPage() {
   return (
     <>
     <Stack gap="md" pb={isMobile ? 230 : 240}>
-      <Text fw={700} size="xl">
-        Levels
-      </Text>
+      <Group justify="space-between" align="flex-end">
+        <Text fw={700} size="xl">
+          Levels
+        </Text>
+        {(level0Shares !== null || balance?.totalValue) && (
+          <Tooltip
+            label={`Level 0 buy using $${fmt(effectiveBalance!, 0)} at current price $${fmt(quote.price)}`}
+            withArrow
+            disabled={level0Shares === null}
+          >
+            <Group
+              gap={0}
+              align="center"
+              style={{
+                border: `1px solid var(--mantine-color-${accountColor}-7)`,
+                borderRadius: "var(--mantine-radius-xl)",
+                overflow: "hidden",
+              }}
+            >
+              <NumberInput
+                placeholder={balance?.totalValue ? `${fmt(balance.totalValue, 0)}` : "Balance"}
+                value={customBalance}
+                onChange={setCustomBalance}
+                prefix="$"
+                thousandSeparator=","
+                decimalScale={0}
+                hideControls
+                size="xs"
+                w={90}
+                variant="unstyled"
+                styles={{
+                  input: {
+                    textAlign: "right",
+                    paddingLeft: 10,
+                    paddingRight: 8,
+                    color: `var(--mantine-color-${accountColor}-3)`,
+                    fontSize: "var(--mantine-font-size-xs)",
+                  },
+                }}
+              />
+              {level0Shares !== null && (
+                <Badge variant="light" color={accountColor} size="lg" style={{ borderRadius: 0 }}>
+                  {mask(fmt(level0Shares, 0))}
+                </Badge>
+              )}
+            </Group>
+          </Tooltip>
+        )}
+      </Group>
 
       <Table>
         <Table.Thead>
