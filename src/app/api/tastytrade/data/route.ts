@@ -209,7 +209,10 @@ async function fetchAccountData(accountNumber: string, from365: string, to: stri
   for (const p of positionsRaw) {
     const sym: string = p.symbol ?? "";
     const type: string = p["instrument-type"] ?? "";
-    const mv = Math.abs(parseFloat(p["market-value"] ?? "0"));
+    const qty = parseFloat(p.quantity ?? "0");
+    const multiplier = parseFloat(p.multiplier ?? "1");
+    const closePrice = parseFloat(p["close-price"] ?? "0");
+    const mv = Math.abs(parseFloat(p["market-value"] ?? "0")) || Math.abs(closePrice * qty * multiplier);
     if (sym === "TQQQ" && type === "Equity") tqqqValue += mv;
     else if (MONEY_MARKET_SYMBOLS.includes(sym)) moneyMarketValue += mv;
     else if (type === "Equity Option") optionsValue += mv;

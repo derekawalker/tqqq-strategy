@@ -33,7 +33,7 @@ interface AppHeaderProps {
 }
 
 export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps) {
-  const { accounts, activeAccount, setActiveAccount, privacyMode, togglePrivacy, quote, schwabConnected, checkSchwabAuth, tastytradeConnected, checkTastytradeAuth, tickQuoteRefresh } = useApp();
+  const { accounts, activeAccount, setActiveAccount, privacyMode, togglePrivacy, quote, schwabConnected, checkSchwabAuth, tastytradeConnected, checkTastytradeAuth, tickQuoteRefresh, tickRefresh } = useApp();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const router = useRouter();
   const pathname = usePathname();
@@ -110,6 +110,7 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
       } else if (data.connected) {
         await checkTastytradeAuth();
         closeOtp();
+        tickRefresh();
       } else if (data.mfaToken) {
         setMfaToken(data.mfaToken);
         setOtpStep("complete");
@@ -131,10 +132,11 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
       });
       const data = await res.json();
       if (!res.ok) {
-        setOtpError("Invalid code — check your authenticator app and try again");
+        setOtpError(data.error ? String(data.error) : "Invalid code — try again");
       } else if (data.success) {
         await checkTastytradeAuth();
         closeOtp();
+        tickRefresh();
       }
     } finally {
       setOtpLoading(false);
