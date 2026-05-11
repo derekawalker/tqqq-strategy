@@ -197,8 +197,8 @@ function buildVerdict(signals: SignalReading[]) {
 
   // Bearish signal clusters historically fired into bounces — treat as mean-reversion long.
   let verdict: "lean-long" | "lean-short" | "chop" = "chop";
-  if (up >= 2 && down <= 1) verdict = "lean-long";
-  else if (down >= 2 && up <= 1) verdict = "lean-long";
+  if (up >= 3 && down <= 1) verdict = "lean-long";
+  else if (down >= 3 && up <= 1) verdict = "lean-short";
 
   return {
     verdict,
@@ -344,8 +344,8 @@ async function main() {
       buildReading("realizedVol20Pct", "20d vol percentile", rvPct != null ? realizedVol20PctBin(rvPct) : null),
       buildReading("rsi2InTrend",      "RSI(2) + trend",     ma200 != null ? rsi2Bin(rsi2, inUptrend) : null),
       buildReading("hygSpyDiv",        "HYG − SPY (5d)",     hygSpyDivBin(hygDiv)),
-      buildReading("tnxMom20",         "10y yield 20d Δ",    tnxMom != null ? tnxMom20Bin(tnxMom) : null, true),
-      buildReading("tltMom20",         "TLT 20d return",     tltMom != null ? tltMom20Bin(tltMom) : null, true),
+      buildReading("tnxMom20",         "10y yield 20d Δ",    tnxMom != null ? tnxMom20Bin(tnxMom) : null),
+      buildReading("tltMom20",         "TLT 20d return",     tltMom != null ? tltMom20Bin(tltMom) : null),
     ];
 
     const { verdict, expectedReturn5d, edge, agreement } = buildVerdict(signals);
@@ -401,9 +401,9 @@ async function main() {
     if (r.realized_return_5d_qqq != null) {
       realizedCount[r.verdict]++;
       const rr = r.realized_return_5d_qqq;
-      if (r.verdict === "lean-long" && rr > 0) hits[r.verdict]++;
-      else if (r.verdict === "lean-short" && rr < 0) hits[r.verdict]++;
-      else if (r.verdict === "chop" && Math.abs(rr) < 1) hits[r.verdict]++;
+      if (r.verdict === "lean-long" && rr > 1.5) hits[r.verdict]++;
+      else if (r.verdict === "lean-short" && rr < -1.5) hits[r.verdict]++;
+      else if (r.verdict === "chop" && Math.abs(rr) <= 1.5) hits[r.verdict]++;
     }
   }
   console.log(`\nVerdict distribution:`);

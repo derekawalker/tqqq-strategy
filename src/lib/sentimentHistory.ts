@@ -208,9 +208,9 @@ export function computeAccuracy(history: HistoryRow[]): AccuracyStats {
       .reduce((s, r, _, arr) => s + (r.realizedReturn5dTqqq as number) / arr.length, 0);
     const hits = rows.filter((r) => {
       const rr = r.realizedReturn5dQqq as number;
-      if (v === "lean-long") return rr > 0;
-      if (v === "lean-short") return rr < 0;
-      return Math.abs(rr) < 1;  // "chop" hit = realized stayed within ±1%
+      if (v === "lean-long") return rr > 1.5;    // hit = actually went up >1.5%
+      if (v === "lean-short") return rr < -1.5;  // hit = actually went down >1.5%
+      return Math.abs(rr) <= 1.5;                // hit = stayed within ±1.5%
     }).length;
 
     stats.byVerdict[v] = {

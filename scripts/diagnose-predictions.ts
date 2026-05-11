@@ -102,9 +102,9 @@ async function main() {
     const subReal = sub.map((r) => r.realized_return_5d_qqq as number);
     const hits = sub.filter((r) => {
       const rr = r.realized_return_5d_qqq as number;
-      if (v === "lean-long") return rr > 0;
-      if (v === "lean-short") return rr < 0;
-      return Math.abs(rr) < 1;
+      if (v === "lean-long") return rr > 1.5;
+      if (v === "lean-short") return rr < -1.5;
+      return Math.abs(rr) <= 1.5;
     }).length;
     console.log(`${v.padEnd(11)} n=${String(sub.length).padStart(3)}  avg realized=${fmt(mean(subReal)).padStart(7)}%  hit-rate=${pct(hits, sub.length)}`);
   }

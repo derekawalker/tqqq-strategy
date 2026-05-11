@@ -221,14 +221,12 @@ function buildVerdict(signals: SignalReading[]): {
 
   let verdict: VerdictPayload["verdict"] = "chop";
   let verdictLabel = "Neutral";
-  if (up >= 2 && down <= 1) {
+  if (up >= 3 && down <= 1) {
     verdict = "lean-long";
     verdictLabel = "Bullish";
-  } else if (down >= 2 && up <= 1) {
-    // Backtest 2024-2026: bearish signal clusters fired into bounces 9 of 10 times
-    // (avg +3.64% over 5d). Treat as mean-reversion long, not short.
-    verdict = "lean-long";
-    verdictLabel = "Bullish (panic)";
+  } else if (down >= 3 && up <= 1) {
+    verdict = "lean-short";
+    verdictLabel = "Bearish";
   }
 
   return {
@@ -372,29 +370,28 @@ export async function GET() {
       readings.push(buildReading("hygSpyDiv", "HYG − SPY (5d)", null, "—", null));
     }
 
-    // 6) 10y yield 20d change — informational context, not counted toward verdict
-    //    (correlated with existing signals; adding to vote pool lowers selectivity)
+    // 6) 10y yield 20d change — rising rates = headwind for QQQ (strongest bearish bin: −0.92% edge)
     if (tnx.length >= 21) {
       const change = tnx[tnx.length - 1] - tnx[tnx.length - 21];
       readings.push(buildReading(
         "tnxMom20", "10y yield 20d Δ", change,
         `${change >= 0 ? "+" : ""}${change.toFixed(2)}pp`,
-        tnxMom20Bin(change), true,
+        tnxMom20Bin(change),
       ));
     } else {
-      readings.push(buildReading("tnxMom20", "10y yield 20d Δ", null, "—", null, true));
+      readings.push(buildReading("tnxMom20", "10y yield 20d Δ", null, "—", null));
     }
 
-    // 7) TLT 20d return — informational context, not counted toward verdict
+    // 7) TLT 20d return — bonds rallying = tailwind (rate drop or flight to safety)
     if (tlt.length >= 21) {
       const tltMom = ((tlt[tlt.length - 1] - tlt[tlt.length - 21]) / tlt[tlt.length - 21]) * 100;
       readings.push(buildReading(
         "tltMom20", "TLT 20d return", tltMom,
         `${tltMom >= 0 ? "+" : ""}${tltMom.toFixed(2)}%`,
-        tltMom20Bin(tltMom), true,
+        tltMom20Bin(tltMom),
       ));
     } else {
-      readings.push(buildReading("tltMom20", "TLT 20d return", null, "—", null, true));
+      readings.push(buildReading("tltMom20", "TLT 20d return", null, "—", null));
     }
 
     const verdict = buildVerdict(readings);

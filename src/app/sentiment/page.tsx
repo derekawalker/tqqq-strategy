@@ -145,7 +145,7 @@ function VerdictHeader({ data }: { data: VerdictPayload }) {
           </Stack>
         </Group>
         <Text size="xs" c="dimmed" mt="sm" ta="center" maw={560}>
-          Verdict fires when ≥2 of 6 core signals hit extreme-edge bins (|edge| &gt; 0.3%) in the same direction. Rate/bond signals are shown for context only.
+          Bullish/Bearish fires when ≥3 of 8 signals hit extreme-edge bins (|edge| &gt; 0.3%) in the same direction. Hit = realized 5d return &gt;+1.5% or &lt;−1.5% respectively.
         </Text>
       </Stack>
     </Paper>
@@ -214,11 +214,6 @@ function SignalRow({ s }: { s: SignalReading }) {
           <Text size="xs" c="dimmed">
             n={s.sampleCount}
           </Text>
-          {s.informational && (
-            <Tooltip label="Context only — not counted toward the verdict" withArrow>
-              <Badge color="blue" variant="light" size="xs">context</Badge>
-            </Tooltip>
-          )}
           {s.lowConfidence && (
             <Tooltip
               label={`Fewer than 30 samples — treat with caution`}
@@ -442,7 +437,7 @@ function AccuracyPanel({
             <Table.Th ta="right">Realized TQQQ</Table.Th>
             <Table.Th ta="right">
               <Tooltip
-                label="For Long: % that closed up. For Short: % that closed down. For Chop: % that stayed within ±1%."
+                label="Bullish hit = realized 5d QQQ return >+1.5%. Bearish hit = <−1.5%. Neutral hit = within ±1.5%."
                 withArrow
                 multiline
                 maw={260}
@@ -534,9 +529,9 @@ function AccuracyPanel({
               const realized = h.realizedReturn5dQqq;
               const hit =
                 realized != null &&
-                ((h.verdict === "lean-long" && realized > 0) ||
-                  (h.verdict === "lean-short" && realized < 0) ||
-                  (h.verdict === "chop" && Math.abs(realized) < 1));
+                ((h.verdict === "lean-long" && realized > 1.5) ||
+                  (h.verdict === "lean-short" && realized < -1.5) ||
+                  (h.verdict === "chop" && Math.abs(realized) <= 1.5));
               return (
                 <Tooltip
                   key={h.date}
