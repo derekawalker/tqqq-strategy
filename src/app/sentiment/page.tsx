@@ -145,7 +145,7 @@ function VerdictHeader({ data }: { data: VerdictPayload }) {
           </Stack>
         </Group>
         <Text size="xs" c="dimmed" mt="sm" ta="center" maw={560}>
-          Verdict fires only when ≥2 signals hit extreme-edge bins (|edge| &gt; 0.3%) in the same direction. Otherwise: Neutral.
+          Verdict fires when ≥2 of 6 core signals hit extreme-edge bins (|edge| &gt; 0.3%) in the same direction. Rate/bond signals are shown for context only.
         </Text>
       </Stack>
     </Paper>
@@ -161,6 +161,8 @@ const SIGNAL_DESCRIPTIONS: Record<string, string> = {
   "20d vol percentile": "Where today's 20-day realized volatility ranks against the past year. Very calm regimes (bottom 15th pctile) historically had the strongest 5d forward returns.",
   "RSI(2) + trend": "Measures how stretched the price is (overbought or oversold) over 2 days. In an uptrend, very stretched-down = good time to bounce back up. In a downtrend = weak.",
   "HYG − SPY (5d)": "Compares high-risk bonds (HYG) to stock market (SPY) over 5 days. Bonds falling faster = investors are scared (bearish). Bonds rising faster = investors are confident (bullish).",
+  "10y yield 20d Δ": "Change in the 10-year Treasury yield over 20 trading days (in percentage points). Rising rates are a headwind for QQQ — the strongest bearish bin in backtest. Falling rates are a tailwind.",
+  "TLT 20d return": "20-day return of TLT (long-duration Treasury ETF). Bonds rallying means yields are dropping and/or risk-off money is rotating — historically a tailwind for a QQQ bounce.",
 };
 
 // ── signal table ──────────────────────────────────────────────────────────
@@ -212,6 +214,11 @@ function SignalRow({ s }: { s: SignalReading }) {
           <Text size="xs" c="dimmed">
             n={s.sampleCount}
           </Text>
+          {s.informational && (
+            <Tooltip label="Context only — not counted toward the verdict" withArrow>
+              <Badge color="blue" variant="light" size="xs">context</Badge>
+            </Tooltip>
+          )}
           {s.lowConfidence && (
             <Tooltip
               label={`Fewer than 30 samples — treat with caution`}

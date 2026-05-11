@@ -40,7 +40,7 @@ function supabase() {
 // ── load signal stats ──────────────────────────────────────────────────────
 
 type StatBin = { label: string; count: number; avgReturn5d: number; hitRateUp: number; lowConfidence: boolean };
-type SignalKey = "vixTerm" | "vixSpike" | "rsi2InTrend" | "pctAbove200ma" | "realizedVol20Pct" | "hygSpyDiv";
+type SignalKey = "vixTerm" | "vixSpike" | "rsi2InTrend" | "pctAbove200ma" | "realizedVol20Pct" | "hygSpyDiv" | "tnxMom20" | "tltMom20";
 type Stats = {
   baselineAvgReturn5d: number;
   yearsHistory: number;
@@ -99,6 +99,22 @@ function realizedVol20PctBin(pct: number): string {
   return ">90 (very high)";
 }
 
+function tnxMom20Bin(change: number): string {
+  if (change < -0.30) return "<-0.30 (rates falling fast)";
+  if (change < -0.10) return "-0.30 – -0.10";
+  if (change <  0.10) return "-0.10 – +0.10 (flat)";
+  if (change <  0.30) return "+0.10 – +0.30";
+  return ">+0.30 (rates rising fast)";
+}
+
+function tltMom20Bin(pct: number): string {
+  if (pct < -4.0) return "<-4% (bonds selling off)";
+  if (pct < -1.0) return "-4% – -1%";
+  if (pct <  1.0) return "-1% – +1% (flat)";
+  if (pct <  3.0) return "+1% – +3%";
+  return ">+3% (bonds rallying)";
+}
+
 function hygSpyDivBin(v: number): string {
   if (v < -1.5) return "<-1.5% (credit lagging)";
   if (v < -0.5) return "-1.5% – -0.5%";
@@ -146,12 +162,13 @@ interface SignalReading {
   sampleCount: number;
   lowConfidence: boolean;
   vsBaseline: number | null;
+  informational: boolean;
 }
 
-function buildReading(key: SignalKey, name: string, binLabel: string | null): SignalReading {
+function buildReading(key: SignalKey, name: string, binLabel: string | null, informational = false): SignalReading {
   const stat = lookup(key, binLabel);
   return {
-    key, name, binLabel,
+    key, name, binLabel, informational,
     avgReturn5d: stat?.avgReturn5d ?? null,
     hitRateUp: stat?.hitRateUp ?? null,
     sampleCount: stat?.count ?? 0,
@@ -163,7 +180,7 @@ function buildReading(key: SignalKey, name: string, binLabel: string | null): Si
 const STRONG_EDGE = 0.3;
 
 function buildVerdict(signals: SignalReading[]) {
-  const usable = signals.filter((s) => s.avgReturn5d != null && !s.lowConfidence);
+  const usable = signals.filter((s) => s.avgReturn5d != null && !s.lowConfidence && !s.informational);
   let weightedReturn = 0, totalWeight = 0;
   let up = 0, down = 0, neutral = 0;
   for (const s of usable) {
@@ -225,16 +242,18 @@ async function main() {
   console.log(`Backfilling ${YEARS}y of history${DRY_RUN ? " [DRY RUN — no writes]" : ""}...`);
 
   console.log("Fetching price data...");
-  const [qqq, vix, vix3m, hyg, spy, tqqq] = await Promise.all([
+  const [qqq, vix, vix3m, hyg, spy, tqqq, tnx, tlt] = await Promise.all([
     fetchDaily("QQQ",    YEARS),
     fetchDaily("^VIX",   YEARS),
     fetchDaily("^VIX3M", YEARS),
     fetchDaily("HYG",    YEARS),
     fetchDaily("SPY",    YEARS),
     fetchDaily("TQQQ",   YEARS),
+    fetchDaily("^TNX",   YEARS),
+    fetchDaily("TLT",    YEARS),
   ]);
 
-  const aligned = alignByDate({ QQQ: qqq, VIX: vix, VIX3M: vix3m, HYG: hyg, SPY: spy });
+  const aligned = alignByDate({ QQQ: qqq, VIX: vix, VIX3M: vix3m, HYG: hyg, SPY: spy, TNX: tnx, TLT: tlt });
   // TQQQ may not share all dates with the others (e.g. index rebalance days), so look it up separately
   const tqqqMap = new Map(tqqq.map((d) => [d.date, d.close]));
 
@@ -266,6 +285,8 @@ async function main() {
   const vix3mCloses = aligned.map((d) => d.values.VIX3M);
   const hygCloses = aligned.map((d) => d.values.HYG);
   const spyCloses = aligned.map((d) => d.values.SPY);
+  const tnxCloses = aligned.map((d) => d.values.TNX);
+  const tltCloses = aligned.map((d) => d.values.TLT);
 
   // Pre-compute 20d realized vol (annualized %) for percentile calc
   const realizedVol20: (number | null)[] = qqqCloses.map((_, i) => {
@@ -313,6 +334,9 @@ async function main() {
     const spy5d = ((spyCloses[i] - spyCloses[i - 5]) / spyCloses[i - 5]) * 100;
     const hygDiv = hyg5d - spy5d;
 
+    const tnxMom = i >= 20 ? tnxCloses[i] - tnxCloses[i - 20] : null;
+    const tltMom = i >= 20 ? ((tltCloses[i] - tltCloses[i - 20]) / tltCloses[i - 20]) * 100 : null;
+
     const signals: SignalReading[] = [
       buildReading("vixTerm",          "VIX / VIX3M",        vixTermBin(term)),
       buildReading("vixSpike",         "VIX 1-day change",   vixSpikeBin(spike)),
@@ -320,6 +344,8 @@ async function main() {
       buildReading("realizedVol20Pct", "20d vol percentile", rvPct != null ? realizedVol20PctBin(rvPct) : null),
       buildReading("rsi2InTrend",      "RSI(2) + trend",     ma200 != null ? rsi2Bin(rsi2, inUptrend) : null),
       buildReading("hygSpyDiv",        "HYG − SPY (5d)",     hygSpyDivBin(hygDiv)),
+      buildReading("tnxMom20",         "10y yield 20d Δ",    tnxMom != null ? tnxMom20Bin(tnxMom) : null, true),
+      buildReading("tltMom20",         "TLT 20d return",     tltMom != null ? tltMom20Bin(tltMom) : null, true),
     ];
 
     const { verdict, expectedReturn5d, edge, agreement } = buildVerdict(signals);

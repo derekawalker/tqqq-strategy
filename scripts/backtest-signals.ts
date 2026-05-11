@@ -114,8 +114,24 @@ const BIN_DEFS = {
     { label: "<-1.5% (credit lagging)",  min: -Infinity, max: -1.5 },
     { label: "-1.5% – -0.5%",            min: -1.5,      max: -0.5 },
     { label: "-0.5% – 0.5%",             min: -0.5,      max: 0.5 },
-    { label: "0.5% – 1.5%",              min: 0.5,       max: 1.5 },
+    { label: "0.5% – 1.5%",             min: 0.5,       max: 1.5 },
     { label: ">1.5% (credit leading)",   min: 1.5,       max: Infinity },
+  ],
+  // 20-day change in 10y yield (in percentage points). Rising rates = headwind for QQQ.
+  tnxMom20: [
+    { label: "<-0.30 (rates falling fast)", min: -Infinity, max: -0.30 },
+    { label: "-0.30 – -0.10",              min: -0.30,     max: -0.10 },
+    { label: "-0.10 – +0.10 (flat)",       min: -0.10,     max:  0.10 },
+    { label: "+0.10 – +0.30",              min:  0.10,     max:  0.30 },
+    { label: ">+0.30 (rates rising fast)", min:  0.30,     max: Infinity },
+  ],
+  // TLT 20-day return (%). Bonds rallying = flight-to-safety or rate drop = tailwind for QQQ bounces.
+  tltMom20: [
+    { label: "<-4% (bonds selling off)",   min: -Infinity, max: -4.0 },
+    { label: "-4% – -1%",                  min: -4.0,      max: -1.0 },
+    { label: "-1% – +1% (flat)",           min: -1.0,      max:  1.0 },
+    { label: "+1% – +3%",                  min:  1.0,      max:  3.0 },
+    { label: ">+3% (bonds rallying)",      min:  3.0,      max: Infinity },
   ],
 } satisfies Record<string, BinDef[]>;
 
@@ -133,17 +149,19 @@ function findBin(defs: readonly BinDef[], value: number): string | null {
 
 async function main() {
   console.log(`Fetching ${YEARS}y of daily history...`);
-  const [qqq, vix, vix3m, hyg, spy] = await Promise.all([
+  const [qqq, vix, vix3m, hyg, spy, tnx, tlt] = await Promise.all([
     fetchDaily("QQQ",   YEARS),
     fetchDaily("^VIX",  YEARS),
     fetchDaily("^VIX3M", YEARS),
     fetchDaily("HYG",   YEARS),
     fetchDaily("SPY",   YEARS),
+    fetchDaily("^TNX",  YEARS),
+    fetchDaily("TLT",   YEARS),
   ]);
 
-  console.log(`QQQ: ${qqq.length} days, VIX: ${vix.length}, VIX3M: ${vix3m.length}, HYG: ${hyg.length}, SPY: ${spy.length}`);
+  console.log(`QQQ: ${qqq.length} days, VIX: ${vix.length}, VIX3M: ${vix3m.length}, HYG: ${hyg.length}, SPY: ${spy.length}, TNX: ${tnx.length}, TLT: ${tlt.length}`);
 
-  const aligned = alignByDate({ QQQ: qqq, VIX: vix, VIX3M: vix3m, HYG: hyg, SPY: spy });
+  const aligned = alignByDate({ QQQ: qqq, VIX: vix, VIX3M: vix3m, HYG: hyg, SPY: spy, TNX: tnx, TLT: tlt });
   console.log(`Aligned dataset: ${aligned.length} common trading days`);
 
   const qqqCloses = aligned.map((d) => d.values.QQQ);
@@ -151,6 +169,8 @@ async function main() {
   const vix3mCloses = aligned.map((d) => d.values.VIX3M);
   const hygCloses = aligned.map((d) => d.values.HYG);
   const spyCloses = aligned.map((d) => d.values.SPY);
+  const tnxCloses = aligned.map((d) => d.values.TNX);
+  const tltCloses = aligned.map((d) => d.values.TLT);
 
   // Pre-compute 20d realized vol (annualized %) for percentile feature
   const realizedVol20: (number | null)[] = qqqCloses.map((_, i) => {
@@ -168,6 +188,8 @@ async function main() {
     pctAbove200ma: {},
     realizedVol20Pct: {},
     hygSpyDiv: {},
+    tnxMom20: {},
+    tltMom20: {},
   };
 
   for (const sk of Object.keys(BIN_DEFS) as SignalKey[]) {
@@ -223,6 +245,12 @@ async function main() {
     record("vixSpike", findBin(BIN_DEFS.vixSpike, vixSpike));
     if (pctAbove != null) record("pctAbove200ma", findBin(BIN_DEFS.pctAbove200ma, pctAbove));
     if (rvPct != null) record("realizedVol20Pct", findBin(BIN_DEFS.realizedVol20Pct, rvPct));
+    if (i >= 20) {
+      const tnxMom = tnxCloses[i] - tnxCloses[i - 20];
+      const tltMom = ((tltCloses[i] - tltCloses[i - 20]) / tltCloses[i - 20]) * 100;
+      record("tnxMom20", findBin(BIN_DEFS.tnxMom20, tnxMom));
+      record("tltMom20", findBin(BIN_DEFS.tltMom20, tltMom));
+    }
     if (rsi2 != null) {
       if (!inUptrend) {
         record("rsi2InTrend", "Downtrend (any RSI)");
@@ -239,7 +267,7 @@ async function main() {
 
   // Compute final stats per bin
   const output: Record<SignalKey, { label: string; count: number; avgReturn5d: number; hitRateUp: number; lowConfidence: boolean }[]> = {
-    vixTerm: [], vixSpike: [], rsi2InTrend: [], pctAbove200ma: [], realizedVol20Pct: [], hygSpyDiv: [],
+    vixTerm: [], vixSpike: [], rsi2InTrend: [], pctAbove200ma: [], realizedVol20Pct: [], hygSpyDiv: [], tnxMom20: [], tltMom20: [],
   };
 
   const baselineRet = (() => {

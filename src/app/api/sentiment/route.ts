@@ -13,7 +13,7 @@ const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
 // ── types ──────────────────────────────────────────────────────────────────
 
-export type SignalKey = "vixTerm" | "vixSpike" | "rsi2InTrend" | "pctAbove200ma" | "realizedVol20Pct" | "hygSpyDiv";
+export type SignalKey = "vixTerm" | "vixSpike" | "rsi2InTrend" | "pctAbove200ma" | "realizedVol20Pct" | "hygSpyDiv" | "tnxMom20" | "tltMom20";
 
 export interface SignalReading {
   key: SignalKey;
@@ -26,6 +26,7 @@ export interface SignalReading {
   sampleCount: number;
   lowConfidence: boolean;
   vsBaseline: number | null;     // avgReturn5d - baseline (in %, "edge")
+  informational: boolean;        // shown in table but not counted toward verdict
 }
 
 export interface VerdictPayload {
@@ -96,6 +97,22 @@ function realizedVol20PctBin(pct: number): string {
   return ">90 (very high)";
 }
 
+function tnxMom20Bin(change: number): string {
+  if (change < -0.30) return "<-0.30 (rates falling fast)";
+  if (change < -0.10) return "-0.30 – -0.10";
+  if (change <  0.10) return "-0.10 – +0.10 (flat)";
+  if (change <  0.30) return "+0.10 – +0.30";
+  return ">+0.30 (rates rising fast)";
+}
+
+function tltMom20Bin(pct: number): string {
+  if (pct < -4.0) return "<-4% (bonds selling off)";
+  if (pct < -1.0) return "-4% – -1%";
+  if (pct <  1.0) return "-1% – +1% (flat)";
+  if (pct <  3.0) return "+1% – +3%";
+  return ">+3% (bonds rallying)";
+}
+
 function hygSpyDivBin(v: number): string {
   if (v < -1.5) return "<-1.5% (credit lagging)";
   if (v < -0.5) return "-1.5% – -0.5%";
@@ -158,6 +175,7 @@ function buildReading(
   current: number | null,
   display: string,
   binLabel: string | null,
+  informational = false,
 ): SignalReading {
   const stat = lookup(key, binLabel);
   return {
@@ -167,6 +185,7 @@ function buildReading(
     sampleCount: stat?.count ?? 0,
     lowConfidence: stat?.lowConfidence ?? false,
     vsBaseline: stat ? Math.round((stat.avgReturn5d - STATS.baselineAvgReturn5d) * 1000) / 1000 : null,
+    informational,
   };
 }
 
@@ -184,7 +203,7 @@ function buildVerdict(signals: SignalReading[]): {
   edge: number;
   agreement: VerdictPayload["agreement"];
 } {
-  const usable = signals.filter((s) => s.avgReturn5d != null && !s.lowConfidence);
+  const usable = signals.filter((s) => s.avgReturn5d != null && !s.lowConfidence && !s.informational);
   let weightedReturn = 0;
   let totalWeight = 0;
   let up = 0, down = 0, neutral = 0;
@@ -235,12 +254,14 @@ export async function GET() {
     // Need 273 trading days (252d vol-percentile window + 20d warmup); pull 500 cal days.
     const period1 = new Date(Date.now() - 500 * 24 * 60 * 60 * 1000);
 
-    const [vixR, vix3mR, qqqR, hygR, spyR] = await Promise.allSettled([
+    const [vixR, vix3mR, qqqR, hygR, spyR, tnxR, tltR] = await Promise.allSettled([
       yf.chart("^VIX",   { period1, interval: "1d" }),
       yf.chart("^VIX3M", { period1, interval: "1d" }),
       yf.chart("QQQ",    { period1, interval: "1d" }),
       yf.chart("HYG",    { period1, interval: "1d" }),
       yf.chart("SPY",    { period1, interval: "1d" }),
+      yf.chart("^TNX",   { period1, interval: "1d" }),
+      yf.chart("TLT",    { period1, interval: "1d" }),
     ]);
 
     const closes = (r: typeof vixR): number[] =>
@@ -253,6 +274,8 @@ export async function GET() {
     const qqq   = closes(qqqR);
     const hyg   = closes(hygR);
     const spy   = closes(spyR);
+    const tnx   = closes(tnxR);
+    const tlt   = closes(tltR);
 
     const readings: SignalReading[] = [];
 
@@ -347,6 +370,31 @@ export async function GET() {
       ));
     } else {
       readings.push(buildReading("hygSpyDiv", "HYG − SPY (5d)", null, "—", null));
+    }
+
+    // 6) 10y yield 20d change — informational context, not counted toward verdict
+    //    (correlated with existing signals; adding to vote pool lowers selectivity)
+    if (tnx.length >= 21) {
+      const change = tnx[tnx.length - 1] - tnx[tnx.length - 21];
+      readings.push(buildReading(
+        "tnxMom20", "10y yield 20d Δ", change,
+        `${change >= 0 ? "+" : ""}${change.toFixed(2)}pp`,
+        tnxMom20Bin(change), true,
+      ));
+    } else {
+      readings.push(buildReading("tnxMom20", "10y yield 20d Δ", null, "—", null, true));
+    }
+
+    // 7) TLT 20d return — informational context, not counted toward verdict
+    if (tlt.length >= 21) {
+      const tltMom = ((tlt[tlt.length - 1] - tlt[tlt.length - 21]) / tlt[tlt.length - 21]) * 100;
+      readings.push(buildReading(
+        "tltMom20", "TLT 20d return", tltMom,
+        `${tltMom >= 0 ? "+" : ""}${tltMom.toFixed(2)}%`,
+        tltMom20Bin(tltMom), true,
+      ));
+    } else {
+      readings.push(buildReading("tltMom20", "TLT 20d return", null, "—", null, true));
     }
 
     const verdict = buildVerdict(readings);
