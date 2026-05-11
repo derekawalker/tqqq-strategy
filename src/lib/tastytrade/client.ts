@@ -62,9 +62,13 @@ export async function completeMfaLogin(challengeToken: string, otp: string): Pro
     throw new Error(`MFA failed (${res.status}): ${text.slice(0, 300)}`);
   }
   const json = await res.json();
+  const sessionToken: string | undefined = json.data?.["session-token"];
+  if (!sessionToken) {
+    throw new Error(`MFA response missing session-token. Keys: ${Object.keys(json.data ?? {}).join(", ")}`);
+  }
   await writeTokens({
-    sessionToken: json.data["session-token"],
-    rememberMeToken: json.data["remember-me-token"],
+    sessionToken,
+    rememberMeToken: json.data["remember-me-token"] ?? "",
     expiresAt: Date.now() + SESSION_TTL_MS,
   });
   invalidateSessionCache();

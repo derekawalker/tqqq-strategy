@@ -108,9 +108,13 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
       if (!res.ok) {
         setOtpError(data.error ?? "Login failed — check your credentials in Vercel env vars");
       } else if (data.connected) {
-        await checkTastytradeAuth();
-        closeOtp();
-        tickRefresh();
+        const syncError = await checkTastytradeAuth();
+        if (syncError) {
+          setOtpError(`Connected but couldn't load accounts: ${syncError}`);
+        } else {
+          closeOtp();
+          tickRefresh();
+        }
       } else if (data.mfaToken) {
         setMfaToken(data.mfaToken);
         setOtpStep("complete");
@@ -134,9 +138,13 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
       if (!res.ok) {
         setOtpError(data.error ? String(data.error) : "Invalid code — try again");
       } else if (data.success) {
-        await checkTastytradeAuth();
-        closeOtp();
-        tickRefresh();
+        const syncError = await checkTastytradeAuth();
+        if (syncError) {
+          setOtpError(`Connected but couldn't load accounts: ${syncError}`);
+        } else {
+          closeOtp();
+          tickRefresh();
+        }
       }
     } finally {
       setOtpLoading(false);

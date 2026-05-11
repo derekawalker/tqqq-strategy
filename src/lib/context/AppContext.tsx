@@ -86,7 +86,7 @@ interface AppContextValue {
   schwabConnected: boolean | null; // null = loading
   checkSchwabAuth: () => Promise<void>;
   tastytradeConnected: boolean | null; // null = loading
-  checkTastytradeAuth: () => Promise<void>;
+  checkTastytradeAuth: () => Promise<string | null>;
   filledOrders: FilledOrder[];
   filledOptionOrders: FilledOptionOrder[];
   expiredOptionOrders: ExpiredOptionOrder[];
@@ -191,12 +191,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const syncAccountsFromTastytrade = async () => {
+  const syncAccountsFromTastytrade = async (): Promise<string | null> => {
     try {
       const res = await fetch("/api/tastytrade/accounts");
-      if (!res.ok) return;
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        return `accounts fetch failed (${res.status}): ${body.error ?? "unknown"}`;
+      }
       const tastyAccounts = await res.json();
-      if (!Array.isArray(tastyAccounts)) return;
+      if (!Array.isArray(tastyAccounts)) return null;
 
       setAccounts((prev) => {
         const colors = ["blue", "teal", "violet", "orange", "pink", "grape"];
@@ -216,20 +219,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
         return [...nonTasty, ...merged];
       });
-    } catch {
-      // silently ignore
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : "unknown error";
     }
   };
 
-  const checkTastytradeAuth = async () => {
+  const checkTastytradeAuth = async (): Promise<string | null> => {
     try {
       const res = await fetch("/api/tastytrade/auth");
       const data = await res.json();
       const connected = data.connected === true;
       setTastytradeConnected(connected);
-      if (connected) await syncAccountsFromTastytrade();
+      if (connected) return await syncAccountsFromTastytrade();
+      return null;
     } catch {
       setTastytradeConnected(false);
+      return null;
     }
   };
 

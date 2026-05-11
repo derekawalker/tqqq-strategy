@@ -29,12 +29,13 @@ export async function readTokens(): Promise<TokenSet | null> {
 }
 
 export async function writeTokens(tokens: TokenSet): Promise<void> {
-  await supabase().from("tokens").upsert({
+  const { error } = await supabase().from("tokens").upsert({
     id: TOKEN_ID,
     access_token: tokens.sessionToken,
     refresh_token: tokens.rememberMeToken,
     expires_at: tokens.expiresAt,
   });
+  if (error) throw new Error(`Failed to save tastytrade tokens: ${error.message}`);
 }
 
 export async function clearTokens(): Promise<void> {
