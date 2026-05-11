@@ -1,603 +1,382 @@
 import YahooFinance from "yahoo-finance2";
+import statsData from "@/data/signal-stats.json";
+import {
+  snapshotVerdict,
+  backfillRealizedReturns,
+  loadRecentHistory,
+  computeAccuracy,
+  type AccuracyStats,
+  type HistoryRow,
+} from "@/lib/sentimentHistory";
 
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
-// Sorted by QQQ weight %, descending (approximate as of early 2025)
-export const QQQ_HOLDINGS = [
-  { symbol: "MSFT",  name: "Microsoft",  weight: 8.8 },
-  { symbol: "AAPL",  name: "Apple",      weight: 8.0 },
-  { symbol: "NVDA",  name: "NVIDIA",     weight: 7.9 },
-  { symbol: "AMZN",  name: "Amazon",     weight: 5.3 },
-  { symbol: "META",  name: "Meta",       weight: 4.9 },
-  { symbol: "GOOGL", name: "Alphabet",   weight: 4.5 },
-  { symbol: "TSLA",  name: "Tesla",      weight: 3.5 },
-  { symbol: "AVGO",  name: "Broadcom",   weight: 3.2 },
-  { symbol: "COST",  name: "Costco",     weight: 2.6 },
-  { symbol: "NFLX",  name: "Netflix",    weight: 2.4 },
-  { symbol: "TMUS",  name: "T-Mobile",   weight: 2.2 },
-  { symbol: "AMD",   name: "AMD",        weight: 2.0 },
-];
+// ── types ──────────────────────────────────────────────────────────────────
 
-export const QQQ_TOP12 = QQQ_HOLDINGS;
+export type SignalKey = "vixTerm" | "vixSpike" | "rsi2InTrend" | "pctAbove200ma" | "realizedVol20Pct" | "hygSpyDiv";
 
-const POSITIVE_WORDS = [
-  "beat", "surge", "rally", "soar", "record", "gain", "rise", "bullish",
-  "upgrade", "strong", "growth", "profit", "exceed", "outperform", "boost",
-  "recovery", "milestone", "expansion", "positive", "high", "buy",
-];
-
-const NEGATIVE_WORDS = [
-  "miss", "crash", "fall", "drop", "plunge", "decline", "bearish", "downgrade",
-  "weak", "loss", "disappoint", "warning", "risk", "concern", "threat",
-  "slowdown", "recession", "layoff", "cut", "below", "underperform", "sell",
-  "negative", "low", "fear", "tariff", "lawsuit", "investigation",
-];
-
-function scoreHeadline(title: string): "positive" | "negative" | "neutral" {
-  const lower = title.toLowerCase();
-  const pos = POSITIVE_WORDS.filter((w) => lower.includes(w)).length;
-  const neg = NEGATIVE_WORDS.filter((w) => lower.includes(w)).length;
-  if (pos > neg) return "positive";
-  if (neg > pos) return "negative";
-  return "neutral";
-}
-
-// Annualized realized volatility (std of log returns × √252), expressed in vol points (e.g. 18.5)
-function realizedVol(closes: number[], window = 20): number | null {
-  if (closes.length < window + 1) return null;
-  const slice = closes.slice(-(window + 1));
-  const returns: number[] = [];
-  for (let i = 1; i < slice.length; i++) returns.push(Math.log(slice[i] / slice[i - 1]));
-  const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-  const variance = returns.reduce((a, b) => a + (b - mean) ** 2, 0) / returns.length;
-  return Math.sqrt(variance * 252) * 100;
-}
-
-// Percent change between current close and `lookback` trading days ago
-function pctChange(closes: number[], lookback: number): number | null {
-  if (closes.length <= lookback) return null;
-  const cur = closes[closes.length - 1];
-  const past = closes[closes.length - 1 - lookback];
-  if (!past) return null;
-  return ((cur - past) / past) * 100;
-}
-
-// Wilder's smoothed RSI (EMA-based average gain/loss)
-function calcRSI(closes: number[], period = 14): number {
-  if (closes.length < period + 1) return 50;
-  let avgGain = 0;
-  let avgLoss = 0;
-  for (let i = 1; i <= period; i++) {
-    const diff = closes[i] - closes[i - 1];
-    if (diff > 0) avgGain += diff;
-    else avgLoss += Math.abs(diff);
-  }
-  avgGain /= period;
-  avgLoss /= period;
-  for (let i = period + 1; i < closes.length; i++) {
-    const diff = closes[i] - closes[i - 1];
-    avgGain = (avgGain * (period - 1) + Math.max(diff, 0)) / period;
-    avgLoss = (avgLoss * (period - 1) + Math.max(-diff, 0)) / period;
-  }
-  if (avgLoss === 0) return 100;
-  return 100 - 100 / (1 + avgGain / avgLoss);
-}
-
-export interface SentimentArticle {
-  title: string;
-  publisher: string;
-  providerPublishTime: number;
-  sentiment: "positive" | "negative" | "neutral";
-  link: string;
-}
-
-export interface HoldingSignals {
-  volumeRatio: number | null;        // today vol / 3-month avg vol
-  goldenCross: boolean | null;       // 50-day MA > 200-day MA
-  momentum52w: number | null;        // 52-week price return (%) — display only
-  priceVs50dPct: number | null;      // % above/below 50-day MA (used in scoring)
-  shortFloatPct: number | null;      // short interest as % of float
-  shortRatio: number | null;         // days to cover
-  insiderBuys90d: number;            // open-market insider purchases in last 90 days
-  insiderSells90d: number;           // open-market insider sales in last 90 days
-  epsRevision30d: number | null;     // % change in current-Q EPS estimate vs 30 days ago
-  epsRevisionsUp30d: number | null;  // # analysts raising estimate (30d)
-  epsRevisionsDown30d: number | null;// # analysts cutting estimate (30d)
-}
-
-export interface HoldingSentiment {
-  symbol: string;
+export interface SignalReading {
+  key: SignalKey;
   name: string;
-  weight: number;
-  score: number;
-  articleCount: number;
-  articles: SentimentArticle[];
-  dayChangePercent: number | null;
-  earnings: {
-    nextDate: number | null;
-    recommendationMean: number | null;
-  };
-  signals: HoldingSignals;
+  current: number | null;        // current raw value (null if unavailable)
+  display: string;               // pre-formatted display string
+  binLabel: string | null;       // which bin the current value falls into
+  avgReturn5d: number | null;    // historical avg QQQ 5d return for this bin (%)
+  hitRateUp: number | null;      // % of historical 5d windows that were up
+  sampleCount: number;
+  lowConfidence: boolean;
+  vsBaseline: number | null;     // avgReturn5d - baseline (in %, "edge")
 }
 
-export interface HistoryPoint { t: number; v: number }
-
-// FOMC meeting end dates (second day of each meeting = rate decision day)
-const FOMC_DATES = [
-  new Date("2025-01-29"), new Date("2025-03-19"), new Date("2025-05-07"),
-  new Date("2025-06-18"), new Date("2025-07-30"), new Date("2025-09-17"),
-  new Date("2025-10-29"), new Date("2025-12-10"),
-  new Date("2026-01-28"), new Date("2026-03-18"), new Date("2026-04-29"),
-  new Date("2026-06-10"), new Date("2026-07-29"), new Date("2026-09-16"),
-  new Date("2026-10-28"), new Date("2026-12-09"),
-];
-
-export interface TqqqSignals {
-  momentum5d: number | null;
-  momentum20d: number | null;
-  priceVs20dMa: number | null;
-}
-
-export interface SentimentData {
+export interface VerdictPayload {
   cachedAt: number;
-  tqqqSignals: TqqqSignals | null;
-  skew: { current: number; history: HistoryPoint[] } | null;
-  earningsRiskCount: number;
-  fearGreed: {
-    current: number;
-    previousClose: number;
-    oneWeekAgo: number;
-    oneMonthAgo: number;
-    rating: string;
-    history: HistoryPoint[];
-  } | null;
-  vix: {
-    current: number;
-    dayChange: number;
-    weekChange: number;
-    monthChange: number;
-    high52w: number | null;
-    low52w: number | null;
-    history: HistoryPoint[];
-    termStructure: number | null;  // VIX / VIX3M — >1 = backwardation/stress, <1 = contango/calm
-    vrp: number | null;             // VIX − realized vol (20d, annualized) on QQQ
-  } | null;
-  rsi: { value: number; history: HistoryPoint[] } | null;
-  macro: {
-    yieldSpread: {
-      tenYear: number;
-      threeMonth: number;
-      spread: number;
-      history: HistoryPoint[];
-    } | null;
-    tenYearChange5d: number | null;     // change in 10Y yield (percentage points) over last 5 trading days
-    dollar: { change20d: number } | null;
-    credit: { hygChange20d: number } | null;
-    putCallRatio: number | null;
-    fomc: {
-      nextDate: number;
-      daysUntil: number;
-      daysSinceLast: number;
-      label: string;
-    } | null;
-  };
-  internals: {
-    breadth: { above50d: number; goldenCross: number; total: number };
-    smhVsQqq20d: number | null;   // SMH:QQQ relative 20d change (%) — semis leadership
-  };
-  holdings: HoldingSentiment[];
+  baselineAvgReturn5d: number;
+  yearsHistory: number;
+  totalSamples: number;
+  verdict: "lean-long" | "lean-short" | "chop";
+  verdictLabel: string;
+  expectedReturn5d: number;      // signal-weighted avg of bin returns
+  edge: number;                  // expectedReturn5d - baseline
+  agreement: { up: number; down: number; neutral: number };
+  signals: SignalReading[];
+  accuracy: AccuracyStats | null;
+  recentHistory: HistoryRow[];   // last 30 days for sparkline / list
 }
 
-// ── in-memory cache ────────────────────────────────────────────────────────
+// ── stats lookup ──────────────────────────────────────────────────────────
 
-const CACHE_TTL_MS = 20 * 60 * 1000; // 20 minutes
-let cachedPayload: SentimentData | null = null;
-let cachedAt = 0;
+type StatBin = { label: string; count: number; avgReturn5d: number; hitRateUp: number; lowConfidence: boolean };
+type Stats = typeof statsData & { signals: Record<SignalKey, StatBin[]> };
+const STATS: Stats = statsData as Stats;
 
-// ── per-stock helpers ──────────────────────────────────────────────────────
-
-const QUOTE_FIELDS = [
-  "regularMarketPrice",
-  "regularMarketChangePercent",
-  "regularMarketVolume",
-  "averageDailyVolume3Month",
-  "fiftyDayAverage",
-  "twoHundredDayAverage",
-  "fiftyTwoWeekChangePercent",
-] as const;
-
-const SUMMARY_MODULES = [
-  "calendarEvents",
-  "financialData",
-  "defaultKeyStatistics",
-  "insiderTransactions",
-  "earningsTrend",
-] as const;
-
-async function fetchStockBatch(stocks: typeof QQQ_HOLDINGS) {
-  const [newsResults, earningsResults, quoteResults] = await Promise.all([
-    Promise.allSettled(stocks.map((h) => yf.search(h.name, { newsCount: 5, quotesCount: 0 }))),
-    Promise.allSettled(stocks.map((h) => yf.quoteSummary(h.symbol, { modules: [...SUMMARY_MODULES] }))),
-    Promise.allSettled(stocks.map((h) => yf.quote(h.symbol, { fields: [...QUOTE_FIELDS] }))),
-  ]);
-  return { newsResults, earningsResults, quoteResults };
+function lookup(sk: SignalKey, binLabel: string | null): StatBin | null {
+  if (!binLabel) return null;
+  return STATS.signals[sk].find((b) => b.label === binLabel) ?? null;
 }
 
-type BatchResults = Awaited<ReturnType<typeof fetchStockBatch>>;
+// ── bin classification (mirrors backtest script) ──────────────────────────
 
-function processHolding(
-  holding: (typeof QQQ_HOLDINGS)[number],
-  newsResult: BatchResults["newsResults"][number],
-  earningsResult: BatchResults["earningsResults"][number],
-  quoteResult: BatchResults["quoteResults"][number],
-): HoldingSentiment {
-  const quote = quoteResult.status === "fulfilled" ? quoteResult.value : null;
-  const summary = earningsResult.status === "fulfilled" ? earningsResult.value : null;
-  const dayChangePercent = quote?.regularMarketChangePercent ?? null;
+function vixTermBin(v: number): string {
+  if (v < 0.90) return "<0.90 (deep contango)";
+  if (v < 0.95) return "0.90 – 0.95";
+  if (v < 1.00) return "0.95 – 1.00";
+  if (v < 1.05) return "1.00 – 1.05";
+  return ">1.05 (backwardation)";
+}
 
-  const news = newsResult.status === "fulfilled" ? (newsResult.value.news ?? []) : [];
-  const articles: SentimentArticle[] = news.slice(0, 5).map((article) => ({
-    title: article.title,
-    publisher: article.publisher,
-    providerPublishTime: (article.providerPublishTime as Date).getTime(),
-    sentiment: scoreHeadline(article.title),
-    link: article.link,
-  }));
+function vixSpikeBin(v: number): string {
+  if (v < -10) return "<-10%";
+  if (v < 0)   return "-10% – 0%";
+  if (v < 5)   return "0% – 5%";
+  if (v < 15)  return "5% – 15%";
+  return ">15% (spike)";
+}
 
-  let earnings: HoldingSentiment["earnings"] = { nextDate: null, recommendationMean: null };
-  if (summary) {
-    const dates = summary.calendarEvents?.earnings?.earningsDate;
-    const nextDate = dates && dates.length > 0 ? (dates[0] as Date).getTime() : null;
-    earnings = {
-      nextDate,
-      recommendationMean: summary.financialData?.recommendationMean ?? null,
-    };
+function rsi2Bin(rsi2: number | null, inUptrend: boolean): string | null {
+  if (!inUptrend) return "Downtrend (any RSI)";
+  if (rsi2 == null) return null;
+  if (rsi2 < 10) return "Uptrend, RSI(2) <10 (oversold)";
+  if (rsi2 > 90) return "Uptrend, RSI(2) >90 (overbought)";
+  return "Uptrend, RSI(2) 10–90";
+}
+
+function pctAbove200maBin(pct: number): string {
+  if (pct < -3) return "<-3% (below MA)";
+  if (pct < 0)  return "-3% – 0%";
+  if (pct < 5)  return "0% – 5% (just above)";
+  if (pct < 10) return "5% – 10%";
+  return ">10% (extended)";
+}
+
+function realizedVol20PctBin(pct: number): string {
+  if (pct < 15) return "<15 (very calm)";
+  if (pct < 40) return "15 – 40";
+  if (pct < 70) return "40 – 70 (typical)";
+  if (pct < 90) return "70 – 90";
+  return ">90 (very high)";
+}
+
+function hygSpyDivBin(v: number): string {
+  if (v < -1.5) return "<-1.5% (credit lagging)";
+  if (v < -0.5) return "-1.5% – -0.5%";
+  if (v < 0.5)  return "-0.5% – 0.5%";
+  if (v < 1.5)  return "0.5% – 1.5%";
+  return ">1.5% (credit leading)";
+}
+
+// ── indicator math ────────────────────────────────────────────────────────
+
+function rsi(closes: number[], period: number): number | null {
+  const n = closes.length;
+  if (n < period + 1) return null;
+  let gain = 0;
+  let loss = 0;
+  for (let i = n - period; i < n; i++) {
+    const diff = closes[i] - closes[i - 1];
+    if (diff > 0) gain += diff;
+    else loss += Math.abs(diff);
   }
+  gain /= period;
+  loss /= period;
+  if (loss === 0) return 100;
+  return 100 - 100 / (1 + gain / loss);
+}
 
-  const volumeRatio =
-    quote?.regularMarketVolume != null && quote?.averageDailyVolume3Month
-      ? Math.round((quote.regularMarketVolume / quote.averageDailyVolume3Month) * 100) / 100
-      : null;
+function sma(closes: number[], period: number): number | null {
+  if (closes.length < period) return null;
+  let sum = 0;
+  for (let i = closes.length - period; i < closes.length; i++) sum += closes[i];
+  return sum / period;
+}
 
-  const goldenCross =
-    quote?.fiftyDayAverage != null && quote?.twoHundredDayAverage != null
-      ? quote.fiftyDayAverage > quote.twoHundredDayAverage
-      : null;
+function stdev(xs: number[]): number {
+  const m = xs.reduce((s, x) => s + x, 0) / xs.length;
+  return Math.sqrt(xs.reduce((s, x) => s + (x - m) ** 2, 0) / xs.length);
+}
 
-  const momentum52w =
-    quote?.fiftyTwoWeekChangePercent != null
-      ? Math.round(quote.fiftyTwoWeekChangePercent * 10) / 10
-      : null;
-
-  const priceVs50dPct =
-    quote?.regularMarketPrice != null && quote?.fiftyDayAverage != null && quote.fiftyDayAverage > 0
-      ? Math.round(((quote.regularMarketPrice / quote.fiftyDayAverage) - 1) * 1000) / 10
-      : null;
-
-  const keyStats = summary?.defaultKeyStatistics ?? null;
-  const shortFloatPct =
-    keyStats?.shortPercentOfFloat != null
-      ? Math.round(keyStats.shortPercentOfFloat * 1000) / 10
-      : null;
-  const shortRatio =
-    keyStats?.shortRatio != null ? Math.round(keyStats.shortRatio * 10) / 10 : null;
-
-  const cutoff90d = Date.now() - 90 * 24 * 60 * 60 * 1000;
-  let insiderBuys90d = 0;
-  let insiderSells90d = 0;
-  for (const tx of summary?.insiderTransactions?.transactions ?? []) {
-    if (!tx.startDate || (tx.startDate as Date).getTime() < cutoff90d) continue;
-    const text = (tx.transactionText ?? "").toLowerCase();
-    if (text.includes("purchase")) insiderBuys90d++;
-    else if (text.includes("sale") || text.includes("sell")) insiderSells90d++;
+// Current 20d realized vol (annualized %) as a percentile of its trailing 252d distribution.
+function realizedVol20Pctile(closes: number[]): number | null {
+  if (closes.length < 273) return null;  // need 252 days of 20d-vol values, each needing 20d history
+  const rv: number[] = [];
+  for (let i = 20; i < closes.length; i++) {
+    const rets: number[] = [];
+    for (let j = i - 19; j <= i; j++) rets.push((closes[j] - closes[j - 1]) / closes[j - 1]);
+    rv.push(stdev(rets) * Math.sqrt(252) * 100);
   }
+  const cur = rv[rv.length - 1];
+  const window = rv.slice(-252);
+  const sorted = [...window].sort((a, b) => a - b);
+  const rank = sorted.filter((x) => x <= cur).length;
+  return (rank / sorted.length) * 100;
+}
 
-  const trendData = summary?.earningsTrend?.trend ?? [];
-  const currentQTrend = trendData.find((t) => t.period === "0q") ?? trendData[0] ?? null;
-  let epsRevision30d: number | null = null;
-  if (currentQTrend?.epsTrend) {
-    const cur = currentQTrend.epsTrend.current;
-    const ago30 = currentQTrend.epsTrend["30daysAgo"];
-    if (cur != null && ago30 != null && ago30 !== 0) {
-      epsRevision30d = Math.round(((cur - ago30) / Math.abs(ago30)) * 1000) / 10;
-    }
-  }
-  const epsRevisionsUp30d = currentQTrend?.epsRevisions?.upLast30days ?? null;
-  const epsRevisionsDown30d = currentQTrend?.epsRevisions?.downLast30days ?? null;
+// ── verdict aggregation ───────────────────────────────────────────────────
 
-  const signals: HoldingSignals = {
-    volumeRatio, goldenCross, momentum52w, priceVs50dPct,
-    shortFloatPct, shortRatio, insiderBuys90d, insiderSells90d,
-    epsRevision30d, epsRevisionsUp30d, epsRevisionsDown30d,
+function buildReading(
+  key: SignalKey,
+  name: string,
+  current: number | null,
+  display: string,
+  binLabel: string | null,
+): SignalReading {
+  const stat = lookup(key, binLabel);
+  return {
+    key, name, current, display, binLabel,
+    avgReturn5d: stat?.avgReturn5d ?? null,
+    hitRateUp: stat?.hitRateUp ?? null,
+    sampleCount: stat?.count ?? 0,
+    lowConfidence: stat?.lowConfidence ?? false,
+    vsBaseline: stat ? Math.round((stat.avgReturn5d - STATS.baselineAvgReturn5d) * 1000) / 1000 : null,
   };
+}
 
-  const clamp = (v: number, lo = -1, hi = 1) => Math.max(lo, Math.min(hi, v));
-  const priceScore = dayChangePercent != null ? clamp(dayChangePercent / 5) : null;
-  const analystScore = earnings.recommendationMean != null
-    ? (3 - earnings.recommendationMean) / 2 : null;
-  const maScore = goldenCross != null ? (goldenCross ? 1 : -1) : null;
-  const priceVs50dScore = priceVs50dPct != null ? clamp(priceVs50dPct / 20) : null;
-  const epsScore = epsRevision30d != null ? clamp(epsRevision30d / 15) : null;
-  const insiderTotal = insiderBuys90d + insiderSells90d;
-  const insiderScore = insiderTotal > 0
-    ? (insiderBuys90d - insiderSells90d) / insiderTotal : null;
+// Regime flagger: lean long/short only when ≥2 signals hit their extreme-edge bins
+// (|edge| > 0.3) in the same direction and the other side is ≤1. expectedReturn5d
+// is kept as informational summary — it's NOT a forecast of magnitude. Per backtest
+// diagnostic (pearson ~0.02 with realized 5d return), individual signal edges
+// carry weak directional signal at the extremes only.
+const STRONG_EDGE = 0.3;
 
-  // Keyword-based news scoring is too noisy to weight; headline sentiment badges
-  // still display per-article for color, but don't aggregate into the stock score.
-  const weightedSignals = [
-    { v: epsScore,        w: 0.32 },
-    { v: priceVs50dScore, w: 0.23 },
-    { v: analystScore,    w: 0.15 },
-    { v: maScore,         w: 0.12 },
-    { v: insiderScore,    w: 0.10 },
-    { v: priceScore,      w: 0.08 },
-  ].filter((s): s is { v: number; w: number } => s.v != null);
-  const totalWeight = weightedSignals.reduce((a, s) => a + s.w, 0);
-  const score = totalWeight > 0
-    ? weightedSignals.reduce((a, s) => a + s.v * s.w, 0) / totalWeight : 0;
+function buildVerdict(signals: SignalReading[]): {
+  verdict: VerdictPayload["verdict"];
+  verdictLabel: string;
+  expectedReturn5d: number;
+  edge: number;
+  agreement: VerdictPayload["agreement"];
+} {
+  const usable = signals.filter((s) => s.avgReturn5d != null && !s.lowConfidence);
+  let weightedReturn = 0;
+  let totalWeight = 0;
+  let up = 0, down = 0, neutral = 0;
+  for (const s of usable) {
+    const w = Math.min(s.sampleCount, 200);
+    weightedReturn += (s.avgReturn5d as number) * w;
+    totalWeight += w;
+    const edge = (s.avgReturn5d as number) - STATS.baselineAvgReturn5d;
+    if (edge > STRONG_EDGE) up++;
+    else if (edge < -STRONG_EDGE) down++;
+    else neutral++;
+  }
+  const expectedReturn5d = totalWeight > 0 ? weightedReturn / totalWeight : STATS.baselineAvgReturn5d;
+  const edge = expectedReturn5d - STATS.baselineAvgReturn5d;
 
-  return { ...holding, score, articleCount: articles.length, articles, dayChangePercent, earnings, signals };
+  let verdict: VerdictPayload["verdict"] = "chop";
+  let verdictLabel = "Neutral";
+  if (up >= 2 && down <= 1) {
+    verdict = "lean-long";
+    verdictLabel = "Bullish";
+  } else if (down >= 2 && up <= 1) {
+    // Backtest 2024-2026: bearish signal clusters fired into bounces 9 of 10 times
+    // (avg +3.64% over 5d). Treat as mean-reversion long, not short.
+    verdict = "lean-long";
+    verdictLabel = "Bullish (panic)";
+  }
+
+  return {
+    verdict, verdictLabel,
+    expectedReturn5d: Math.round(expectedReturn5d * 1000) / 1000,
+    edge: Math.round(edge * 1000) / 1000,
+    agreement: { up, down, neutral },
+  };
 }
 
 // ── route ──────────────────────────────────────────────────────────────────
 
+const CACHE_TTL_MS = 20 * 60 * 1000;
+let cached: VerdictPayload | null = null;
+let cachedTime = 0;
+
 export async function GET() {
   try {
-    if (cachedPayload && Date.now() - cachedAt < CACHE_TTL_MS) {
-      return Response.json(cachedPayload);
+    if (cached && Date.now() - cachedTime < CACHE_TTL_MS) {
+      return Response.json(cached);
     }
 
-    const period14 = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000);
-    const period45 = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000);
+    // Need 273 trading days (252d vol-percentile window + 20d warmup); pull 500 cal days.
+    const period1 = new Date(Date.now() - 500 * 24 * 60 * 60 * 1000);
 
-    const [
-      [
-        vixResult, vixQuoteResult, vix3mResult, tqqqResult, fgResult,
-        tnxResult, irxResult, pcResult, skewResult,
-        smhResult, qqqResult, dxyResult, hygResult,
-      ],
-      batch1,
-    ] = await Promise.all([
-      Promise.allSettled([
-        yf.chart("^VIX", { period1: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000), interval: "1d" }),
-        yf.quote("^VIX", { fields: ["fiftyTwoWeekHigh", "fiftyTwoWeekLow"] }),
-        yf.chart("^VIX3M", { period1: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000), interval: "1d" }),
-        yf.chart("TQQQ", { period1: period45, interval: "1d" }),
-        fetch("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Accept": "application/json",
-            "Referer": "https://edition.cnn.com/",
-          },
-        }),
-        yf.chart("^TNX", { period1: period14, interval: "1d" }),
-        yf.chart("^IRX", { period1: period14, interval: "1d" }),
-        yf.options("QQQ"),
-        yf.chart("^SKEW", { period1: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000), interval: "1d" }),
-        yf.chart("SMH", { period1: period45, interval: "1d" }),
-        yf.chart("QQQ", { period1: period45, interval: "1d" }),
-        yf.chart("DX-Y.NYB", { period1: period45, interval: "1d" }),
-        yf.chart("HYG", { period1: period45, interval: "1d" }),
-      ]),
-      fetchStockBatch(QQQ_HOLDINGS),
+    const [vixR, vix3mR, qqqR, hygR, spyR] = await Promise.allSettled([
+      yf.chart("^VIX",   { period1, interval: "1d" }),
+      yf.chart("^VIX3M", { period1, interval: "1d" }),
+      yf.chart("QQQ",    { period1, interval: "1d" }),
+      yf.chart("HYG",    { period1, interval: "1d" }),
+      yf.chart("SPY",    { period1, interval: "1d" }),
     ]);
 
-    // ── process market data ────────────────────────────────────────────────
+    const closes = (r: typeof vixR): number[] =>
+      r.status === "fulfilled"
+        ? r.value.quotes.filter((q) => q.close != null).map((q) => q.close as number)
+        : [];
 
-    // QQQ closes (used for realized vol / VRP, and SMH:QQQ ratio later)
-    const qqqQuotes = qqqResult.status === "fulfilled"
-      ? qqqResult.value.quotes.filter((q) => q.close != null)
-      : [];
-    const qqqCloses = qqqQuotes.map((q) => q.close as number);
-    const qqqRv20 = realizedVol(qqqCloses, 20);
+    const vix   = closes(vixR);
+    const vix3m = closes(vix3mR);
+    const qqq   = closes(qqqR);
+    const hyg   = closes(hygR);
+    const spy   = closes(spyR);
 
-    let vix: SentimentData["vix"] = null;
-    if (vixResult.status === "fulfilled") {
-      const quotes = vixResult.value.quotes.filter((q) => q.close != null);
-      if (quotes.length >= 2) {
-        const current = quotes[quotes.length - 1].close as number;
-        const yesterday = quotes[quotes.length - 2].close as number;
-        const weekAgo = quotes[Math.max(0, quotes.length - 6)].close as number;
-        const monthAgo = quotes[Math.max(0, quotes.length - 22)].close as number;
-        const history: HistoryPoint[] = quotes.slice(-14).map((q) => ({
-          t: (q.date as Date).getTime(),
-          v: Math.round((q.close as number) * 100) / 100,
-        }));
+    const readings: SignalReading[] = [];
 
-        let termStructure: number | null = null;
-        if (vix3mResult.status === "fulfilled") {
-          const v3 = vix3mResult.value.quotes.filter((q) => q.close != null);
-          if (v3.length > 0) {
-            const last3m = v3[v3.length - 1].close as number;
-            if (last3m > 0) termStructure = Math.round((current / last3m) * 1000) / 1000;
-          }
-        }
-
-        const vrp = qqqRv20 != null ? Math.round((current - qqqRv20) * 10) / 10 : null;
-
-        vix = {
-          current: Math.round(current * 100) / 100,
-          dayChange: Math.round((current - yesterday) * 100) / 100,
-          weekChange: Math.round((current - weekAgo) * 100) / 100,
-          monthChange: Math.round((current - monthAgo) * 100) / 100,
-          high52w: vixQuoteResult.status === "fulfilled" ? (vixQuoteResult.value.fiftyTwoWeekHigh ?? null) : null,
-          low52w: vixQuoteResult.status === "fulfilled" ? (vixQuoteResult.value.fiftyTwoWeekLow ?? null) : null,
-          history,
-          termStructure,
-          vrp,
-        };
-      }
+    // 1) VIX term structure
+    if (vix.length > 0 && vix3m.length > 0) {
+      const v = vix[vix.length - 1];
+      const v3 = vix3m[vix3m.length - 1];
+      const term = v / v3;
+      readings.push(buildReading(
+        "vixTerm",
+        "VIX / VIX3M",
+        term,
+        term.toFixed(3),
+        vixTermBin(term),
+      ));
+    } else {
+      readings.push(buildReading("vixTerm", "VIX / VIX3M", null, "—", null));
     }
 
-    let rsi: SentimentData["rsi"] = null;
-    let tqqqSignals: SentimentData["tqqqSignals"] = null;
-    if (tqqqResult.status === "fulfilled") {
-      const rawQuotes = tqqqResult.value.quotes.filter((q) => q.close != null);
-      const closes = rawQuotes.map((q) => q.close as number);
-      const rsiHistory: HistoryPoint[] = [];
-      for (let i = Math.max(15, closes.length - 13); i <= closes.length; i++) {
-        const slice = closes.slice(0, i);
-        const t = (rawQuotes[i - 1].date as Date).getTime();
-        rsiHistory.push({ t, v: Math.round(calcRSI(slice) * 10) / 10 });
-      }
-      rsi = { value: rsiHistory[rsiHistory.length - 1]?.v ?? 50, history: rsiHistory };
-      if (closes.length >= 21) {
-        const last = closes[closes.length - 1];
-        const ma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
-        tqqqSignals = {
-          momentum5d: Math.round(((last / closes[closes.length - 6]) - 1) * 1000) / 10,
-          momentum20d: Math.round(((last / closes[closes.length - 21]) - 1) * 1000) / 10,
-          priceVs20dMa: Math.round(((last / ma20) - 1) * 1000) / 10,
-        };
-      }
+    // 2) VIX 1-day spike
+    if (vix.length >= 2) {
+      const v = vix[vix.length - 1];
+      const vPrev = vix[vix.length - 2];
+      const spike = ((v - vPrev) / vPrev) * 100;
+      readings.push(buildReading(
+        "vixSpike",
+        "VIX 1-day change",
+        spike,
+        `${spike >= 0 ? "+" : ""}${spike.toFixed(1)}%`,
+        vixSpikeBin(spike),
+      ));
+    } else {
+      readings.push(buildReading("vixSpike", "VIX 1-day change", null, "—", null));
     }
 
-    let fearGreed: SentimentData["fearGreed"] = null;
-    if (fgResult.status === "fulfilled" && fgResult.value.ok) {
-      try {
-        const data = await fgResult.value.json();
-        const fg = data?.fear_and_greed;
-        const fgHistorical = data?.fear_and_greed_historical?.data;
-        if (fg) {
-          fearGreed = {
-            current: Math.round(fg.score),
-            previousClose: Math.round(fg.previous_close),
-            oneWeekAgo: Math.round(fg.previous_1_week),
-            oneMonthAgo: Math.round(fg.previous_1_month),
-            rating: fg.rating as string,
-            history: Array.isArray(fgHistorical)
-              ? (fgHistorical as { x: number; y: number }[])
-                  .slice(-14)
-                  .map((d) => ({ t: Math.round(d.x), v: Math.round(d.y) }))
-              : [],
-          };
-        }
-      } catch { /* F&G unavailable */ }
+    // 3) QQQ vs 200d MA (trend filter — needed first for RSI in-trend signal)
+    const ma200 = sma(qqq, 200);
+    const last = qqq[qqq.length - 1] ?? null;
+    const inUptrend = ma200 != null && last != null && last > ma200;
+    if (ma200 != null && last != null) {
+      const pct = ((last / ma200) - 1) * 100;
+      readings.push(buildReading(
+        "pctAbove200ma",
+        "QQQ vs 200d MA",
+        pct,
+        `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`,
+        pctAbove200maBin(pct),
+      ));
+    } else {
+      readings.push(buildReading("pctAbove200ma", "QQQ vs 200d MA", null, "—", null));
     }
 
-    let yieldSpread: SentimentData["macro"]["yieldSpread"] = null;
-    let tenYearChange5d: number | null = null;
-    if (tnxResult.status === "fulfilled") {
-      const tnxQuotes = tnxResult.value.quotes.filter((q) => q.close != null);
-      if (tnxQuotes.length > 6) {
-        const cur = (tnxQuotes[tnxQuotes.length - 1].close as number) / 10;
-        const past = (tnxQuotes[tnxQuotes.length - 6].close as number) / 10;
-        tenYearChange5d = Math.round((cur - past) * 100) / 100;  // in percentage points
-      }
-      if (irxResult.status === "fulfilled") {
-        const irxQuotes = irxResult.value.quotes.filter((q) => q.close != null);
-        if (tnxQuotes.length > 0 && irxQuotes.length > 0) {
-          const tenYear = (tnxQuotes[tnxQuotes.length - 1].close as number) / 10;
-          const threeMonth = (irxQuotes[irxQuotes.length - 1].close as number) / 10;
-          const irxByDate = new Map(
-            irxQuotes.map((q) => [(q.date as Date).toDateString(), (q.close as number) / 10])
-          );
-          const history: HistoryPoint[] = tnxQuotes.slice(-14).flatMap((q) => {
-            const irx = irxByDate.get((q.date as Date).toDateString());
-            if (irx == null) return [];
-            return [{ t: (q.date as Date).getTime(), v: Math.round(((q.close as number) / 10 - irx) * 100) / 100 }];
-          });
-          yieldSpread = {
-            tenYear: Math.round(tenYear * 100) / 100,
-            threeMonth: Math.round(threeMonth * 100) / 100,
-            spread: Math.round((tenYear - threeMonth) * 100) / 100,
-            history,
-          };
-        }
-      }
+    // 3b) 20d realized vol, ranked against trailing 252d of itself
+    const rvPct = realizedVol20Pctile(qqq);
+    if (rvPct != null) {
+      readings.push(buildReading(
+        "realizedVol20Pct",
+        "20d vol percentile",
+        rvPct,
+        `${rvPct.toFixed(0)}th pctile`,
+        realizedVol20PctBin(rvPct),
+      ));
+    } else {
+      readings.push(buildReading("realizedVol20Pct", "20d vol percentile", null, "—", null));
     }
 
-    let dollar: SentimentData["macro"]["dollar"] = null;
-    if (dxyResult.status === "fulfilled") {
-      const closes = dxyResult.value.quotes.filter((q) => q.close != null).map((q) => q.close as number);
-      const change = pctChange(closes, 20);
-      if (change != null) dollar = { change20d: Math.round(change * 10) / 10 };
+    // 4) RSI(2) within trend context
+    const rsi2 = rsi(qqq, 2);
+    if (rsi2 != null && ma200 != null) {
+      readings.push(buildReading(
+        "rsi2InTrend",
+        "RSI(2) + trend",
+        rsi2,
+        inUptrend ? `${rsi2.toFixed(1)} (uptrend)` : `${rsi2.toFixed(1)} (downtrend)`,
+        rsi2Bin(rsi2, inUptrend),
+      ));
+    } else {
+      readings.push(buildReading("rsi2InTrend", "RSI(2) + trend", null, "—", null));
     }
 
-    let credit: SentimentData["macro"]["credit"] = null;
-    if (hygResult.status === "fulfilled") {
-      const closes = hygResult.value.quotes.filter((q) => q.close != null).map((q) => q.close as number);
-      const change = pctChange(closes, 20);
-      if (change != null) credit = { hygChange20d: Math.round(change * 10) / 10 };
+    // 5) HYG 5d − SPY 5d
+    if (hyg.length > 5 && spy.length > 5) {
+      const hyg5d = ((hyg[hyg.length - 1] - hyg[hyg.length - 6]) / hyg[hyg.length - 6]) * 100;
+      const spy5d = ((spy[spy.length - 1] - spy[spy.length - 6]) / spy[spy.length - 6]) * 100;
+      const div = hyg5d - spy5d;
+      readings.push(buildReading(
+        "hygSpyDiv",
+        "HYG − SPY (5d)",
+        div,
+        `${div >= 0 ? "+" : ""}${div.toFixed(2)}%`,
+        hygSpyDivBin(div),
+      ));
+    } else {
+      readings.push(buildReading("hygSpyDiv", "HYG − SPY (5d)", null, "—", null));
     }
 
-    // SMH vs QQQ — semis leadership over last 20 trading days
-    let smhVsQqq20d: number | null = null;
-    if (smhResult.status === "fulfilled" && qqqCloses.length > 20) {
-      const smhCloses = smhResult.value.quotes.filter((q) => q.close != null).map((q) => q.close as number);
-      const smhChg = pctChange(smhCloses, 20);
-      const qqqChg = pctChange(qqqCloses, 20);
-      if (smhChg != null && qqqChg != null) {
-        smhVsQqq20d = Math.round((smhChg - qqqChg) * 10) / 10;
-      }
-    }
+    const verdict = buildVerdict(readings);
 
-    // Volume-based P/C ratio (today's traded volume across nearest expiries) — far more responsive
-    // than open-interest-based, which is sticky from accumulated positions.
-    let putCallRatio: number | null = null;
-    if (pcResult.status === "fulfilled") {
-      const chains = (pcResult.value.options ?? []).slice(0, 3);
-      let putVol = 0, callVol = 0;
-      for (const chain of chains) {
-        putVol += chain.puts.reduce((s, p) => s + (p.volume ?? 0), 0);
-        callVol += chain.calls.reduce((s, c) => s + (c.volume ?? 0), 0);
-      }
-      if (callVol > 0) putCallRatio = Math.round((putVol / callVol) * 100) / 100;
-    }
-
-    let skew: SentimentData["skew"] = null;
-    if (skewResult.status === "fulfilled") {
-      const quotes = skewResult.value.quotes.filter((q) => q.close != null);
-      if (quotes.length > 0) {
-        const history: HistoryPoint[] = quotes.slice(-14).map((q) => ({
-          t: (q.date as Date).getTime(),
-          v: Math.round((q.close as number) * 10) / 10,
-        }));
-        skew = { current: history[history.length - 1].v, history };
-      }
-    }
-
-    const now = Date.now();
-    const nextFomc = FOMC_DATES.find((d) => d.getTime() > now) ?? null;
-    const lastFomc = [...FOMC_DATES].reverse().find((d) => d.getTime() <= now) ?? null;
-    const fomc = nextFomc
-      ? {
-          nextDate: nextFomc.getTime(),
-          daysUntil: Math.ceil((nextFomc.getTime() - now) / 86400000),
-          daysSinceLast: lastFomc ? Math.floor((now - lastFomc.getTime()) / 86400000) : 0,
-          label: nextFomc.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
-        }
-      : null;
-
-    // ── process holdings ───────────────────────────────────────────────────
-
-    const holdings: HoldingSentiment[] = QQQ_HOLDINGS.map((h, i) =>
-      processHolding(h, batch1.newsResults[i], batch1.earningsResults[i], batch1.quoteResults[i])
-    );
-
-    const earningsWindow = now + 10 * 24 * 60 * 60 * 1000;
-    const earningsRiskCount = holdings.filter(
-      (h) => h.earnings.nextDate != null && h.earnings.nextDate <= earningsWindow
-    ).length;
-
-    // Breadth on top-12 (data we already compute per stock — count instead of discard)
-    const above50d = holdings.filter((h) => h.signals.priceVs50dPct != null && h.signals.priceVs50dPct > 0).length;
-    const goldenCrossCount = holdings.filter((h) => h.signals.goldenCross === true).length;
-
-    const payload: SentimentData = {
-      cachedAt: now,
-      tqqqSignals, skew, earningsRiskCount,
-      fearGreed, vix, rsi,
-      macro: { yieldSpread, tenYearChange5d, dollar, credit, putCallRatio, fomc },
-      internals: {
-        breadth: { above50d, goldenCross: goldenCrossCount, total: holdings.length },
-        smhVsQqq20d,
-      },
-      holdings,
+    // Build base payload (without accuracy yet)
+    const basePayload: Omit<VerdictPayload, "accuracy" | "recentHistory"> = {
+      cachedAt: Date.now(),
+      baselineAvgReturn5d: STATS.baselineAvgReturn5d,
+      yearsHistory: STATS.yearsHistory,
+      totalSamples: STATS.totalSamples,
+      ...verdict,
+      signals: readings,
     };
 
-    cachedPayload = payload;
-    cachedAt = now;
+    // Persistence is best-effort — never break the page if Supabase is misconfigured/down.
+    let accuracy: AccuracyStats | null = null;
+    let recentHistory: HistoryRow[] = [];
+    try {
+      await snapshotVerdict(basePayload as VerdictPayload);
+      await backfillRealizedReturns();
+      recentHistory = await loadRecentHistory(120);
+      accuracy = computeAccuracy(recentHistory);
+    } catch (e) {
+      console.warn("[sentiment] persistence skipped:", e instanceof Error ? e.message : e);
+    }
+
+    const payload: VerdictPayload = { ...basePayload, accuracy, recentHistory: recentHistory.slice(0, 30) };
+
+    cached = payload;
+    cachedTime = Date.now();
 
     return Response.json(payload);
   } catch (err) {

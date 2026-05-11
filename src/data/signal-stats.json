@@ -1,0 +1,225 @@
+{
+  "generatedAt": "2026-05-11T21:29:43.987Z",
+  "yearsHistory": 5,
+  "forwardDays": 5,
+  "minSamplesPerBin": 30,
+  "totalSamples": 1250,
+  "baselineAvgReturn5d": 0.356,
+  "signals": {
+    "vixTerm": [
+      {
+        "label": "<0.90 (deep contango)",
+        "count": 720,
+        "avgReturn5d": 0.251,
+        "hitRateUp": 58.9,
+        "lowConfidence": false
+      },
+      {
+        "label": "0.90 – 0.95",
+        "count": 273,
+        "avgReturn5d": 0.389,
+        "hitRateUp": 60.4,
+        "lowConfidence": false
+      },
+      {
+        "label": "0.95 – 1.00",
+        "count": 192,
+        "avgReturn5d": 0.346,
+        "hitRateUp": 57.3,
+        "lowConfidence": false
+      },
+      {
+        "label": "1.00 – 1.05",
+        "count": 49,
+        "avgReturn5d": 0.894,
+        "hitRateUp": 61.2,
+        "lowConfidence": false
+      },
+      {
+        "label": ">1.05 (backwardation)",
+        "count": 16,
+        "avgReturn5d": 2.939,
+        "hitRateUp": 68.8,
+        "lowConfidence": true
+      }
+    ],
+    "vixSpike": [
+      {
+        "label": "<-10%",
+        "count": 66,
+        "avgReturn5d": 0.611,
+        "hitRateUp": 63.6,
+        "lowConfidence": false
+      },
+      {
+        "label": "-10% – 0%",
+        "count": 626,
+        "avgReturn5d": 0.23,
+        "hitRateUp": 59.1,
+        "lowConfidence": false
+      },
+      {
+        "label": "0% – 5%",
+        "count": 315,
+        "avgReturn5d": 0.451,
+        "hitRateUp": 57.5,
+        "lowConfidence": false
+      },
+      {
+        "label": "5% – 15%",
+        "count": 191,
+        "avgReturn5d": 0.647,
+        "hitRateUp": 59.7,
+        "lowConfidence": false
+      },
+      {
+        "label": ">15% (spike)",
+        "count": 52,
+        "avgReturn5d": -0.107,
+        "hitRateUp": 63.5,
+        "lowConfidence": false
+      }
+    ],
+    "rsi2InTrend": [
+      {
+        "label": "Uptrend, RSI(2) <10 (oversold)",
+        "count": 197,
+        "avgReturn5d": 0.621,
+        "hitRateUp": 64,
+        "lowConfidence": false
+      },
+      {
+        "label": "Uptrend, RSI(2) 10–90",
+        "count": 389,
+        "avgReturn5d": 0.445,
+        "hitRateUp": 60.7,
+        "lowConfidence": false
+      },
+      {
+        "label": "Uptrend, RSI(2) >90 (overbought)",
+        "count": 353,
+        "avgReturn5d": 0.341,
+        "hitRateUp": 60.3,
+        "lowConfidence": false
+      },
+      {
+        "label": "Downtrend (any RSI)",
+        "count": 311,
+        "avgReturn5d": 0.093,
+        "hitRateUp": 53.1,
+        "lowConfidence": false
+      }
+    ],
+    "pctAbove200ma": [
+      {
+        "label": "<-3% (below MA)",
+        "count": 263,
+        "avgReturn5d": 0.129,
+        "hitRateUp": 54,
+        "lowConfidence": false
+      },
+      {
+        "label": "-3% – 0%",
+        "count": 48,
+        "avgReturn5d": -0.102,
+        "hitRateUp": 47.9,
+        "lowConfidence": false
+      },
+      {
+        "label": "0% – 5% (just above)",
+        "count": 106,
+        "avgReturn5d": 0.697,
+        "hitRateUp": 57.5,
+        "lowConfidence": false
+      },
+      {
+        "label": "5% – 10%",
+        "count": 309,
+        "avgReturn5d": 0.801,
+        "hitRateUp": 71.5,
+        "lowConfidence": false
+      },
+      {
+        "label": ">10% (extended)",
+        "count": 524,
+        "avgReturn5d": 0.18,
+        "hitRateUp": 55.9,
+        "lowConfidence": false
+      }
+    ],
+    "realizedVol20Pct": [
+      {
+        "label": "<15 (very calm)",
+        "count": 344,
+        "avgReturn5d": 0.919,
+        "hitRateUp": 69.2,
+        "lowConfidence": false
+      },
+      {
+        "label": "15 – 40",
+        "count": 262,
+        "avgReturn5d": -0.208,
+        "hitRateUp": 50.8,
+        "lowConfidence": false
+      },
+      {
+        "label": "40 – 70 (typical)",
+        "count": 267,
+        "avgReturn5d": 0.588,
+        "hitRateUp": 59.6,
+        "lowConfidence": false
+      },
+      {
+        "label": "70 – 90",
+        "count": 201,
+        "avgReturn5d": -0.154,
+        "hitRateUp": 53.7,
+        "lowConfidence": false
+      },
+      {
+        "label": ">90 (very high)",
+        "count": 176,
+        "avgReturn5d": 0.321,
+        "hitRateUp": 58,
+        "lowConfidence": false
+      }
+    ],
+    "hygSpyDiv": [
+      {
+        "label": "<-1.5% (credit lagging)",
+        "count": 249,
+        "avgReturn5d": 0.109,
+        "hitRateUp": 54.6,
+        "lowConfidence": false
+      },
+      {
+        "label": "-1.5% – -0.5%",
+        "count": 338,
+        "avgReturn5d": 0.183,
+        "hitRateUp": 58.6,
+        "lowConfidence": false
+      },
+      {
+        "label": "-0.5% – 0.5%",
+        "count": 311,
+        "avgReturn5d": 0.566,
+        "hitRateUp": 64.6,
+        "lowConfidence": false
+      },
+      {
+        "label": "0.5% – 1.5%",
+        "count": 183,
+        "avgReturn5d": 0.13,
+        "hitRateUp": 53.6,
+        "lowConfidence": false
+      },
+      {
+        "label": ">1.5% (credit leading)",
+        "count": 169,
+        "avgReturn5d": 0.92,
+        "hitRateUp": 63.3,
+        "lowConfidence": false
+      }
+    ]
+  }
+}

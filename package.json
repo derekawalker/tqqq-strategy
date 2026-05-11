@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "backtest": "npx tsx scripts/backtest-signals.ts",
+    "backfill-history": "npx tsx --env-file=.env.local scripts/backfill-history.ts"
   },
   "dependencies": {
     "@mantine/charts": "^8.3.18",
