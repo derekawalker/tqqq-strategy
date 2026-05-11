@@ -42,6 +42,26 @@ function scoreHeadline(title: string): "positive" | "negative" | "neutral" {
   return "neutral";
 }
 
+// Annualized realized volatility (std of log returns × √252), expressed in vol points (e.g. 18.5)
+function realizedVol(closes: number[], window = 20): number | null {
+  if (closes.length < window + 1) return null;
+  const slice = closes.slice(-(window + 1));
+  const returns: number[] = [];
+  for (let i = 1; i < slice.length; i++) returns.push(Math.log(slice[i] / slice[i - 1]));
+  const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+  const variance = returns.reduce((a, b) => a + (b - mean) ** 2, 0) / returns.length;
+  return Math.sqrt(variance * 252) * 100;
+}
+
+// Percent change between current close and `lookback` trading days ago
+function pctChange(closes: number[], lookback: number): number | null {
+  if (closes.length <= lookback) return null;
+  const cur = closes[closes.length - 1];
+  const past = closes[closes.length - 1 - lookback];
+  if (!past) return null;
+  return ((cur - past) / past) * 100;
+}
+
 // Wilder's smoothed RSI (EMA-based average gain/loss)
 function calcRSI(closes: number[], period = 14): number {
   if (closes.length < period + 1) return 50;
@@ -139,6 +159,8 @@ export interface SentimentData {
     high52w: number | null;
     low52w: number | null;
     history: HistoryPoint[];
+    termStructure: number | null;  // VIX / VIX3M — >1 = backwardation/stress, <1 = contango/calm
+    vrp: number | null;             // VIX − realized vol (20d, annualized) on QQQ
   } | null;
   rsi: { value: number; history: HistoryPoint[] } | null;
   macro: {
@@ -148,6 +170,9 @@ export interface SentimentData {
       spread: number;
       history: HistoryPoint[];
     } | null;
+    tenYearChange5d: number | null;     // change in 10Y yield (percentage points) over last 5 trading days
+    dollar: { change20d: number } | null;
+    credit: { hygChange20d: number } | null;
     putCallRatio: number | null;
     fomc: {
       nextDate: number;
@@ -155,6 +180,10 @@ export interface SentimentData {
       daysSinceLast: number;
       label: string;
     } | null;
+  };
+  internals: {
+    breadth: { above50d: number; goldenCross: number; total: number };
+    smhVsQqq20d: number | null;   // SMH:QQQ relative 20d change (%) — semis leadership
   };
   holdings: HoldingSentiment[];
 }
@@ -214,9 +243,6 @@ function processHolding(
     sentiment: scoreHeadline(article.title),
     link: article.link,
   }));
-  const pos = articles.filter((a) => a.sentiment === "positive").length;
-  const neg = articles.filter((a) => a.sentiment === "negative").length;
-  const newsScore = articles.length > 0 ? (pos - neg) / articles.length : 0;
 
   let earnings: HoldingSentiment["earnings"] = { nextDate: null, recommendationMean: null };
   if (summary) {
@@ -296,14 +322,15 @@ function processHolding(
   const insiderScore = insiderTotal > 0
     ? (insiderBuys90d - insiderSells90d) / insiderTotal : null;
 
+  // Keyword-based news scoring is too noisy to weight; headline sentiment badges
+  // still display per-article for color, but don't aggregate into the stock score.
   const weightedSignals = [
-    { v: epsScore,        w: 0.25 },
-    { v: priceVs50dScore, w: 0.20 },
-    { v: analystScore,    w: 0.18 },
-    { v: newsScore,       w: 0.15 },
-    { v: maScore,         w: 0.10 },
-    { v: insiderScore,    w: 0.08 },
-    { v: priceScore,      w: 0.04 },
+    { v: epsScore,        w: 0.32 },
+    { v: priceVs50dScore, w: 0.23 },
+    { v: analystScore,    w: 0.15 },
+    { v: maScore,         w: 0.12 },
+    { v: insiderScore,    w: 0.10 },
+    { v: priceScore,      w: 0.08 },
   ].filter((s): s is { v: number; w: number } => s.v != null);
   const totalWeight = weightedSignals.reduce((a, s) => a + s.w, 0);
   const score = totalWeight > 0
@@ -324,12 +351,17 @@ export async function GET() {
     const period45 = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000);
 
     const [
-      [vixResult, vixQuoteResult, tqqqResult, fgResult, tnxResult, irxResult, pcResult, skewResult],
+      [
+        vixResult, vixQuoteResult, vix3mResult, tqqqResult, fgResult,
+        tnxResult, irxResult, pcResult, skewResult,
+        smhResult, qqqResult, dxyResult, hygResult,
+      ],
       batch1,
     ] = await Promise.all([
       Promise.allSettled([
         yf.chart("^VIX", { period1: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000), interval: "1d" }),
         yf.quote("^VIX", { fields: ["fiftyTwoWeekHigh", "fiftyTwoWeekLow"] }),
+        yf.chart("^VIX3M", { period1: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000), interval: "1d" }),
         yf.chart("TQQQ", { period1: period45, interval: "1d" }),
         fetch("https://production.dataviz.cnn.io/index/fearandgreed/graphdata", {
           headers: {
@@ -342,11 +374,22 @@ export async function GET() {
         yf.chart("^IRX", { period1: period14, interval: "1d" }),
         yf.options("QQQ"),
         yf.chart("^SKEW", { period1: new Date(Date.now() - 35 * 24 * 60 * 60 * 1000), interval: "1d" }),
+        yf.chart("SMH", { period1: period45, interval: "1d" }),
+        yf.chart("QQQ", { period1: period45, interval: "1d" }),
+        yf.chart("DX-Y.NYB", { period1: period45, interval: "1d" }),
+        yf.chart("HYG", { period1: period45, interval: "1d" }),
       ]),
       fetchStockBatch(QQQ_HOLDINGS),
     ]);
 
     // ── process market data ────────────────────────────────────────────────
+
+    // QQQ closes (used for realized vol / VRP, and SMH:QQQ ratio later)
+    const qqqQuotes = qqqResult.status === "fulfilled"
+      ? qqqResult.value.quotes.filter((q) => q.close != null)
+      : [];
+    const qqqCloses = qqqQuotes.map((q) => q.close as number);
+    const qqqRv20 = realizedVol(qqqCloses, 20);
 
     let vix: SentimentData["vix"] = null;
     if (vixResult.status === "fulfilled") {
@@ -360,6 +403,18 @@ export async function GET() {
           t: (q.date as Date).getTime(),
           v: Math.round((q.close as number) * 100) / 100,
         }));
+
+        let termStructure: number | null = null;
+        if (vix3mResult.status === "fulfilled") {
+          const v3 = vix3mResult.value.quotes.filter((q) => q.close != null);
+          if (v3.length > 0) {
+            const last3m = v3[v3.length - 1].close as number;
+            if (last3m > 0) termStructure = Math.round((current / last3m) * 1000) / 1000;
+          }
+        }
+
+        const vrp = qqqRv20 != null ? Math.round((current - qqqRv20) * 10) / 10 : null;
+
         vix = {
           current: Math.round(current * 100) / 100,
           dayChange: Math.round((current - yesterday) * 100) / 100,
@@ -368,6 +423,8 @@ export async function GET() {
           high52w: vixQuoteResult.status === "fulfilled" ? (vixQuoteResult.value.fiftyTwoWeekHigh ?? null) : null,
           low52w: vixQuoteResult.status === "fulfilled" ? (vixQuoteResult.value.fiftyTwoWeekLow ?? null) : null,
           history,
+          termStructure,
+          vrp,
         };
       }
     }
@@ -419,38 +476,73 @@ export async function GET() {
     }
 
     let yieldSpread: SentimentData["macro"]["yieldSpread"] = null;
-    if (tnxResult.status === "fulfilled" && irxResult.status === "fulfilled") {
+    let tenYearChange5d: number | null = null;
+    if (tnxResult.status === "fulfilled") {
       const tnxQuotes = tnxResult.value.quotes.filter((q) => q.close != null);
-      const irxQuotes = irxResult.value.quotes.filter((q) => q.close != null);
-      if (tnxQuotes.length > 0 && irxQuotes.length > 0) {
-        const tenYear = (tnxQuotes[tnxQuotes.length - 1].close as number) / 10;
-        const threeMonth = (irxQuotes[irxQuotes.length - 1].close as number) / 10;
-        const irxByDate = new Map(
-          irxQuotes.map((q) => [(q.date as Date).toDateString(), (q.close as number) / 10])
-        );
-        const history: HistoryPoint[] = tnxQuotes.slice(-14).flatMap((q) => {
-          const irx = irxByDate.get((q.date as Date).toDateString());
-          if (irx == null) return [];
-          return [{ t: (q.date as Date).getTime(), v: Math.round(((q.close as number) / 10 - irx) * 100) / 100 }];
-        });
-        yieldSpread = {
-          tenYear: Math.round(tenYear * 100) / 100,
-          threeMonth: Math.round(threeMonth * 100) / 100,
-          spread: Math.round((tenYear - threeMonth) * 100) / 100,
-          history,
-        };
+      if (tnxQuotes.length > 6) {
+        const cur = (tnxQuotes[tnxQuotes.length - 1].close as number) / 10;
+        const past = (tnxQuotes[tnxQuotes.length - 6].close as number) / 10;
+        tenYearChange5d = Math.round((cur - past) * 100) / 100;  // in percentage points
+      }
+      if (irxResult.status === "fulfilled") {
+        const irxQuotes = irxResult.value.quotes.filter((q) => q.close != null);
+        if (tnxQuotes.length > 0 && irxQuotes.length > 0) {
+          const tenYear = (tnxQuotes[tnxQuotes.length - 1].close as number) / 10;
+          const threeMonth = (irxQuotes[irxQuotes.length - 1].close as number) / 10;
+          const irxByDate = new Map(
+            irxQuotes.map((q) => [(q.date as Date).toDateString(), (q.close as number) / 10])
+          );
+          const history: HistoryPoint[] = tnxQuotes.slice(-14).flatMap((q) => {
+            const irx = irxByDate.get((q.date as Date).toDateString());
+            if (irx == null) return [];
+            return [{ t: (q.date as Date).getTime(), v: Math.round(((q.close as number) / 10 - irx) * 100) / 100 }];
+          });
+          yieldSpread = {
+            tenYear: Math.round(tenYear * 100) / 100,
+            threeMonth: Math.round(threeMonth * 100) / 100,
+            spread: Math.round((tenYear - threeMonth) * 100) / 100,
+            history,
+          };
+        }
       }
     }
 
+    let dollar: SentimentData["macro"]["dollar"] = null;
+    if (dxyResult.status === "fulfilled") {
+      const closes = dxyResult.value.quotes.filter((q) => q.close != null).map((q) => q.close as number);
+      const change = pctChange(closes, 20);
+      if (change != null) dollar = { change20d: Math.round(change * 10) / 10 };
+    }
+
+    let credit: SentimentData["macro"]["credit"] = null;
+    if (hygResult.status === "fulfilled") {
+      const closes = hygResult.value.quotes.filter((q) => q.close != null).map((q) => q.close as number);
+      const change = pctChange(closes, 20);
+      if (change != null) credit = { hygChange20d: Math.round(change * 10) / 10 };
+    }
+
+    // SMH vs QQQ — semis leadership over last 20 trading days
+    let smhVsQqq20d: number | null = null;
+    if (smhResult.status === "fulfilled" && qqqCloses.length > 20) {
+      const smhCloses = smhResult.value.quotes.filter((q) => q.close != null).map((q) => q.close as number);
+      const smhChg = pctChange(smhCloses, 20);
+      const qqqChg = pctChange(qqqCloses, 20);
+      if (smhChg != null && qqqChg != null) {
+        smhVsQqq20d = Math.round((smhChg - qqqChg) * 10) / 10;
+      }
+    }
+
+    // Volume-based P/C ratio (today's traded volume across nearest expiries) — far more responsive
+    // than open-interest-based, which is sticky from accumulated positions.
     let putCallRatio: number | null = null;
     if (pcResult.status === "fulfilled") {
       const chains = (pcResult.value.options ?? []).slice(0, 3);
-      let putOI = 0, callOI = 0;
+      let putVol = 0, callVol = 0;
       for (const chain of chains) {
-        putOI += chain.puts.reduce((s, p) => s + (p.openInterest ?? 0), 0);
-        callOI += chain.calls.reduce((s, c) => s + (c.openInterest ?? 0), 0);
+        putVol += chain.puts.reduce((s, p) => s + (p.volume ?? 0), 0);
+        callVol += chain.calls.reduce((s, c) => s + (c.volume ?? 0), 0);
       }
-      if (callOI > 0) putCallRatio = Math.round((putOI / callOI) * 100) / 100;
+      if (callVol > 0) putCallRatio = Math.round((putVol / callVol) * 100) / 100;
     }
 
     let skew: SentimentData["skew"] = null;
@@ -488,11 +580,19 @@ export async function GET() {
       (h) => h.earnings.nextDate != null && h.earnings.nextDate <= earningsWindow
     ).length;
 
+    // Breadth on top-12 (data we already compute per stock — count instead of discard)
+    const above50d = holdings.filter((h) => h.signals.priceVs50dPct != null && h.signals.priceVs50dPct > 0).length;
+    const goldenCrossCount = holdings.filter((h) => h.signals.goldenCross === true).length;
+
     const payload: SentimentData = {
       cachedAt: now,
       tqqqSignals, skew, earningsRiskCount,
       fearGreed, vix, rsi,
-      macro: { yieldSpread, putCallRatio, fomc },
+      macro: { yieldSpread, tenYearChange5d, dollar, credit, putCallRatio, fomc },
+      internals: {
+        breadth: { above50d, goldenCross: goldenCrossCount, total: holdings.length },
+        smhVsQqq20d,
+      },
       holdings,
     };
 

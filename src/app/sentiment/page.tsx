@@ -353,6 +353,26 @@ function VixCard({ data }: { data: SentimentData["vix"] }) {
                 <Text size="xs" c="dimmed">1 Month ago</Text>
                 <Text size="xs" fw={600} c={`${vixColor(data.current - data.monthChange)}.4`}>{(data.current - data.monthChange).toFixed(1)}</Text>
               </Group>
+              {data.termStructure != null && (
+                <Tooltip label="VIX ÷ VIX3M. <1 (contango) = calm forward curve. >1 (backwardation) = near-term stress." withArrow position="top" multiline maw={260}>
+                  <Group justify="space-between" style={{ cursor: "default" }}>
+                    <Text size="xs" c="dimmed">VIX/VIX3M</Text>
+                    <Text size="xs" fw={600} c={data.termStructure < 0.95 ? "green.4" : data.termStructure < 1 ? "lime.4" : data.termStructure < 1.05 ? "orange.4" : "red.4"}>
+                      {data.termStructure.toFixed(2)}
+                    </Text>
+                  </Group>
+                </Tooltip>
+              )}
+              {data.vrp != null && (
+                <Tooltip label="Volatility risk premium = VIX − realized vol (20d). Positive = options pricing more fear than has materialized (mildly bullish)." withArrow position="top" multiline maw={260}>
+                  <Group justify="space-between" style={{ cursor: "default" }}>
+                    <Text size="xs" c="dimmed">VRP</Text>
+                    <Text size="xs" fw={600} c={data.vrp >= 2 ? "green.4" : data.vrp >= 0 ? "lime.4" : data.vrp >= -2 ? "orange.4" : "red.4"}>
+                      {data.vrp >= 0 ? "+" : ""}{data.vrp.toFixed(1)}
+                    </Text>
+                  </Group>
+                </Tooltip>
+              )}
             </Stack>
           </Box>
         </Stack>
@@ -606,7 +626,7 @@ function MacroSignals({ macro, skew }: { macro: SentimentData["macro"]; skew: Se
                       : putCallRatio > 0.7 ? "Neutral"
                       : "Bullish lean"}
                   </Badge>
-                  <Text size="xs" c="dimmed" visibleFrom="sm">Puts ÷ calls by volume (nearest expiry)</Text>
+                  <Text size="xs" c="dimmed" visibleFrom="sm">Today&apos;s put volume ÷ call volume (nearest QQQ expiries)</Text>
                 </Box>
                 <Box visibleFrom="sm" style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
                   <Box style={{ position: "relative", height: 8, borderRadius: 4, overflow: "hidden", display: "flex" }}>
@@ -645,37 +665,216 @@ function MacroSignals({ macro, skew }: { macro: SentimentData["macro"]; skew: Se
   );
 }
 
+// ── internals & macro row ─────────────────────────────────────────────────
+
+function CompactCard({
+  label, value, badge, badgeColor, tooltip, href,
+}: {
+  label: string;
+  value: string;
+  badge?: string;
+  badgeColor: string;
+  tooltip: string;
+  href?: string;
+}) {
+  const inner = (
+    <Paper p="xs" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-6)", height: "100%", cursor: href ? "pointer" : "default" }}>
+      <Stack gap={4} align="center" justify="center" style={{ height: "100%" }}>
+        <Text size="10px" c="dimmed" tt="uppercase" fw={600} ta="center">{label}</Text>
+        <Text fw={700} size="md" c={`${badgeColor}.4`} ta="center">{value}</Text>
+        {badge && <Badge color={badgeColor} variant="light" size="xs">{badge}</Badge>}
+      </Stack>
+    </Paper>
+  );
+  const wrapped = (
+    <Tooltip label={tooltip} withArrow position="top" multiline maw={260}>
+      <Box style={{ height: "100%" }}>{inner}</Box>
+    </Tooltip>
+  );
+  return href ? <CardLink href={href}>{wrapped}</CardLink> : wrapped;
+}
+
+function InternalsMacroRow({ data }: { data: SentimentData }) {
+  const breadth = data.internals?.breadth;
+  const smh = data.internals?.smhVsQqq20d;
+  const ten5 = data.macro.tenYearChange5d;
+  const dxy = data.macro.dollar?.change20d ?? null;
+  const hyg = data.macro.credit?.hygChange20d ?? null;
+
+  const breadthColor = !breadth
+    ? "gray"
+    : breadth.above50d / breadth.total >= 0.75 ? "green"
+    : breadth.above50d / breadth.total >= 0.58 ? "lime"
+    : breadth.above50d / breadth.total >= 0.42 ? "yellow"
+    : breadth.above50d / breadth.total >= 0.25 ? "orange"
+    : "red";
+
+  const smhColor = smh == null
+    ? "gray"
+    : smh >= 3 ? "green"
+    : smh >= 0 ? "lime"
+    : smh >= -3 ? "orange"
+    : "red";
+
+  // Rising 10Y is bad for tech; +25bp over 5d is meaningful pain
+  const tenColor = ten5 == null
+    ? "gray"
+    : ten5 <= -0.10 ? "green"
+    : ten5 <= 0.05 ? "lime"
+    : ten5 <= 0.15 ? "yellow"
+    : ten5 <= 0.25 ? "orange"
+    : "red";
+
+  const dxyColor = dxy == null
+    ? "gray"
+    : dxy <= -1.5 ? "green"
+    : dxy <= 0 ? "lime"
+    : dxy <= 1.5 ? "yellow"
+    : dxy <= 3 ? "orange"
+    : "red";
+
+  const hygColor = hyg == null
+    ? "gray"
+    : hyg >= 1 ? "green"
+    : hyg >= 0 ? "lime"
+    : hyg >= -1 ? "orange"
+    : "red";
+
+  return (
+    <SimpleGrid cols={{ base: 2, sm: 5 }} spacing="xs">
+      {breadth && (
+        <CompactCard
+          label="Breadth"
+          value={`${breadth.above50d}/${breadth.total}`}
+          badge={`${breadth.goldenCross} GX`}
+          badgeColor={breadthColor}
+          tooltip={`${breadth.above50d} of top ${breadth.total} QQQ holdings are above their 50-day MA. ${breadth.goldenCross} in golden cross (50d > 200d).`}
+        />
+      )}
+      {smh != null && (
+        <CompactCard
+          label="Semis (SMH:QQQ)"
+          value={`${smh >= 0 ? "+" : ""}${smh.toFixed(1)}%`}
+          badge={smh >= 1 ? "Leading" : smh <= -1 ? "Lagging" : "In line"}
+          badgeColor={smhColor}
+          tooltip="SMH 20-day return minus QQQ 20-day return. Semis tend to lead Nasdaq direction — breakdowns here often precede QQQ weakness."
+          href="https://www.tradingview.com/chart/?symbol=SMH"
+        />
+      )}
+      {ten5 != null && (
+        <CompactCard
+          label="10Y Δ 5d"
+          value={`${ten5 >= 0 ? "+" : ""}${(ten5 * 100).toFixed(0)} bp`}
+          badge={ten5 >= 0.15 ? "Rising fast" : ten5 <= -0.10 ? "Falling" : "Stable"}
+          badgeColor={tenColor}
+          tooltip="5-day change in 10-year Treasury yield. Rapid rises (+25bp/wk) compress tech multiples and are a leading headwind for QQQ."
+          href="https://fred.stlouisfed.org/series/DGS10"
+        />
+      )}
+      {dxy != null && (
+        <CompactCard
+          label="Dollar (DXY 20d)"
+          value={`${dxy >= 0 ? "+" : ""}${dxy.toFixed(1)}%`}
+          badge={dxy >= 1.5 ? "Strong" : dxy <= -1.5 ? "Weak" : "Stable"}
+          badgeColor={dxyColor}
+          tooltip="Dollar index 20-day change. A strong dollar pressures mega-cap tech FX-translated earnings (MSFT, AAPL, GOOGL all have 40%+ international revenue)."
+          href="https://fred.stlouisfed.org/series/DTWEXBGS"
+        />
+      )}
+      {hyg != null && (
+        <CompactCard
+          label="Credit (HYG 20d)"
+          value={`${hyg >= 0 ? "+" : ""}${hyg.toFixed(1)}%`}
+          badge={hyg >= 0.5 ? "Risk-on" : hyg <= -0.5 ? "Risk-off" : "Neutral"}
+          badgeColor={hygColor}
+          tooltip="HYG (high-yield credit) 20-day return. Credit usually leads equities on regime shifts — when HYG breaks down while stocks hold up, it's a warning."
+          href="https://www.tradingview.com/chart/?symbol=HYG"
+        />
+      )}
+    </SimpleGrid>
+  );
+}
+
 // ── overall sentiment ─────────────────────────────────────────────────────
 
 function computeOverallSentiment(data: SentimentData) {
   const clamp = (v: number) => Math.max(-1, Math.min(1, v));
   const ws: { label: string; value: number; w: number }[] = [];
-  if (data.fearGreed)
-    ws.push({ label: "Fear & Greed", value: clamp((data.fearGreed.current - 50) / 50), w: 0.22 });
-  if (data.vix)
-    ws.push({ label: "VIX", value: clamp((20 - data.vix.current) / 15), w: 0.22 });
-  if (data.rsi)
-    ws.push({ label: "RSI", value: clamp((data.rsi.value - 50) / 30), w: 0.14 });
-  if (data.macro.yieldSpread)
-    ws.push({ label: "Yield Curve", value: clamp(data.macro.yieldSpread.spread / 2), w: 0.02 });
-  if (data.macro.putCallRatio != null)
-    ws.push({ label: "Put/Call", value: clamp((1 - data.macro.putCallRatio) / 0.5), w: 0.15 });
-  if (data.tqqqSignals?.momentum5d != null)
-    ws.push({ label: "TQQQ 5d", value: clamp(data.tqqqSignals.momentum5d / 8), w: 0.08 });
-  // SKEW: 120=neutral/0, 100=low risk/+1, 145+=extreme/-1
-  if (data.skew)
-    ws.push({ label: "SKEW", value: clamp((120 - data.skew.current) / 25), w: 0.05 });
-  // FOMC proximity: upcoming meeting introduces uncertainty drag
-  const fomcDays = data.macro.fomc?.daysUntil ?? 999;
-  if (fomcDays <= 7) {
-    const drag = fomcDays <= 2 ? -0.5 : fomcDays <= 5 ? -0.25 : -0.1;
-    ws.push({ label: "FOMC Risk", value: drag, w: 0.05 });
-  }
+
+  // ── Trend & breadth (~25%) ───────────────────────────────────────────────
+  // Holdings (top-12 fundamentals + price vs 50d), 10%
   const holdingsTotalWeight = data.holdings.reduce((s, h) => s + h.weight, 0);
   if (holdingsTotalWeight > 0) {
     const holdingsScore = data.holdings.reduce((s, h) => s + h.score * h.weight, 0) / holdingsTotalWeight;
-    ws.push({ label: "Holdings", value: holdingsScore, w: 0.25 });
+    ws.push({ label: "Holdings", value: holdingsScore, w: 0.10 });
   }
+  // Breadth: % of top-12 above 50d MA, mapped to [-1,+1] (0%→-1, 50%→0, 100%→+1)
+  const bTotal = data.internals?.breadth.total ?? 0;
+  if (bTotal > 0) {
+    const pctAbove = data.internals.breadth.above50d / bTotal;
+    ws.push({ label: "Breadth", value: clamp((pctAbove - 0.5) * 2), w: 0.08 });
+  }
+  // SMH:QQQ — semis leadership over 20d (>+3% strong leadership, <-3% lagging)
+  if (data.internals?.smhVsQqq20d != null) {
+    ws.push({ label: "Semis", value: clamp(data.internals.smhVsQqq20d / 5), w: 0.05 });
+  }
+  if (data.tqqqSignals?.momentum5d != null) {
+    ws.push({ label: "TQQQ 5d", value: clamp(data.tqqqSignals.momentum5d / 8), w: 0.02 });
+  }
+
+  // ── Vol regime (~20%) ────────────────────────────────────────────────────
+  if (data.vix) {
+    ws.push({ label: "VIX", value: clamp((20 - data.vix.current) / 15), w: 0.10 });
+    // Term structure: <1 = contango/calm (bullish), >1 = backwardation/stress (bearish).
+    if (data.vix.termStructure != null) {
+      ws.push({ label: "VIX Term", value: clamp((0.95 - data.vix.termStructure) / 0.15), w: 0.07 });
+    }
+    // VRP: positive = options pricing in more fear than realized (mildly bullish)
+    if (data.vix.vrp != null) {
+      ws.push({ label: "VRP", value: clamp(data.vix.vrp / 5), w: 0.03 });
+    }
+  }
+
+  // ── Rates & dollar (~15%) ────────────────────────────────────────────────
+  // Rising rates hurt tech multiples: +25bp over 5 days → -1
+  if (data.macro.tenYearChange5d != null) {
+    ws.push({ label: "10Y Δ", value: clamp(-data.macro.tenYearChange5d / 0.25), w: 0.10 });
+  }
+  // Rising dollar pressures mega-cap tech earnings: +3% over 20d → -1
+  if (data.macro.dollar) {
+    ws.push({ label: "Dollar", value: clamp(-data.macro.dollar.change20d / 3), w: 0.05 });
+  }
+
+  // ── Positioning / sentiment (~20%) ────────────────────────────────────────
+  if (data.fearGreed) {
+    ws.push({ label: "Fear & Greed", value: clamp((data.fearGreed.current - 50) / 50), w: 0.12 });
+  }
+  if (data.macro.putCallRatio != null) {
+    ws.push({ label: "Put/Call", value: clamp((1 - data.macro.putCallRatio) / 0.5), w: 0.05 });
+  }
+  // SKEW: 120=neutral/0, 100=low risk/+1, 145+=extreme/-1
+  if (data.skew) {
+    ws.push({ label: "SKEW", value: clamp((120 - data.skew.current) / 25), w: 0.03 });
+  }
+
+  // ── Credit (~10%) ────────────────────────────────────────────────────────
+  // HYG 20d: -2% → -1, +2% → +1 (risk-on/off via credit)
+  if (data.macro.credit) {
+    ws.push({ label: "Credit", value: clamp(data.macro.credit.hygChange20d / 2), w: 0.10 });
+  }
+
+  // ── Catalyst drag (~10%) ─────────────────────────────────────────────────
+  const fomcDays = data.macro.fomc?.daysUntil ?? 999;
+  if (fomcDays <= 7) {
+    const drag = fomcDays <= 2 ? -0.5 : fomcDays <= 5 ? -0.25 : -0.1;
+    ws.push({ label: "FOMC", value: drag, w: 0.05 });
+  }
+  if (data.earningsRiskCount >= 2) {
+    // 2 stocks → -0.2, 4+ stocks → -0.5
+    const drag = -Math.min(0.2 + (data.earningsRiskCount - 2) * 0.15, 0.5);
+    ws.push({ label: "Earnings", value: drag, w: 0.05 });
+  }
+
   const totalW = ws.reduce((s, sig) => s + sig.w, 0);
   const score = totalW > 0 ? ws.reduce((s, sig) => s + sig.value * sig.w, 0) / totalW : 0;
   return { signals: ws, score };
@@ -828,10 +1027,10 @@ function AggregateSentiment({ holdings }: { holdings: HoldingSentiment[] }) {
       <Group justify="space-between" align="center" wrap="nowrap">
         <Box>
           <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-            Weighted News Sentiment
+            Holdings Sentiment
           </Text>
           <Text size="xs" c="dimmed" mt={2}>
-            Averaged by QQQ holding weight across top 12
+            EPS revisions, price vs 50d, analyst views — weighted by QQQ holding %
           </Text>
         </Box>
         <Badge color={color} variant="filled" size="md" style={{ flexShrink: 0 }}>
@@ -1151,6 +1350,7 @@ export default function SentimentPage() {
                 <RsiCard data={data?.rsi ?? null} />
               </SimpleGrid>
               <MacroSignals macro={data!.macro} skew={data!.skew} />
+              <InternalsMacroRow data={data!} />
             </Stack>
           </Paper>
           <TqqqMomentumRow signals={data!.tqqqSignals} earningsRiskCount={data!.earningsRiskCount} />
