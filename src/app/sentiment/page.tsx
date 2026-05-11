@@ -23,8 +23,10 @@ import {
 } from "@tabler/icons-react";
 import type {
   SentimentData,
+  TqqqSignals,
   SentimentArticle,
   HoldingSentiment,
+  HoldingSignals,
   HistoryPoint,
 } from "@/app/api/sentiment/route";
 import { CARD_RADIUS } from "@/lib/cardStyles";
@@ -95,6 +97,22 @@ function sentimentLabel(score: number): string {
   return "Bearish";
 }
 
+function skewColor(skew: number): string {
+  if (skew < 115) return "green";
+  if (skew < 125) return "lime";
+  if (skew < 135) return "yellow";
+  if (skew < 145) return "orange";
+  return "red";
+}
+
+function skewLabel(skew: number): string {
+  if (skew < 115) return "Low risk";
+  if (skew < 125) return "Normal";
+  if (skew < 135) return "Elevated";
+  if (skew < 145) return "High";
+  return "Extreme";
+}
+
 function formatArticleDate(ms: number): string {
   const d = new Date(ms);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -107,6 +125,17 @@ function articleSentimentColor(s: SentimentArticle["sentiment"]): string {
 }
 
 
+
+// ── cache age ─────────────────────────────────────────────────────────────
+
+function CacheAge({ cachedAt }: { cachedAt: number }) {
+  const mins = Math.floor((Date.now() - cachedAt) / 60000);
+  return (
+    <Text size="xs" c="dimmed" ta="right" mt={-4}>
+      {mins < 1 ? "Updated just now" : `Updated ${mins}m ago`} · refreshes every 20m
+    </Text>
+  );
+}
 
 // ── sparkline ─────────────────────────────────────────────────────────────
 
@@ -386,9 +415,68 @@ function RsiCard({ data }: { data: SentimentData["rsi"] }) {
   );
 }
 
+// ── skew card ─────────────────────────────────────────────────────────────
+
+function SkewCard({ skew }: { skew: SentimentData["skew"] }) {
+  const sc = skew != null ? skewColor(skew.current) : "gray";
+  const href = "https://www.cboe.com/us/indices/dashboard/skew/";
+
+  if (!skew) {
+    return (
+      <CardLink href={href}>
+        <Paper p="xs" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-6)", height: "100%" }}>
+          <Stack gap="xs" align="center">
+            <Text size="xs" c="dimmed" tt="uppercase" fw={600}>SKEW</Text>
+            <Group gap={4} c="dimmed"><IconAlertTriangle size={14} /><Text size="xs">Unavailable</Text></Group>
+          </Stack>
+        </Paper>
+      </CardLink>
+    );
+  }
+
+  const markerPct = Math.min(Math.max(Math.round(((skew.current - 100) / 60) * 100), 1), 98);
+
+  return (
+    <CardLink href={href}>
+      <Paper p="xs" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-6)", height: "100%" }}>
+        <Stack gap={6} style={{ height: "100%" }}>
+          <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center" hiddenFrom="sm">SKEW</Text>
+          <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center" visibleFrom="sm">CBOE SKEW Index</Text>
+          <Box style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <Text fw={700} size="xl" ta="center" c={`${sc}.4`}>{skew.current.toFixed(1)}</Text>
+            <Badge color={sc} variant="light" size="xs">{skewLabel(skew.current)}</Badge>
+            <Text size="xs" c="dimmed" visibleFrom="sm">Tail risk perception (smart money)</Text>
+          </Box>
+          <Box visibleFrom="sm" style={{ display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
+            <Box style={{ position: "relative", height: 8, borderRadius: 4, overflow: "hidden", display: "flex" }}>
+              {[
+                { color: "green" }, { color: "lime" }, { color: "yellow" },
+                { color: "orange" }, { color: "red" },
+              ].map((z, i) => (
+                <Box key={i} style={{ flex: 1, background: `var(--mantine-color-${z.color}-7)` }} />
+              ))}
+              <Box style={{
+                position: "absolute",
+                left: `${markerPct}%`,
+                top: 0, bottom: 0, width: 3,
+                background: "white",
+                borderRadius: 2,
+              }} />
+            </Box>
+            <Group justify="space-between">
+              <Text size="10px" c="dimmed">100 (calm)</Text>
+              <Text size="10px" c="dimmed">160 (extreme)</Text>
+            </Group>
+          </Box>
+        </Stack>
+      </Paper>
+    </CardLink>
+  );
+}
+
 // ── macro signals ─────────────────────────────────────────────────────────
 
-function MacroSignals({ macro }: { macro: SentimentData["macro"] }) {
+function MacroSignals({ macro, skew }: { macro: SentimentData["macro"]; skew: SentimentData["skew"] }) {
   const { yieldSpread, putCallRatio, fomc } = macro;
 
   const spreadColor = !yieldSpread
@@ -412,7 +500,7 @@ function MacroSignals({ macro }: { macro: SentimentData["macro"] }) {
     : "gray";
 
   return (
-    <SimpleGrid cols={3} spacing="xs">
+    <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="xs">
       {/* FOMC */}
       <CardLink href="https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm">
         <Paper p="xs" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-6)", height: "100%" }}>
@@ -550,43 +638,58 @@ function MacroSignals({ macro }: { macro: SentimentData["macro"] }) {
           </Stack>
         </Paper>
       </CardLink>
+
+      {/* SKEW index */}
+      <SkewCard skew={skew} />
     </SimpleGrid>
   );
 }
 
 // ── overall sentiment ─────────────────────────────────────────────────────
 
-function OverallSentiment({ data }: { data: SentimentData }) {
+function computeOverallSentiment(data: SentimentData) {
   const clamp = (v: number) => Math.max(-1, Math.min(1, v));
-
-  const signals: { label: string; value: number }[] = [];
+  const ws: { label: string; value: number; w: number }[] = [];
   if (data.fearGreed)
-    signals.push({ label: "Fear & Greed", value: clamp((data.fearGreed.current - 50) / 50) });
+    ws.push({ label: "Fear & Greed", value: clamp((data.fearGreed.current - 50) / 50), w: 0.22 });
   if (data.vix)
-    signals.push({ label: "VIX", value: clamp((20 - data.vix.current) / 15) });
+    ws.push({ label: "VIX", value: clamp((20 - data.vix.current) / 15), w: 0.22 });
   if (data.rsi)
-    signals.push({ label: "RSI", value: clamp((data.rsi.value - 50) / 30) });
+    ws.push({ label: "RSI", value: clamp((data.rsi.value - 50) / 30), w: 0.14 });
   if (data.macro.yieldSpread)
-    signals.push({ label: "Yield Curve", value: clamp(data.macro.yieldSpread.spread / 2) });
+    ws.push({ label: "Yield Curve", value: clamp(data.macro.yieldSpread.spread / 2), w: 0.02 });
   if (data.macro.putCallRatio != null)
-    signals.push({ label: "Put/Call", value: clamp((1 - data.macro.putCallRatio) / 0.5) });
-  const totalWeight = data.holdings.reduce((s, h) => s + h.weight, 0);
-  if (totalWeight > 0) {
-    const holdingsScore = data.holdings.reduce((s, h) => s + h.score * h.weight, 0) / totalWeight;
-    signals.push({ label: "Holdings", value: holdingsScore });
+    ws.push({ label: "Put/Call", value: clamp((1 - data.macro.putCallRatio) / 0.5), w: 0.15 });
+  if (data.tqqqSignals?.momentum5d != null)
+    ws.push({ label: "TQQQ 5d", value: clamp(data.tqqqSignals.momentum5d / 8), w: 0.08 });
+  // SKEW: 120=neutral/0, 100=low risk/+1, 145+=extreme/-1
+  if (data.skew)
+    ws.push({ label: "SKEW", value: clamp((120 - data.skew.current) / 25), w: 0.05 });
+  // FOMC proximity: upcoming meeting introduces uncertainty drag
+  const fomcDays = data.macro.fomc?.daysUntil ?? 999;
+  if (fomcDays <= 7) {
+    const drag = fomcDays <= 2 ? -0.5 : fomcDays <= 5 ? -0.25 : -0.1;
+    ws.push({ label: "FOMC Risk", value: drag, w: 0.05 });
   }
+  const holdingsTotalWeight = data.holdings.reduce((s, h) => s + h.weight, 0);
+  if (holdingsTotalWeight > 0) {
+    const holdingsScore = data.holdings.reduce((s, h) => s + h.score * h.weight, 0) / holdingsTotalWeight;
+    ws.push({ label: "Holdings", value: holdingsScore, w: 0.25 });
+  }
+  const totalW = ws.reduce((s, sig) => s + sig.w, 0);
+  const score = totalW > 0 ? ws.reduce((s, sig) => s + sig.value * sig.w, 0) / totalW : 0;
+  return { signals: ws, score };
+}
 
-  const overall = signals.length > 0
-    ? signals.reduce((s, sig) => s + sig.value, 0) / signals.length
-    : 0;
+function OverallSentiment({ data }: { data: SentimentData }) {
+  const { signals, score: overall } = computeOverallSentiment(data);
 
   const color = sentimentColor(overall);
   const label = sentimentLabel(overall);
-  const bg = useCardBg(color);
   const markerPct = Math.round(((overall + 1) / 2) * 100);
 
   return (
-    <Paper p="md" radius={CARD_RADIUS} style={{ background: bg }}>
+    <Box p="md">
       <Text size="xs" c="dimmed" tt="uppercase" fw={600} ta="center">Overall Market Sentiment</Text>
       <Text style={{ fontSize: "2rem", fontWeight: 700, lineHeight: 1.1 }} ta="center" mt={4}>{label}</Text>
 
@@ -632,11 +735,11 @@ function OverallSentiment({ data }: { data: SentimentData }) {
         </Group>
       </Box>
 
-      <SimpleGrid cols={{ base: 3, sm: 6 }} spacing="xs" mt="md">
+      <Box mt="md" mb="md" style={{ display: "flex", flexWrap: "nowrap", justifyContent: "space-between", gap: 4, overflowX: "auto" }}>
         {signals.map((sig) => {
           const sigColor = sentimentColor(sig.value);
           return (
-            <Box key={sig.label} style={{ textAlign: "center" }}>
+            <Box key={sig.label} style={{ textAlign: "center", flexShrink: 0 }}>
               <Text size="10px" c="dimmed" tt="uppercase" fw={600}>{sig.label}</Text>
               <Badge color={sigColor} variant="light" size="xs" mt={2}>
                 {sig.value >= 0 ? "+" : ""}{(sig.value * 100).toFixed(0)}
@@ -644,8 +747,65 @@ function OverallSentiment({ data }: { data: SentimentData }) {
             </Box>
           );
         })}
-      </SimpleGrid>
-    </Paper>
+      </Box>
+    </Box>
+  );
+}
+
+// ── TQQQ short-term momentum row ──────────────────────────────────────────
+
+function TqqqMomentumRow({ signals, earningsRiskCount }: { signals: TqqqSignals | null; earningsRiskCount: number }) {
+  const items = signals ? [
+    {
+      label: "5-Day Return",
+      value: signals.momentum5d,
+      format: (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`,
+      color: (v: number) => v >= 3 ? "green" : v >= 0 ? "lime" : v >= -3 ? "orange" : "red",
+      tooltip: "TQQQ price change over the last 5 trading days",
+    },
+    {
+      label: "20-Day Return",
+      value: signals.momentum20d,
+      format: (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`,
+      color: (v: number) => v >= 8 ? "green" : v >= 0 ? "lime" : v >= -8 ? "orange" : "red",
+      tooltip: "TQQQ price change over the last 20 trading days (~1 month)",
+    },
+    {
+      label: "vs 20d MA",
+      value: signals.priceVs20dMa,
+      format: (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`,
+      color: (v: number) => v >= 5 ? "green" : v >= 0 ? "lime" : v >= -5 ? "orange" : "red",
+      tooltip: "How far TQQQ's current price is above or below its 20-day moving average",
+    },
+  ] : [];
+
+  return (
+    <SimpleGrid cols={{ base: earningsRiskCount >= 2 ? 2 : 3, sm: earningsRiskCount >= 2 ? 4 : 3 }} spacing="xs">
+      {items.map((item) => {
+        if (item.value == null) return null;
+        const color = item.color(item.value);
+        return (
+          <Tooltip key={item.label} label={item.tooltip} withArrow position="top">
+            <Paper p="xs" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-6)", textAlign: "center", cursor: "default" }}>
+              <Text size="10px" c="dimmed" tt="uppercase" fw={600}>{item.label}</Text>
+              <Text fw={700} size="lg" c={`${color}.4`} mt={2}>{item.format(item.value)}</Text>
+              <Badge color={color} variant="light" size="xs" mt={2}>
+                {item.value >= 0 ? "Above" : "Below"}
+              </Badge>
+            </Paper>
+          </Tooltip>
+        );
+      })}
+      {earningsRiskCount >= 2 && (
+        <Tooltip label={`${earningsRiskCount} top QQQ holdings have earnings in the next 10 days — expect elevated volatility regardless of direction`} withArrow position="top" multiline maw={260}>
+          <Paper p="xs" radius={CARD_RADIUS} style={{ background: "color-mix(in srgb, var(--mantine-color-orange-9) 30%, var(--mantine-color-dark-6))", textAlign: "center", cursor: "default", border: "1px solid var(--mantine-color-orange-7)" }}>
+            <Text size="10px" c="dimmed" tt="uppercase" fw={600}>Earnings Risk</Text>
+            <Text fw={700} size="lg" c="orange.4" mt={2}>{earningsRiskCount} stocks</Text>
+            <Badge color="orange" variant="light" size="xs" mt={2}>Next 10 days</Badge>
+          </Paper>
+        </Tooltip>
+      )}
+    </SimpleGrid>
   );
 }
 
@@ -754,6 +914,91 @@ function EarningsBadge({ earnings }: { earnings: HoldingSentiment["earnings"] })
   );
 }
 
+// ── signal badges ─────────────────────────────────────────────────────────
+
+function SignalBadges({ signals }: { signals: HoldingSignals }) {
+  type SignalItem = { label: string; color: string; tooltip: string };
+  const items: SignalItem[] = [];
+
+  if (signals.goldenCross != null) {
+    items.push({
+      label: signals.goldenCross ? "Golden Cross" : "Death Cross",
+      color: signals.goldenCross ? "green" : "red",
+      tooltip: signals.goldenCross
+        ? "50-day MA is above 200-day MA (bullish)"
+        : "50-day MA is below 200-day MA (bearish)",
+    });
+  }
+
+  if (signals.volumeRatio != null) {
+    const vr = signals.volumeRatio;
+    items.push({
+      label: `Vol ${vr.toFixed(1)}×`,
+      color: vr >= 2 ? "green" : vr >= 1.4 ? "lime" : vr >= 1.1 ? "yellow" : "gray",
+      tooltip: `Today's volume is ${vr.toFixed(1)}× the 3-month average${vr >= 1.5 ? " — elevated activity" : ""}`,
+    });
+  }
+
+  if (signals.priceVs50dPct != null) {
+    const p = signals.priceVs50dPct;
+    items.push({
+      label: `vs 50d: ${p >= 0 ? "+" : ""}${p.toFixed(1)}%`,
+      color: p >= 10 ? "green" : p >= 0 ? "lime" : p >= -10 ? "orange" : "red",
+      tooltip: `Price is ${p >= 0 ? "+" : ""}${p.toFixed(1)}% vs 50-day moving average`,
+    });
+  }
+
+  if (signals.shortFloatPct != null) {
+    const s = signals.shortFloatPct;
+    items.push({
+      label: `SI ${s.toFixed(1)}%`,
+      color: s >= 15 ? "red" : s >= 8 ? "orange" : "gray",
+      tooltip: `Short interest is ${s.toFixed(1)}% of float${signals.shortRatio != null ? ` (${signals.shortRatio.toFixed(1)}d to cover)` : ""}`,
+    });
+  }
+
+  if (signals.insiderBuys90d > 0 || signals.insiderSells90d > 0) {
+    const net = signals.insiderBuys90d - signals.insiderSells90d;
+    items.push({
+      label: `${signals.insiderBuys90d}B / ${signals.insiderSells90d}S`,
+      color: net > 1 ? "green" : net > 0 ? "lime" : net < -1 ? "red" : "orange",
+      tooltip: `Insider transactions (90d): ${signals.insiderBuys90d} purchases, ${signals.insiderSells90d} sales`,
+    });
+  }
+
+  if (signals.epsRevision30d != null) {
+    const r = signals.epsRevision30d;
+    const upDown =
+      signals.epsRevisionsUp30d != null && signals.epsRevisionsDown30d != null
+        ? ` · ${signals.epsRevisionsUp30d}↑ ${signals.epsRevisionsDown30d}↓ analysts`
+        : "";
+    items.push({
+      label: `${r >= 0 ? "+" : ""}${r.toFixed(1)}% EPS`,
+      color: r >= 3 ? "green" : r >= 0 ? "lime" : r >= -3 ? "orange" : "red",
+      tooltip: `Current-quarter EPS estimate changed ${r >= 0 ? "+" : ""}${r.toFixed(1)}% vs 30 days ago${upDown}`,
+    });
+  }
+
+  if (items.length === 0) return null;
+
+  return (
+    <SimpleGrid cols={3} spacing={4}>
+      {items.map((item, idx) => (
+        <Tooltip key={idx} label={item.tooltip} withArrow position="top" multiline maw={220}>
+          <Badge
+            variant="light"
+            color={item.color}
+            size="xs"
+            style={{ width: "100%", cursor: "default", display: "block", opacity: 0.7 }}
+          >
+            {item.label}
+          </Badge>
+        </Tooltip>
+      ))}
+    </SimpleGrid>
+  );
+}
+
 // ── holding card ───────────────────────────────────────────────────────────
 
 function HoldingCard({ holding }: { holding: HoldingSentiment }) {
@@ -791,11 +1036,12 @@ function HoldingCard({ holding }: { holding: HoldingSentiment }) {
       </Box>
 
       {(holding.earnings.nextDate != null || holding.earnings.recommendationMean != null) && (
-        <>
-          <EarningsBadge earnings={holding.earnings} />
-          <Divider />
-        </>
+        <EarningsBadge earnings={holding.earnings} />
       )}
+
+      <SignalBadges signals={holding.signals} />
+
+      <Divider />
 
       {holding.articles.length === 0 ? (
         <Text size="xs" c="dimmed">No recent news</Text>
@@ -845,6 +1091,8 @@ export default function SentimentPage() {
   const [data, setData] = useState<SentimentData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const overallScore = data ? computeOverallSentiment(data).score : 0;
+  const overallBg = useCardBg(sentimentColor(overallScore));
 
   useEffect(() => {
     fetch("/api/sentiment")
@@ -868,13 +1116,17 @@ export default function SentimentPage() {
 
       {loading ? (
         <>
-          <Skeleton height={140} radius={CARD_RADIUS} />
-          <SimpleGrid cols={3} spacing="xs">
-            {[0, 1, 2].map((i) => <Skeleton key={i} height={250} radius={CARD_RADIUS} />)}
-          </SimpleGrid>
-          <SimpleGrid cols={3} spacing="xs">
-            {[0, 1, 2].map((i) => <Skeleton key={i} height={160} radius={CARD_RADIUS} />)}
-          </SimpleGrid>
+          <Paper p="md" radius={CARD_RADIUS} style={{ background: "var(--mantine-color-dark-7)" }}>
+            <Stack gap="xs">
+              <Skeleton height={140} radius={CARD_RADIUS} />
+              <SimpleGrid cols={3} spacing="xs">
+                {[0, 1, 2].map((i) => <Skeleton key={i} height={250} radius={CARD_RADIUS} />)}
+              </SimpleGrid>
+              <SimpleGrid cols={3} spacing="xs">
+                {[0, 1, 2].map((i) => <Skeleton key={i} height={160} radius={CARD_RADIUS} />)}
+              </SimpleGrid>
+            </Stack>
+          </Paper>
           <Skeleton height={28} radius="md" width="40%" mx="auto" />
           <Skeleton height={70} radius={CARD_RADIUS} />
           <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="xs">
@@ -890,13 +1142,21 @@ export default function SentimentPage() {
         </Paper>
       ) : (
         <>
-          <OverallSentiment data={data!} />
-          <SimpleGrid cols={3} spacing="xs">
-            <FearGreedCard data={data?.fearGreed ?? null} />
-            <VixCard data={data?.vix ?? null} />
-            <RsiCard data={data?.rsi ?? null} />
-          </SimpleGrid>
-          <MacroSignals macro={data!.macro} />
+          <Paper p="md" radius={CARD_RADIUS} style={{ background: overallBg }}>
+            <Stack gap="xs">
+              <OverallSentiment data={data!} />
+              <SimpleGrid cols={3} spacing="xs">
+                <FearGreedCard data={data?.fearGreed ?? null} />
+                <VixCard data={data?.vix ?? null} />
+                <RsiCard data={data?.rsi ?? null} />
+              </SimpleGrid>
+              <MacroSignals macro={data!.macro} skew={data!.skew} />
+            </Stack>
+          </Paper>
+          <TqqqMomentumRow signals={data!.tqqqSignals} earningsRiskCount={data!.earningsRiskCount} />
+          {data!.cachedAt > 0 && (
+            <CacheAge cachedAt={data!.cachedAt} />
+          )}
           <Group gap="xs" align="center" justify="center">
             <IconNews size={18} />
             <Text fw={600} size="sm">QQQ Top Holdings — News Sentiment</Text>
