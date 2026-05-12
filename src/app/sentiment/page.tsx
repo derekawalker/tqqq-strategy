@@ -388,7 +388,7 @@ function SignalEdgeChart({ signals }: { signals: SignalReading[] }) {
         Signal edges vs baseline
       </Text>
       <BarChart
-        h={180}
+        h={260}
         data={data}
         dataKey="signal"
         series={[{ name: "edge", color: "teal" }]}
@@ -404,7 +404,7 @@ function SignalEdgeChart({ signals }: { signals: SignalReading[] }) {
           if (value > -0.3) return "orange";
           return "red";
         }}
-        yAxisProps={{ width: 140 }}
+        yAxisProps={{ width: 160 }}
       />
     </Paper>
   );
