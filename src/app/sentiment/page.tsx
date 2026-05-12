@@ -598,9 +598,12 @@ function AccuracyPanel({
             data={[...history].reverse().map((h) => {
               const [, mm, dd] = h.date.split("-");
               const realized = h.realizedReturn5dQqq;
+              // Scale edge ×8 so a strong-bullish signal (+0.35% edge) reaches
+              // ~+2.8% — clearly visible against the ±1.5% threshold bands.
+              const scaledPrediction = Math.round(h.edge * 8 * 100) / 100;
               return {
                 date: `${parseInt(mm, 10)}/${parseInt(dd, 10)}`,
-                "Predicted %": Math.round(h.expectedReturn5d * 100) / 100,
+                "Signal (×8)": scaledPrediction,
                 "Realized %":
                   realized != null
                     ? Math.round(Math.max(-8, Math.min(8, realized)) * 100) / 100
@@ -610,7 +613,7 @@ function AccuracyPanel({
             dataKey="date"
             series={[
               { name: "Realized %", color: "teal.4" },
-              { name: "Predicted %", color: "blue.4", strokeDasharray: "5 5" },
+              { name: "Signal (×8)", color: "blue.4", strokeDasharray: "5 5" },
             ]}
             withDots={false}
             curveType="monotone"
@@ -625,8 +628,8 @@ function AccuracyPanel({
             withLegend
           />
           <Text size="10px" c="dimmed" mt={4}>
-            Realized values beyond ±8% are clipped to the chart boundary · Dashed
-            lines = ±1.5% outcome thresholds
+            Signal edge scaled ×8 for visibility — when it crosses ±1.5% lines,
+            a Bullish/Bearish verdict fired · Realized clipped to ±8%
           </Text>
         </>
       )}
