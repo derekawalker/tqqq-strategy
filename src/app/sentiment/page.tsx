@@ -588,53 +588,61 @@ function AccuracyPanel({
           </Text>
           <Box style={{ display: "flex", gap: 2 }}>
             {[...history].reverse().map((h) => {
-              {
-                console.log(h);
-              }
-
               const meta = VERDICT_META[h.verdict];
               const realized = h.realizedReturn5dQqq;
-              const hit =
-                realized != null &&
-                ((h.verdict === "lean-long" && realized > 1.5) ||
-                  (h.verdict === "lean-short" && realized < -1.5) ||
-                  (h.verdict === "chop" && Math.abs(realized) <= 1.5));
+              const [, mm, dd] = h.date.split("-");
+              const dateLabel = `${parseInt(mm, 10)}/${parseInt(dd, 10)}`;
+
+              // Border = prediction
+              const borderColor =
+                h.verdict === "lean-long"
+                  ? "var(--mantine-color-green-6)"
+                  : h.verdict === "lean-short"
+                    ? "var(--mantine-color-red-6)"
+                    : "var(--mantine-color-dark-3)";
+
+              // Background = outcome
+              let bg: string;
+              if (realized == null) {
+                bg = "var(--mantine-color-dark-5)";
+              } else if (realized > 1.5) {
+                bg = "var(--mantine-color-green-9)";
+              } else if (realized < -1.5) {
+                bg = "var(--mantine-color-red-9)";
+              } else {
+                bg = "var(--mantine-color-dark-5)";
+              }
+
               return (
                 <Tooltip
                   key={h.date}
-                  label={`${h.date} · ${meta.label} · predicted ${formatPct(h.expectedReturn5d)} · realized ${realized != null ? formatPct(realized) : "pending"}`}
+                  label={`${h.date} · ${meta.label} · signal mean ${formatPct(h.expectedReturn5d)} · realized ${realized != null ? formatPct(realized) : "pending"}`}
                   withArrow
                 >
                   <Box
                     style={{
                       flex: 1,
-                      minWidth: 4,
-                      height: 24,
+                      minWidth: 8,
+                      height: 28,
                       borderRadius: 2,
                       textAlign: "center",
-                      fontSize: ".65em",
-                      lineHeight: "24px",
-                      background:
-                        realized == null
-                          ? "var(--mantine-color-dark-4)"
-                          : hit
-                            ? "var(--mantine-color-green-6)"
-                            : `var(--mantine-color-${meta.color}-8)`,
-                      border:
-                        realized == null
-                          ? "1px dashed var(--mantine-color-dark-3)"
-                          : "none",
+                      fontSize: 7,
+                      lineHeight: "28px",
+                      color: "var(--mantine-color-dark-1)",
+                      background: bg,
+                      border: `3px solid ${borderColor}`,
+                      boxSizing: "border-box",
+                      borderStyle: realized == null ? "dashed" : "solid",
                     }}
                   >
-                    {parseInt(h.date.split("-")[2], 10)}
+                    {dateLabel}
                   </Box>
                 </Tooltip>
               );
             })}
           </Box>
           <Text size="10px" c="dimmed" mt={4}>
-            Green = verdict hit · darker = missed · dashed = pending realized
-            return
+            Border = prediction (green=Bullish, red=Bearish, gray=Neutral) · Background = outcome (&gt;+1.5% green, &lt;−1.5% red, dashed=pending)
           </Text>
         </>
       )}
