@@ -13,7 +13,7 @@ import {
   Tooltip,
 } from "@mantine/core";
 import { IconAlertTriangle, IconInfoCircle } from "@tabler/icons-react";
-import { BarChart } from "@mantine/charts";
+import { BarChart, LineChart } from "@mantine/charts";
 import type { VerdictPayload, SignalReading } from "@/app/api/sentiment/route";
 import type { AccuracyStats, HistoryRow } from "@/lib/sentimentHistory";
 import { CARD_RADIUS } from "@/lib/cardStyles";
@@ -586,63 +586,48 @@ function AccuracyPanel({
           >
             Recent calls
           </Text>
-          <Box style={{ display: "flex", gap: 2 }}>
-            {[...history].reverse().map((h) => {
-              const meta = VERDICT_META[h.verdict];
-              const realized = h.realizedReturn5dQqq;
+          <LineChart
+            h={200}
+            data={[...history].reverse().map((h) => {
               const [, mm, dd] = h.date.split("-");
-              const dateLabel = `${parseInt(mm, 10)}/${parseInt(dd, 10)}`;
-
-              // Border = prediction
-              const borderColor =
-                h.verdict === "lean-long"
-                  ? "var(--mantine-color-green-6)"
-                  : h.verdict === "lean-short"
-                    ? "var(--mantine-color-red-6)"
-                    : "var(--mantine-color-dark-3)";
-
-              // Background = outcome
-              let bg: string;
-              if (realized == null) {
-                bg = "var(--mantine-color-dark-5)";
-              } else if (realized > 1.5) {
-                bg = "var(--mantine-color-green-9)";
-              } else if (realized < -1.5) {
-                bg = "var(--mantine-color-red-9)";
-              } else {
-                bg = "var(--mantine-color-dark-5)";
-              }
-
-              return (
-                <Tooltip
-                  key={h.date}
-                  label={`${h.date} · ${meta.label} · signal mean ${formatPct(h.expectedReturn5d)} · realized ${realized != null ? formatPct(realized) : "pending"}`}
-                  withArrow
-                >
-                  <Box
-                    style={{
-                      flex: 1,
-                      minWidth: 8,
-                      height: 28,
-                      borderRadius: 2,
-                      textAlign: "center",
-                      fontSize: 7,
-                      lineHeight: "28px",
-                      color: "var(--mantine-color-dark-1)",
-                      background: bg,
-                      border: `3px solid ${borderColor}`,
-                      boxSizing: "border-box",
-                      borderStyle: realized == null ? "dashed" : "solid",
-                    }}
-                  >
-                    {dateLabel}
-                  </Box>
-                </Tooltip>
-              );
+              return {
+                date: `${parseInt(mm, 10)}/${parseInt(dd, 10)}`,
+                realized:
+                  h.realizedReturn5dQqq != null
+                    ? Math.round(h.realizedReturn5dQqq * 100) / 100
+                    : null,
+                prediction:
+                  h.verdict === "lean-long"
+                    ? 1.5
+                    : h.verdict === "lean-short"
+                      ? -1.5
+                      : 0,
+              };
             })}
-          </Box>
+            dataKey="date"
+            series={[
+              { name: "realized", color: "teal.4", label: "Realized 5d" },
+              {
+                name: "prediction",
+                color: "gray.5",
+                strokeDasharray: "4 4",
+                label: "Prediction",
+              },
+            ]}
+            withDots={false}
+            curveType="monotone"
+            connectNulls={false}
+            valueFormatter={(v) => `${v > 0 ? "+" : ""}${v.toFixed(2)}%`}
+            referenceLines={[
+              { y: 0, color: "gray.6", strokeDasharray: "4 4" },
+              { y: 1.5, color: "green.8", strokeDasharray: "3 3" },
+              { y: -1.5, color: "red.8", strokeDasharray: "3 3" },
+            ]}
+            withLegend
+          />
           <Text size="10px" c="dimmed" mt={4}>
-            Border = prediction (green=Bullish, red=Bearish, gray=Neutral) · Background = outcome (&gt;+1.5% green, &lt;−1.5% red, dashed=pending)
+            Prediction line: +1.5 = Bullish · 0 = Neutral · −1.5 = Bearish ·
+            Dashed lines = ±1.5% outcome thresholds
           </Text>
         </>
       )}
