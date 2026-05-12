@@ -1,16 +1,16 @@
 {
-  "generatedAt": "2026-05-12T02:18:23.442Z",
+  "generatedAt": "2026-05-12T17:07:04.674Z",
   "yearsHistory": 5,
   "forwardDays": 5,
   "minSamplesPerBin": 30,
-  "totalSamples": 1249,
-  "baselineAvgReturn5d": 0.354,
+  "totalSamples": 1250,
+  "baselineAvgReturn5d": 0.356,
   "signals": {
     "vixTerm": [
       {
         "label": "<0.90 (deep contango)",
-        "count": 720,
-        "avgReturn5d": 0.251,
+        "count": 721,
+        "avgReturn5d": 0.255,
         "hitRateUp": 58.9,
         "lowConfidence": false
       },
@@ -53,9 +53,9 @@
       },
       {
         "label": "-10% – 0%",
-        "count": 626,
-        "avgReturn5d": 0.23,
-        "hitRateUp": 59.1,
+        "count": 627,
+        "avgReturn5d": 0.234,
+        "hitRateUp": 59.2,
         "lowConfidence": false
       },
       {
@@ -80,33 +80,40 @@
         "lowConfidence": false
       }
     ],
-    "rsi2InTrend": [
+    "qqq1dRet": [
       {
-        "label": "Uptrend, RSI(2) <10 (oversold)",
-        "count": 196,
-        "avgReturn5d": 0.615,
-        "hitRateUp": 63.8,
+        "label": "<-2% (big down)",
+        "count": 85,
+        "avgReturn5d": 0.191,
+        "hitRateUp": 52.9,
         "lowConfidence": false
       },
       {
-        "label": "Uptrend, RSI(2) 10–90",
-        "count": 389,
-        "avgReturn5d": 0.445,
-        "hitRateUp": 60.7,
+        "label": "-2% – -0.5% (down)",
+        "count": 272,
+        "avgReturn5d": 0.715,
+        "hitRateUp": 66.2,
         "lowConfidence": false
       },
       {
-        "label": "Uptrend, RSI(2) >90 (overbought)",
-        "count": 353,
-        "avgReturn5d": 0.341,
-        "hitRateUp": 60.3,
+        "label": "-0.5% – +0.5% (flat)",
+        "count": 452,
+        "avgReturn5d": 0.279,
+        "hitRateUp": 56.4,
         "lowConfidence": false
       },
       {
-        "label": "Downtrend (any RSI)",
-        "count": 311,
-        "avgReturn5d": 0.093,
-        "hitRateUp": 53.1,
+        "label": "+0.5% – +2% (up)",
+        "count": 354,
+        "avgReturn5d": 0.358,
+        "hitRateUp": 58.8,
+        "lowConfidence": false
+      },
+      {
+        "label": ">+2% (big up)",
+        "count": 87,
+        "avgReturn5d": -0.209,
+        "hitRateUp": 59.8,
         "lowConfidence": false
       }
     ],
@@ -141,9 +148,9 @@
       },
       {
         "label": ">10% (extended)",
-        "count": 524,
-        "avgReturn5d": 0.18,
-        "hitRateUp": 55.9,
+        "count": 525,
+        "avgReturn5d": 0.184,
+        "hitRateUp": 56,
         "lowConfidence": false
       }
     ],
@@ -164,9 +171,9 @@
       },
       {
         "label": "40 – 70 (typical)",
-        "count": 267,
-        "avgReturn5d": 0.588,
-        "hitRateUp": 59.6,
+        "count": 268,
+        "avgReturn5d": 0.595,
+        "hitRateUp": 59.7,
         "lowConfidence": false
       },
       {
@@ -181,43 +188,6 @@
         "count": 176,
         "avgReturn5d": 0.321,
         "hitRateUp": 58,
-        "lowConfidence": false
-      }
-    ],
-    "hygSpyDiv": [
-      {
-        "label": "<-1.5% (credit lagging)",
-        "count": 249,
-        "avgReturn5d": 0.109,
-        "hitRateUp": 54.6,
-        "lowConfidence": false
-      },
-      {
-        "label": "-1.5% – -0.5%",
-        "count": 338,
-        "avgReturn5d": 0.183,
-        "hitRateUp": 58.6,
-        "lowConfidence": false
-      },
-      {
-        "label": "-0.5% – 0.5%",
-        "count": 311,
-        "avgReturn5d": 0.566,
-        "hitRateUp": 64.6,
-        "lowConfidence": false
-      },
-      {
-        "label": "0.5% – 1.5%",
-        "count": 183,
-        "avgReturn5d": 0.13,
-        "hitRateUp": 53.6,
-        "lowConfidence": false
-      },
-      {
-        "label": ">1.5% (credit leading)",
-        "count": 168,
-        "avgReturn5d": 0.915,
-        "hitRateUp": 63.1,
         "lowConfidence": false
       }
     ],
@@ -238,9 +208,9 @@
       },
       {
         "label": "-0.10 – +0.10 (flat)",
-        "count": 400,
-        "avgReturn5d": 0.32,
-        "hitRateUp": 58.5,
+        "count": 401,
+        "avgReturn5d": 0.325,
+        "hitRateUp": 58.6,
         "lowConfidence": false
       },
       {
@@ -258,43 +228,6 @@
         "lowConfidence": false
       }
     ],
-    "tltMom20": [
-      {
-        "label": "<-4% (bonds selling off)",
-        "count": 260,
-        "avgReturn5d": -0.147,
-        "hitRateUp": 51.2,
-        "lowConfidence": false
-      },
-      {
-        "label": "-4% – -1%",
-        "count": 328,
-        "avgReturn5d": 0.46,
-        "hitRateUp": 59.1,
-        "lowConfidence": false
-      },
-      {
-        "label": "-1% – +1% (flat)",
-        "count": 250,
-        "avgReturn5d": 0.093,
-        "hitRateUp": 54,
-        "lowConfidence": false
-      },
-      {
-        "label": "+1% – +3%",
-        "count": 191,
-        "avgReturn5d": 0.597,
-        "hitRateUp": 63.9,
-        "lowConfidence": false
-      },
-      {
-        "label": ">+3% (bonds rallying)",
-        "count": 220,
-        "avgReturn5d": 0.875,
-        "hitRateUp": 70.5,
-        "lowConfidence": false
-      }
-    ],
     "skewLevel": [
       {
         "label": "<130 (complacent)",
@@ -305,9 +238,9 @@
       },
       {
         "label": "130 – 140 (moderate hedge)",
-        "count": 285,
-        "avgReturn5d": 0.722,
-        "hitRateUp": 65.3,
+        "count": 286,
+        "avgReturn5d": 0.729,
+        "hitRateUp": 65.4,
         "lowConfidence": false
       },
       {
@@ -325,5 +258,31 @@
         "lowConfidence": false
       }
     ]
+  },
+  "magnitudeModel": {
+    "intercept": 0.3594,
+    "coefficients": {
+      "vixTerm": 1.0908,
+      "vixSpike": 0.9477,
+      "qqq1dRet": 0.8712,
+      "pctAbove200ma": 1.0022,
+      "realizedVol20Pct": 0.9149,
+      "tnxMom20": 0.9226,
+      "skewLevel": 0.7571
+    },
+    "featureSignals": [
+      "vixTerm",
+      "vixSpike",
+      "qqq1dRet",
+      "pctAbove200ma",
+      "realizedVol20Pct",
+      "tnxMom20",
+      "skewLevel"
+    ],
+    "trainN": 1250,
+    "mae": 2.19,
+    "rmse": 2.864,
+    "r2": 0.0794,
+    "pearson": 0.2818
   }
 }

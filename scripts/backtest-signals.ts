@@ -44,26 +44,40 @@ function alignByDate(series: Record<string, Series>): { date: Date; values: Reco
   });
 }
 
-function rsi(closes: number[], period: number, idx: number): number | null {
-  if (idx < period) return null;
-  let gain = 0;
-  let loss = 0;
-  for (let i = idx - period + 1; i <= idx; i++) {
-    const diff = closes[i] - closes[i - 1];
-    if (diff > 0) gain += diff;
-    else loss += Math.abs(diff);
-  }
-  gain /= period;
-  loss /= period;
-  if (loss === 0) return 100;
-  return 100 - 100 / (1 + gain / loss);
-}
-
 function sma(closes: number[], period: number, idx: number): number | null {
   if (idx < period - 1) return null;
   let sum = 0;
   for (let i = idx - period + 1; i <= idx; i++) sum += closes[i];
   return sum / period;
+}
+
+// Solve β = (XᵀX)⁻¹ Xᵀy via Gauss-Jordan on the augmented normal equations.
+function solveOLS(X: number[][], y: number[]): number[] {
+  const k = X[0].length;
+  const A: number[][] = Array.from({ length: k }, () => new Array(k).fill(0));
+  const b: number[] = new Array(k).fill(0);
+  for (let i = 0; i < X.length; i++) {
+    for (let r = 0; r < k; r++) {
+      b[r] += X[i][r] * y[i];
+      for (let c = 0; c < k; c++) A[r][c] += X[i][r] * X[i][c];
+    }
+  }
+  // Augment and reduce
+  const M: number[][] = A.map((row, i) => [...row, b[i]]);
+  for (let col = 0; col < k; col++) {
+    let piv = col;
+    for (let r = col + 1; r < k; r++) if (Math.abs(M[r][col]) > Math.abs(M[piv][col])) piv = r;
+    if (Math.abs(M[piv][col]) < 1e-12) throw new Error(`OLS: singular matrix at col ${col}`);
+    [M[col], M[piv]] = [M[piv], M[col]];
+    const div = M[col][col];
+    for (let c = 0; c <= k; c++) M[col][c] /= div;
+    for (let r = 0; r < k; r++) {
+      if (r === col) continue;
+      const factor = M[r][col];
+      for (let c = 0; c <= k; c++) M[r][c] -= factor * M[col][c];
+    }
+  }
+  return M.map((row) => row[k]);
 }
 
 function stdev(xs: number[]) {
@@ -90,12 +104,6 @@ const BIN_DEFS = {
     { label: "5% – 15%",     min: 5,         max: 15 },
     { label: ">15% (spike)", min: 15,        max: Infinity },
   ],
-  rsi2InTrend: [
-    { label: "Uptrend, RSI(2) <10 (oversold)",  min: 0,   max: 10 },
-    { label: "Uptrend, RSI(2) 10–90",           min: 10,  max: 90 },
-    { label: "Uptrend, RSI(2) >90 (overbought)", min: 90, max: 100 },
-    { label: "Downtrend (any RSI)",             min: -1,  max: -1 },
-  ],
   pctAbove200ma: [
     { label: "<-3% (below MA)",      min: -Infinity, max: -3 },
     { label: "-3% – 0%",             min: -3,        max: 0 },
@@ -110,13 +118,6 @@ const BIN_DEFS = {
     { label: "70 – 90",              min: 70,  max: 90 },
     { label: ">90 (very high)",      min: 90,  max: 100.0001 },
   ],
-  hygSpyDiv: [
-    { label: "<-1.5% (credit lagging)",  min: -Infinity, max: -1.5 },
-    { label: "-1.5% – -0.5%",            min: -1.5,      max: -0.5 },
-    { label: "-0.5% – 0.5%",             min: -0.5,      max: 0.5 },
-    { label: "0.5% – 1.5%",             min: 0.5,       max: 1.5 },
-    { label: ">1.5% (credit leading)",   min: 1.5,       max: Infinity },
-  ],
   // 20-day change in 10y yield (in percentage points). Rising rates = headwind for QQQ.
   tnxMom20: [
     { label: "<-0.30 (rates falling fast)", min: -Infinity, max: -0.30 },
@@ -125,13 +126,13 @@ const BIN_DEFS = {
     { label: "+0.10 – +0.30",              min:  0.10,     max:  0.30 },
     { label: ">+0.30 (rates rising fast)", min:  0.30,     max: Infinity },
   ],
-  // TLT 20-day return (%). Bonds rallying = flight-to-safety or rate drop = tailwind for QQQ bounces.
-  tltMom20: [
-    { label: "<-4% (bonds selling off)",   min: -Infinity, max: -4.0 },
-    { label: "-4% – -1%",                  min: -4.0,      max: -1.0 },
-    { label: "-1% – +1% (flat)",           min: -1.0,      max:  1.0 },
-    { label: "+1% – +3%",                  min:  1.0,      max:  3.0 },
-    { label: ">+3% (bonds rallying)",      min:  3.0,      max: Infinity },
+  // QQQ 1-day return. Testing mean-reversion hypothesis: big down days → bounce.
+  qqq1dRet: [
+    { label: "<-2% (big down)",       min: -Infinity, max: -2.0 },
+    { label: "-2% – -0.5% (down)",    min: -2.0,      max: -0.5 },
+    { label: "-0.5% – +0.5% (flat)",  min: -0.5,      max:  0.5 },
+    { label: "+0.5% – +2% (up)",      min:  0.5,      max:  2.0 },
+    { label: ">+2% (big up)",         min:  2.0,      max: Infinity },
   ],
   // CBOE SKEW Index. Low SKEW = complacency (bearish); 130-140 = moderate hedging (bullish sweet spot).
   skewLevel: [
@@ -156,31 +157,25 @@ function findBin(defs: readonly BinDef[], value: number): string | null {
 
 async function main() {
   console.log(`Fetching ${YEARS}y of daily history...`);
-  const [qqq, vix, vix3m, hyg, spy, tnx, tlt, skew] = await Promise.all([
+  const [qqq, vix, vix3m, tnx, skew] = await Promise.all([
     fetchDaily("QQQ",   YEARS),
     fetchDaily("^VIX",  YEARS),
     fetchDaily("^VIX3M", YEARS),
-    fetchDaily("HYG",   YEARS),
-    fetchDaily("SPY",   YEARS),
     fetchDaily("^TNX",  YEARS),
-    fetchDaily("TLT",   YEARS),
     fetchDaily("^SKEW", YEARS),
   ]);
 
-  console.log(`QQQ: ${qqq.length} days, VIX: ${vix.length}, VIX3M: ${vix3m.length}, HYG: ${hyg.length}, SPY: ${spy.length}, TNX: ${tnx.length}, TLT: ${tlt.length}, SKEW: ${skew.length}`);
+  console.log(`QQQ: ${qqq.length} days, VIX: ${vix.length}, VIX3M: ${vix3m.length}, TNX: ${tnx.length}, SKEW: ${skew.length}`);
 
   // Align without SKEW so missing SKEW dates don't drop rows
-  const aligned = alignByDate({ QQQ: qqq, VIX: vix, VIX3M: vix3m, HYG: hyg, SPY: spy, TNX: tnx, TLT: tlt });
+  const aligned = alignByDate({ QQQ: qqq, VIX: vix, VIX3M: vix3m, TNX: tnx });
   const skewMap = new Map(skew.map((d) => [d.date.toDateString(), d.close]));
   console.log(`Aligned dataset: ${aligned.length} common trading days`);
 
   const qqqCloses = aligned.map((d) => d.values.QQQ);
   const vixCloses = aligned.map((d) => d.values.VIX);
   const vix3mCloses = aligned.map((d) => d.values.VIX3M);
-  const hygCloses = aligned.map((d) => d.values.HYG);
-  const spyCloses = aligned.map((d) => d.values.SPY);
   const tnxCloses = aligned.map((d) => d.values.TNX);
-  const tltCloses = aligned.map((d) => d.values.TLT);
 
   // Pre-compute 20d realized vol (annualized %) for percentile feature
   const realizedVol20: (number | null)[] = qqqCloses.map((_, i) => {
@@ -190,16 +185,19 @@ async function main() {
     return stdev(rets) * Math.sqrt(252) * 100;
   });
 
+  // Per-day samples: which bin each signal was in, and the realized forward return.
+  // After bin averages are computed, we'll convert these to bin-edge feature vectors
+  // and fit a linear regression to predict realized 5d return.
+  const samples: { bins: Partial<Record<SignalKey, string>>; forwardRet: number }[] = [];
+
   // Bin-keyed stats
   const stats: Record<SignalKey, Record<string, { count: number; sumReturn: number; up: number; down: number }>> = {
     vixTerm: {},
     vixSpike: {},
-    rsi2InTrend: {},
+    qqq1dRet: {},
     pctAbove200ma: {},
     realizedVol20Pct: {},
-    hygSpyDiv: {},
     tnxMom20: {},
-    tltMom20: {},
     skewLevel: {},
   };
 
@@ -219,13 +217,9 @@ async function main() {
     // Signal values
     const vixTerm = vixCloses[i] / vix3mCloses[i];
     const vixSpike = ((vixCloses[i] - vixCloses[i - 1]) / vixCloses[i - 1]) * 100;
+    const qqq1dRet = ((qqqCloses[i] - qqqCloses[i - 1]) / qqqCloses[i - 1]) * 100;
     const ma200 = sma(qqqCloses, 200, i);
     const pctAbove = ma200 != null ? ((qqqCloses[i] / ma200) - 1) * 100 : null;
-    const inUptrend = ma200 != null && qqqCloses[i] > ma200;
-    const rsi2 = rsi(qqqCloses, 2, i);
-    const hyg5d = ((hygCloses[i] - hygCloses[i - 5]) / hygCloses[i - 5]) * 100;
-    const spy5d = ((spyCloses[i] - spyCloses[i - 5]) / spyCloses[i - 5]) * 100;
-    const hygDiv = hyg5d - spy5d;
 
     // 20d realized vol percentile vs trailing 252d
     let rvPct: number | null = null;
@@ -243,6 +237,12 @@ async function main() {
       }
     }
 
+    const daySample: { bins: Partial<Record<SignalKey, string>>; forwardRet: number } = {
+      bins: {},
+      forwardRet,
+    };
+    samples.push(daySample);
+
     const record = (sk: SignalKey, binLabel: string | null) => {
       if (binLabel == null) return;
       const b = stats[sk][binLabel];
@@ -250,37 +250,25 @@ async function main() {
       b.sumReturn += forwardRet;
       if (forwardRet > 0) b.up++;
       else b.down++;
+      daySample.bins[sk] = binLabel;
     };
 
     record("vixTerm", findBin(BIN_DEFS.vixTerm, vixTerm));
     record("vixSpike", findBin(BIN_DEFS.vixSpike, vixSpike));
+    record("qqq1dRet", findBin(BIN_DEFS.qqq1dRet, qqq1dRet));
     if (pctAbove != null) record("pctAbove200ma", findBin(BIN_DEFS.pctAbove200ma, pctAbove));
     if (rvPct != null) record("realizedVol20Pct", findBin(BIN_DEFS.realizedVol20Pct, rvPct));
     if (i >= 20) {
       const tnxMom = tnxCloses[i] - tnxCloses[i - 20];
-      const tltMom = ((tltCloses[i] - tltCloses[i - 20]) / tltCloses[i - 20]) * 100;
       record("tnxMom20", findBin(BIN_DEFS.tnxMom20, tnxMom));
-      record("tltMom20", findBin(BIN_DEFS.tltMom20, tltMom));
     }
-    if (rsi2 != null) {
-      if (!inUptrend) {
-        record("rsi2InTrend", "Downtrend (any RSI)");
-      } else if (rsi2 < 10) {
-        record("rsi2InTrend", "Uptrend, RSI(2) <10 (oversold)");
-      } else if (rsi2 > 90) {
-        record("rsi2InTrend", "Uptrend, RSI(2) >90 (overbought)");
-      } else {
-        record("rsi2InTrend", "Uptrend, RSI(2) 10–90");
-      }
-    }
-    record("hygSpyDiv", findBin(BIN_DEFS.hygSpyDiv, hygDiv));
     const skewVal = skewMap.get(aligned[i].date.toDateString());
     if (skewVal != null) record("skewLevel", findBin(BIN_DEFS.skewLevel, skewVal));
   }
 
   // Compute final stats per bin
   const output: Record<SignalKey, { label: string; count: number; avgReturn5d: number; hitRateUp: number; lowConfidence: boolean }[]> = {
-    vixTerm: [], vixSpike: [], rsi2InTrend: [], pctAbove200ma: [], realizedVol20Pct: [], hygSpyDiv: [], tnxMom20: [], tltMom20: [], skewLevel: [],
+    vixTerm: [], vixSpike: [], qqq1dRet: [], pctAbove200ma: [], realizedVol20Pct: [], tnxMom20: [], skewLevel: [],
   };
 
   const baselineRet = (() => {
@@ -316,6 +304,99 @@ async function main() {
     console.log("");
   }
 
+  // ── magnitude model: OLS regression of bin-edges → realized 5d return ────
+  // For each sample, the feature for signal k is (binAvg_k - baseline) — the
+  // per-bin "edge." Days where a signal's bin was missing get edge = 0.
+  // Note: bin averages are computed from the same data, so this is in-sample
+  // fit — useful as a starting point, but real-world accuracy must be judged
+  // by the prospective track-record on the dashboard.
+  const FEATURE_SIGNALS: SignalKey[] = [
+    "vixTerm", "vixSpike", "qqq1dRet", "pctAbove200ma", "realizedVol20Pct", "tnxMom20", "skewLevel",
+  ];
+  const binAvg = new Map<string, number>();  // `${signal}::${binLabel}` → avgReturn5d
+  for (const sk of FEATURE_SIGNALS) {
+    for (const row of output[sk]) {
+      binAvg.set(`${sk}::${row.label}`, row.avgReturn5d);
+    }
+  }
+  const edgeFor = (sk: SignalKey, binLabel: string | undefined): number => {
+    if (!binLabel) return 0;
+    const avg = binAvg.get(`${sk}::${binLabel}`);
+    if (avg == null) return 0;
+    return avg - baselineRet.avg;
+  };
+
+  const X: number[][] = [];  // rows of [1, edge_1, …, edge_9]
+  const y: number[] = [];
+  for (const s of samples) {
+    const row = [1];
+    for (const sk of FEATURE_SIGNALS) row.push(edgeFor(sk, s.bins[sk]));
+    X.push(row);
+    y.push(s.forwardRet);
+  }
+
+  const coefVec = solveOLS(X, y);  // length 10: intercept + 9 coefs
+  const yPred = X.map((row) => row.reduce((s, x, i) => s + x * coefVec[i], 0));
+  const residuals = y.map((yi, i) => yi - yPred[i]);
+  const mae = residuals.reduce((s, r) => s + Math.abs(r), 0) / residuals.length;
+  const rmse = Math.sqrt(residuals.reduce((s, r) => s + r * r, 0) / residuals.length);
+  const yMean = y.reduce((s, v) => s + v, 0) / y.length;
+  const ssTot = y.reduce((s, v) => s + (v - yMean) ** 2, 0);
+  const ssRes = residuals.reduce((s, r) => s + r * r, 0);
+  const r2 = 1 - ssRes / ssTot;
+  // Pearson(yPred, y) = sqrt(R²) only when intercept is fit, but compute directly:
+  const yPredMean = yPred.reduce((s, v) => s + v, 0) / yPred.length;
+  let num = 0, dx2 = 0, dy2 = 0;
+  for (let i = 0; i < y.length; i++) {
+    const dx = yPred[i] - yPredMean;
+    const dy = y[i] - yMean;
+    num += dx * dy; dx2 += dx * dx; dy2 += dy * dy;
+  }
+  const pearson = num / Math.sqrt(dx2 * dy2);
+
+  const coefficients: Record<string, number> = {};
+  FEATURE_SIGNALS.forEach((sk, i) => {
+    coefficients[sk] = Math.round(coefVec[i + 1] * 10000) / 10000;
+  });
+
+  console.log("── Magnitude model (OLS on bin-edges → realized 5d %) ──");
+  console.log(`  intercept: ${coefVec[0].toFixed(4)}`);
+  FEATURE_SIGNALS.forEach((sk, i) => {
+    console.log(`  ${sk.padEnd(18)} coef=${coefVec[i + 1] >= 0 ? "+" : ""}${coefVec[i + 1].toFixed(4)}`);
+  });
+  console.log(`  n=${y.length}  MAE=${mae.toFixed(3)}%  RMSE=${rmse.toFixed(3)}%  R²=${r2.toFixed(4)}  pearson=${pearson.toFixed(4)}\n`);
+
+  // Ablation: refit dropping one signal at a time
+  console.log("── Ablation (drop one signal, refit) ──");
+  console.log(`  Full model:        MAE=${mae.toFixed(3)}%  R²=${r2.toFixed(4)}`);
+  for (const drop of FEATURE_SIGNALS) {
+    const kept = FEATURE_SIGNALS.filter((s) => s !== drop);
+    const Xa = samples.map((s) => [1, ...kept.map((sk) => edgeFor(sk, s.bins[sk]))]);
+    const beta = solveOLS(Xa, y);
+    const yhat = Xa.map((row) => row.reduce((s, x, i) => s + x * beta[i], 0));
+    const res = y.map((yi, i) => yi - yhat[i]);
+    const maeA = res.reduce((s, r) => s + Math.abs(r), 0) / res.length;
+    const ssResA = res.reduce((s, r) => s + r * r, 0);
+    const r2A = 1 - ssResA / ssTot;
+    const dMae = maeA - mae;
+    const dR2 = r2A - r2;
+    console.log(
+      `  − ${drop.padEnd(18)} MAE=${maeA.toFixed(3)}% (${dMae >= 0 ? "+" : ""}${dMae.toFixed(4)})  R²=${r2A.toFixed(4)} (${dR2 >= 0 ? "+" : ""}${dR2.toFixed(4)})`,
+    );
+  }
+  console.log("");
+
+  const magnitudeModel = {
+    intercept: Math.round(coefVec[0] * 10000) / 10000,
+    coefficients,
+    featureSignals: FEATURE_SIGNALS,
+    trainN: y.length,
+    mae: Math.round(mae * 1000) / 1000,
+    rmse: Math.round(rmse * 1000) / 1000,
+    r2: Math.round(r2 * 10000) / 10000,
+    pearson: Math.round(pearson * 10000) / 10000,
+  };
+
   const payload = {
     generatedAt: new Date().toISOString(),
     yearsHistory: YEARS,
@@ -324,6 +405,7 @@ async function main() {
     totalSamples: baselineRet.n,
     baselineAvgReturn5d: Math.round(baselineRet.avg * 1000) / 1000,
     signals: output,
+    magnitudeModel,
   };
 
   const outPath = resolve(process.cwd(), "src/data/signal-stats.json");

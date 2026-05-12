@@ -4,12 +4,18 @@ import type { VerdictPayload } from "@/app/api/sentiment/route";
 
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
+// Migration for adding magnitude-model output to existing tables:
+//
+//   alter table public.sentiment_verdict_history
+//     add column if not exists predicted_return_5d numeric;
+//
 // Required Supabase table (run once in the SQL editor):
 //
 //   create table public.sentiment_verdict_history (
 //     date date primary key,
 //     verdict text not null,
 //     expected_return_5d numeric not null,
+//     predicted_return_5d numeric,
 //     edge numeric not null,
 //     agreement_up int not null,
 //     agreement_down int not null,
@@ -32,6 +38,7 @@ export interface HistoryRow {
   date: string;
   verdict: VerdictPayload["verdict"];
   expectedReturn5d: number;
+  predictedReturn5d: number | null;
   edge: number;
   qqqClose: number | null;
   tqqqClose: number | null;
@@ -42,6 +49,10 @@ export interface HistoryRow {
 export interface AccuracyStats {
   totalCalls: number;
   realizedCalls: number;
+  // Magnitude-model performance over realized calls (all verdicts pooled)
+  predictionMae: number | null;     // mean abs error of predictedReturn5d vs realized
+  predictionBias: number | null;    // mean(predicted - realized) — positive = bullish-biased
+  predictionPearson: number | null; // pearson(predicted, realized)
   byVerdict: Record<VerdictPayload["verdict"], {
     n: number;
     avgPredicted: number;
@@ -92,6 +103,7 @@ export async function snapshotVerdict(payload: VerdictPayload): Promise<void> {
     date: lastTradingDay,
     verdict: payload.verdict,
     expected_return_5d: payload.expectedReturn5d,
+    predicted_return_5d: payload.predictedReturn5d,
     edge: payload.edge,
     agreement_up: payload.agreement.up,
     agreement_down: payload.agreement.down,
@@ -168,7 +180,7 @@ export async function backfillRealizedReturns(): Promise<number> {
 export async function loadRecentHistory(limit = 120): Promise<HistoryRow[]> {
   const { data } = await supabase()
     .from("sentiment_verdict_history")
-    .select("date, verdict, expected_return_5d, edge, qqq_close, tqqq_close, realized_return_5d_qqq, realized_return_5d_tqqq")
+    .select("date, verdict, expected_return_5d, predicted_return_5d, edge, qqq_close, tqqq_close, realized_return_5d_qqq, realized_return_5d_tqqq")
     .order("date", { ascending: false })
     .limit(limit);
 
@@ -177,6 +189,7 @@ export async function loadRecentHistory(limit = 120): Promise<HistoryRow[]> {
     date: r.date as string,
     verdict: r.verdict as VerdictPayload["verdict"],
     expectedReturn5d: r.expected_return_5d as number,
+    predictedReturn5d: (r.predicted_return_5d as number | null) ?? null,
     edge: r.edge as number,
     qqqClose: r.qqq_close as number | null,
     tqqqClose: r.tqqq_close as number | null,
@@ -190,6 +203,9 @@ export function computeAccuracy(history: HistoryRow[]): AccuracyStats {
   const stats: AccuracyStats = {
     totalCalls: history.length,
     realizedCalls: 0,
+    predictionMae: null,
+    predictionBias: null,
+    predictionPearson: null,
     byVerdict: {
       "lean-long":  { n: 0, avgPredicted: 0, avgRealizedQqq: 0, avgRealizedTqqq: 0, hitRateQqq: 0 },
       "lean-short": { n: 0, avgPredicted: 0, avgRealizedQqq: 0, avgRealizedTqqq: 0, hitRateQqq: 0 },
@@ -220,6 +236,31 @@ export function computeAccuracy(history: HistoryRow[]): AccuracyStats {
       avgRealizedTqqq: Math.round(avgRealizedTqqq * 1000) / 1000,
       hitRateQqq: Math.round((hits / rows.length) * 1000) / 10,
     };
+  }
+
+  // Magnitude-model performance (pooled across all verdicts)
+  const realized = history.filter(
+    (h) => h.predictedReturn5d != null && h.realizedReturn5dQqq != null,
+  );
+  if (realized.length > 0) {
+    const errs = realized.map((r) => (r.predictedReturn5d as number) - (r.realizedReturn5dQqq as number));
+    const mae = errs.reduce((s, e) => s + Math.abs(e), 0) / errs.length;
+    const bias = errs.reduce((s, e) => s + e, 0) / errs.length;
+    stats.predictionMae = Math.round(mae * 1000) / 1000;
+    stats.predictionBias = Math.round(bias * 1000) / 1000;
+    if (realized.length >= 3) {
+      const xs = realized.map((r) => r.predictedReturn5d as number);
+      const ys = realized.map((r) => r.realizedReturn5dQqq as number);
+      const mx = xs.reduce((s, v) => s + v, 0) / xs.length;
+      const my = ys.reduce((s, v) => s + v, 0) / ys.length;
+      let num = 0, dx2 = 0, dy2 = 0;
+      for (let i = 0; i < xs.length; i++) {
+        const dx = xs[i] - mx, dy = ys[i] - my;
+        num += dx * dy; dx2 += dx * dx; dy2 += dy * dy;
+      }
+      const denom = Math.sqrt(dx2 * dy2);
+      stats.predictionPearson = denom > 0 ? Math.round((num / denom) * 10000) / 10000 : null;
+    }
   }
 
   return stats;

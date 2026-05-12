@@ -40,7 +40,7 @@ function supabase() {
 // ── load signal stats ──────────────────────────────────────────────────────
 
 type StatBin = { label: string; count: number; avgReturn5d: number; hitRateUp: number; lowConfidence: boolean };
-type SignalKey = "vixTerm" | "vixSpike" | "rsi2InTrend" | "pctAbove200ma" | "realizedVol20Pct" | "hygSpyDiv" | "tnxMom20" | "tltMom20" | "skewLevel";
+type SignalKey = "vixTerm" | "vixSpike" | "qqq1dRet" | "pctAbove200ma" | "realizedVol20Pct" | "tnxMom20" | "skewLevel";
 type Stats = {
   baselineAvgReturn5d: number;
   yearsHistory: number;
@@ -75,12 +75,12 @@ function vixSpikeBin(v: number): string {
   return ">15% (spike)";
 }
 
-function rsi2Bin(rsi2: number | null, inUptrend: boolean): string | null {
-  if (!inUptrend) return "Downtrend (any RSI)";
-  if (rsi2 == null) return null;
-  if (rsi2 < 10) return "Uptrend, RSI(2) <10 (oversold)";
-  if (rsi2 > 90) return "Uptrend, RSI(2) >90 (overbought)";
-  return "Uptrend, RSI(2) 10–90";
+function qqq1dRetBin(pct: number): string {
+  if (pct < -2.0) return "<-2% (big down)";
+  if (pct < -0.5) return "-2% – -0.5% (down)";
+  if (pct <  0.5) return "-0.5% – +0.5% (flat)";
+  if (pct <  2.0) return "+0.5% – +2% (up)";
+  return ">+2% (big up)";
 }
 
 function pctAbove200maBin(pct: number): string {
@@ -107,14 +107,6 @@ function tnxMom20Bin(change: number): string {
   return ">+0.30 (rates rising fast)";
 }
 
-function tltMom20Bin(pct: number): string {
-  if (pct < -4.0) return "<-4% (bonds selling off)";
-  if (pct < -1.0) return "-4% – -1%";
-  if (pct <  1.0) return "-1% – +1% (flat)";
-  if (pct <  3.0) return "+1% – +3%";
-  return ">+3% (bonds rallying)";
-}
-
 function skewLevelBin(v: number): string {
   if (v < 130) return "<130 (complacent)";
   if (v < 140) return "130 – 140 (moderate hedge)";
@@ -122,29 +114,7 @@ function skewLevelBin(v: number): string {
   return ">150 (heavy protection)";
 }
 
-function hygSpyDivBin(v: number): string {
-  if (v < -1.5) return "<-1.5% (credit lagging)";
-  if (v < -0.5) return "-1.5% – -0.5%";
-  if (v < 0.5)  return "-0.5% – 0.5%";
-  if (v < 1.5)  return "0.5% – 1.5%";
-  return ">1.5% (credit leading)";
-}
-
 // ── indicator math ─────────────────────────────────────────────────────────
-
-function rsi(closes: number[], idx: number, period: number): number | null {
-  if (idx < period) return null;
-  let gain = 0, loss = 0;
-  for (let i = idx - period + 1; i <= idx; i++) {
-    const diff = closes[i] - closes[i - 1];
-    if (diff > 0) gain += diff;
-    else loss += Math.abs(diff);
-  }
-  gain /= period;
-  loss /= period;
-  if (loss === 0) return 100;
-  return 100 - 100 / (1 + gain / loss);
-}
 
 function sma(closes: number[], idx: number, period: number): number | null {
   if (idx < period - 1) return null;
@@ -249,20 +219,17 @@ async function main() {
   console.log(`Backfilling ${YEARS}y of history${DRY_RUN ? " [DRY RUN — no writes]" : ""}...`);
 
   console.log("Fetching price data...");
-  const [qqq, vix, vix3m, hyg, spy, tqqq, tnx, tlt, skew] = await Promise.all([
+  const [qqq, vix, vix3m, tqqq, tnx, skew] = await Promise.all([
     fetchDaily("QQQ",    YEARS),
     fetchDaily("^VIX",   YEARS),
     fetchDaily("^VIX3M", YEARS),
-    fetchDaily("HYG",    YEARS),
-    fetchDaily("SPY",    YEARS),
     fetchDaily("TQQQ",   YEARS),
     fetchDaily("^TNX",   YEARS),
-    fetchDaily("TLT",    YEARS),
     fetchDaily("^SKEW",  YEARS),
   ]);
 
   // Align without SKEW so missing SKEW dates don't drop rows
-  const aligned = alignByDate({ QQQ: qqq, VIX: vix, VIX3M: vix3m, HYG: hyg, SPY: spy, TNX: tnx, TLT: tlt });
+  const aligned = alignByDate({ QQQ: qqq, VIX: vix, VIX3M: vix3m, TNX: tnx });
   const skewMap = new Map(skew.map((d) => [d.date, d.close]));
   // TQQQ may not share all dates with the others (e.g. index rebalance days), so look it up separately
   const tqqqMap = new Map(tqqq.map((d) => [d.date, d.close]));
@@ -293,10 +260,7 @@ async function main() {
   const qqqCloses = aligned.map((d) => d.values.QQQ);
   const vixCloses = aligned.map((d) => d.values.VIX);
   const vix3mCloses = aligned.map((d) => d.values.VIX3M);
-  const hygCloses = aligned.map((d) => d.values.HYG);
-  const spyCloses = aligned.map((d) => d.values.SPY);
   const tnxCloses  = aligned.map((d) => d.values.TNX);
-  const tltCloses  = aligned.map((d) => d.values.TLT);
 
   // Pre-compute 20d realized vol (annualized %) for percentile calc
   const realizedVol20: (number | null)[] = qqqCloses.map((_, i) => {
@@ -315,13 +279,9 @@ async function main() {
     // VIX 1-day spike
     const spike = ((vixCloses[i] - vixCloses[i - 1]) / vixCloses[i - 1]) * 100;
 
-    // 200d MA & trend
+    // 200d MA
     const ma200 = sma(qqqCloses, i, 200);
     const pctAbove = ma200 != null ? ((values.QQQ / ma200) - 1) * 100 : null;
-    const inUptrend = ma200 != null && values.QQQ > ma200;
-
-    // RSI(2)
-    const rsi2 = rsi(qqqCloses, i, 2);
 
     // 20d realized vol percentile vs trailing 252d
     let rvPct: number | null = null;
@@ -339,24 +299,17 @@ async function main() {
       }
     }
 
-    // HYG − SPY 5d divergence
-    const hyg5d = ((hygCloses[i] - hygCloses[i - 5]) / hygCloses[i - 5]) * 100;
-    const spy5d = ((spyCloses[i] - spyCloses[i - 5]) / spyCloses[i - 5]) * 100;
-    const hygDiv = hyg5d - spy5d;
-
     const tnxMom = i >= 20 ? tnxCloses[i] - tnxCloses[i - 20] : null;
-    const tltMom = i >= 20 ? ((tltCloses[i] - tltCloses[i - 20]) / tltCloses[i - 20]) * 100 : null;
 
+    const qqq1dRet = ((values.QQQ - qqqCloses[i - 1]) / qqqCloses[i - 1]) * 100;
     const signals: SignalReading[] = [
       buildReading("vixTerm",          "VIX / VIX3M",        vixTermBin(term)),
       buildReading("vixSpike",         "VIX 1-day change",   vixSpikeBin(spike)),
+      buildReading("qqq1dRet",         "QQQ 1-day return",   qqq1dRetBin(qqq1dRet)),
       buildReading("pctAbove200ma",    "QQQ vs 200d MA",     pctAbove != null ? pctAbove200maBin(pctAbove) : null),
       buildReading("realizedVol20Pct", "20d vol percentile", rvPct != null ? realizedVol20PctBin(rvPct) : null),
-      buildReading("rsi2InTrend",      "RSI(2) + trend",     ma200 != null ? rsi2Bin(rsi2, inUptrend) : null),
-      buildReading("hygSpyDiv",        "HYG − SPY (5d)",     hygSpyDivBin(hygDiv)),
       buildReading("tnxMom20",         "10y yield 20d Δ",    tnxMom != null ? tnxMom20Bin(tnxMom) : null),
-      buildReading("tltMom20",         "TLT 20d return",     tltMom != null ? tltMom20Bin(tltMom) : null),
-      buildReading("skewLevel",        "CBOE SKEW",          (() => { const sv = skewMap.get(date); return sv != null ? skewLevelBin(sv) : null; })(), true),
+      buildReading("skewLevel",        "CBOE SKEW",          (() => { const sv = skewMap.get(date); return sv != null ? skewLevelBin(sv) : null; })()),
     ];
 
     const { verdict, expectedReturn5d, edge, agreement } = buildVerdict(signals);

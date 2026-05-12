@@ -11,10 +11,15 @@ import {
   Box,
   Table,
   Tooltip,
+  SegmentedControl,
 } from "@mantine/core";
 import { IconAlertTriangle, IconInfoCircle } from "@tabler/icons-react";
 import { BarChart, LineChart } from "@mantine/charts";
+
+// trading-day counts per range
+const RANGE_DAYS: Record<string, number> = { "1mo": 21, "3mo": 63, "6mo": 126, "1yr": 252 };
 import type { VerdictPayload, SignalReading } from "@/app/api/sentiment/route";
+import type { MacroEvent } from "@/lib/macroCalendar";
 import type { AccuracyStats, HistoryRow } from "@/lib/sentimentHistory";
 import { CARD_RADIUS } from "@/lib/cardStyles";
 import { useCardBg } from "@/lib/hooks/useCardBg";
@@ -59,6 +64,49 @@ function CacheAge({ cachedAt }: { cachedAt: number }) {
   );
 }
 
+// ── event warning card ────────────────────────────────────────────────────
+
+function VolWarningCard({ signals }: { signals: SignalReading[] }) {
+  const vol = signals.find((s) => s.key === "realizedVol20Pct");
+  const bin = vol?.binLabel ?? "";
+  if (!bin.startsWith(">90") && !bin.startsWith("70 – 90")) return null;
+  const extreme = bin.startsWith(">90");
+  const bg = extreme ? "rgba(239,68,68,0.08)" : "rgba(234,179,8,0.06)";
+  const border = extreme ? "1px solid rgba(239,68,68,0.3)" : "1px solid rgba(234,179,8,0.2)";
+  return (
+    <Paper p="md" radius={CARD_RADIUS} style={{ background: bg, border }}>
+      <Group gap="xs" align="center">
+        <IconAlertTriangle size={16} color={extreme ? "rgb(239,68,68)" : "rgb(234,179,8)"} />
+        <Text size="sm" fw={600} c={extreme ? "red.4" : "yellow.4"}>
+          {extreme ? "Extreme volatility regime" : "Elevated volatility regime"}
+        </Text>
+      </Group>
+      <Text size="xs" c="dimmed" mt={4}>
+        {extreme
+          ? "Vol at >90th pctile — model error is ~5× larger here. All 5 worst predictions occurred in this regime."
+          : "Vol at 70–90th pctile — model less reliable than normal. Consider reduced size or skip."}
+      </Text>
+    </Paper>
+  );
+}
+
+function EventWarningCard({ events }: { events: MacroEvent[] }) {
+  if (events.length === 0) return null;
+  const bg = "rgba(234, 179, 8, 0.08)";
+  const labels = events.map((e) => e.label).join(" · ");
+  return (
+    <Paper p="md" radius={CARD_RADIUS} style={{ background: bg, border: "1px solid rgba(234,179,8,0.3)" }}>
+      <Group gap="xs" align="center">
+        <IconAlertTriangle size={16} color="rgb(234,179,8)" />
+        <Text size="sm" fw={600} c="yellow.4">
+          High-impact event{events.length > 1 ? "s" : ""} this week
+        </Text>
+      </Group>
+      <Text size="xs" c="dimmed" mt={4}>{labels} — consider elevated uncertainty when selling options</Text>
+    </Paper>
+  );
+}
+
 // ── verdict header ────────────────────────────────────────────────────────
 
 function VerdictHeader({ data }: { data: VerdictPayload }) {
@@ -93,10 +141,10 @@ function VerdictHeader({ data }: { data: VerdictPayload }) {
         >
           <Stack gap={4} align="center" style={{ minWidth: 80 }}>
             <Tooltip
-              label="Sample-weighted average of historical 5-day QQQ returns across the bins each signal currently sits in. Treat as a directional summary, NOT a forecast of magnitude — backtest pearson with realized 5d return is ~0.02."
+              label={`OLS magnitude model — predicted QQQ 5-day return. Trained on ~5y of history. In-sample MAE ${data.modelMae.toFixed(2)}%, pearson ${data.modelPearson.toFixed(2)}. Out-of-sample accuracy will be lower; the Track Record below shows live performance.`}
               withArrow
               multiline
-              maw={280}
+              maw={300}
             >
               <Text
                 size="xs"
@@ -106,11 +154,11 @@ function VerdictHeader({ data }: { data: VerdictPayload }) {
                 h={16}
                 style={{ cursor: "help" }}
               >
-                Signal mean
+                Predicted 5d
               </Text>
             </Tooltip>
             <Text size="xl" fw={700} c={`${color}.4`} ta="center">
-              {formatPct(data.expectedReturn5d)}
+              {formatPct(data.predictedReturn5d)}
             </Text>
           </Stack>
           <Stack gap={4} align="center" style={{ minWidth: 80 }}>
@@ -179,7 +227,7 @@ function VerdictHeader({ data }: { data: VerdictPayload }) {
           </Stack>
         </Group>
         <Text size="xs" c="dimmed" mt="sm" ta="center" maw={560}>
-          Bullish/Bearish fires when ≥3 of 8 core signals hit extreme-edge bins
+          Bullish/Bearish fires when ≥3 of 6 core signals hit extreme-edge bins
           (|edge| &gt; 0.3%) in the same direction. Hit = realized 5d return
           &gt;+1.5% or &lt;−1.5% respectively.
         </Text>
@@ -191,6 +239,8 @@ function VerdictHeader({ data }: { data: VerdictPayload }) {
 // ── signal descriptions ───────────────────────────────────────────────────
 
 const SIGNAL_DESCRIPTIONS: Record<string, string> = {
+  "QQQ 1-day return":
+    "How much QQQ moved today. Testing whether large down days lead to mean-reversion bounces over the next 5 days.",
   "VIX / VIX3M":
     "Compares short-term fear (VIX) to longer-term fear (VIX3M). Low value = market is calm. High value = market is panicked. Extreme panic often leads to bounces.",
   "VIX 1-day change":
@@ -199,14 +249,8 @@ const SIGNAL_DESCRIPTIONS: Record<string, string> = {
     "How far current price is above/below its 200-day average. Modestly above (0–10%) is the strongest historical bin; far below or far above both underperform.",
   "20d vol percentile":
     "Where today's 20-day realized volatility ranks against the past year. Very calm regimes (bottom 15th pctile) historically had the strongest 5d forward returns.",
-  "RSI(2) + trend":
-    "Measures how stretched the price is (overbought or oversold) over 2 days. In an uptrend, very stretched-down = good time to bounce back up. In a downtrend = weak.",
-  "HYG − SPY (5d)":
-    "Compares high-risk bonds (HYG) to stock market (SPY) over 5 days. Bonds falling faster = investors are scared (bearish). Bonds rising faster = investors are confident (bullish).",
   "10y yield 20d Δ":
     "Change in the 10-year Treasury yield over 20 trading days (in percentage points). Rising rates are a headwind for QQQ — the strongest bearish bin in backtest. Falling rates are a tailwind.",
-  "TLT 20d return":
-    "20-day return of TLT (long-duration Treasury ETF). Bonds rallying means yields are dropping and/or risk-off money is rotating — historically a tailwind for a QQQ bounce.",
   "CBOE SKEW":
     "CBOE SKEW Index measures the relative cost of out-of-money puts vs calls. 130–140 (moderate hedging) is the historical sweet spot for forward returns. Below 130 = complacency (more downside risk). Above 150 = heavy tail hedging (dampened upside).",
 };
@@ -270,7 +314,7 @@ function SignalRow({ s }: { s: SignalReading }) {
             n={s.sampleCount}
           </Text>
           {s.informational && (
-            <Tooltip label="Context only — not counted toward the verdict" withArrow>
+            <Tooltip label="Not counted toward the Bullish/Bearish vote, but included in the magnitude model" withArrow multiline maw={220}>
               <Badge color="blue" variant="light" size="xs">context</Badge>
             </Tooltip>
           )}
@@ -410,6 +454,63 @@ function SignalEdgeChart({ signals }: { signals: SignalReading[] }) {
   );
 }
 
+// ── recent calls chart ────────────────────────────────────────────────────
+
+function RecentCallsChart({ history }: { history: HistoryRow[] }) {
+  const [range, setRange] = useState("3mo");
+  const days = RANGE_DAYS[range] ?? 63;
+  const slice = [...history].slice(0, days).reverse();
+
+  const chartData = slice.map((h) => {
+    const [, mm, dd] = h.date.split("-");
+    return {
+      date: `${parseInt(mm, 10)}/${parseInt(dd, 10)}`,
+      "Predicted %": h.predictedReturn5d != null
+        ? Math.round(h.predictedReturn5d * 100) / 100
+        : null,
+      "Realized %": h.realizedReturn5dQqq != null
+        ? Math.round(Math.max(-8, Math.min(8, h.realizedReturn5dQqq)) * 100) / 100
+        : null,
+    };
+  });
+
+  return (
+    <>
+      <Group justify="space-between" align="center" mt="md" mb={4}>
+        <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: "0.12em" }}>
+          Recent calls
+        </Text>
+        <SegmentedControl
+          size="xs"
+          value={range}
+          onChange={setRange}
+          data={["1mo", "3mo", "6mo", "1yr"]}
+        />
+      </Group>
+      <LineChart
+        h={220}
+        data={chartData}
+        dataKey="date"
+        series={[
+          { name: "Realized %", color: "teal.4" },
+          { name: "Predicted %", color: "blue.4" },
+        ]}
+        withDots={false}
+        curveType="monotone"
+        connectNulls={false}
+        strokeWidth={1}
+        valueFormatter={(v) => `${v > 0 ? "+" : ""}${v.toFixed(2)}%`}
+        yAxisProps={{ domain: [-6, 6] }}
+        referenceLines={[{ y: 0, color: "gray.6", strokeDasharray: "4 4" }]}
+        withLegend
+      />
+      <Text size="10px" c="dimmed" mt={4}>
+        Predicted = OLS magnitude model output · Realized clipped to ±8%
+      </Text>
+    </>
+  );
+}
+
 // ── accuracy panel ────────────────────────────────────────────────────────
 
 const VERDICT_META: Record<
@@ -473,6 +574,62 @@ function AccuracyPanel({
           {accuracy.realizedCalls} of {accuracy.totalCalls} calls have realized
         </Text>
       </Group>
+
+      {accuracy.predictionMae != null && (
+        <Group gap="lg" mb="md" wrap="wrap">
+          <Tooltip
+            label="Mean absolute error of the magnitude model's predicted 5d return vs realized. Lower = more accurate."
+            withArrow
+            multiline
+            maw={260}
+          >
+            <Stack gap={2} style={{ cursor: "help" }}>
+              <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                MAE
+              </Text>
+              <Text size="lg" fw={700}>
+                {formatPct(accuracy.predictionMae, false)}
+              </Text>
+            </Stack>
+          </Tooltip>
+          <Tooltip
+            label="Mean(predicted − realized). Positive = model runs bullish-biased; negative = bearish-biased."
+            withArrow
+            multiline
+            maw={260}
+          >
+            <Stack gap={2} style={{ cursor: "help" }}>
+              <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                Bias
+              </Text>
+              <Text
+                size="lg"
+                fw={700}
+                c={accuracy.predictionBias != null && accuracy.predictionBias > 0 ? "green.4" : "red.4"}
+              >
+                {formatPct(accuracy.predictionBias)}
+              </Text>
+            </Stack>
+          </Tooltip>
+          {accuracy.predictionPearson != null && (
+            <Tooltip
+              label="Live pearson correlation between predicted and realized 5d returns. >0 = some signal, 0 = none, <0 = anti-signal."
+              withArrow
+              multiline
+              maw={260}
+            >
+              <Stack gap={2} style={{ cursor: "help" }}>
+                <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                  Pearson
+                </Text>
+                <Text size="lg" fw={700}>
+                  {accuracy.predictionPearson.toFixed(2)}
+                </Text>
+              </Stack>
+            </Tooltip>
+          )}
+        </Group>
+      )}
 
       <Box style={{ overflowX: "auto" }}>
         <Table verticalSpacing="xs">
@@ -581,57 +738,7 @@ function AccuracyPanel({
       </Box>
 
       {history.length > 0 && (
-        <>
-          <Text
-            size="xs"
-            c="dimmed"
-            tt="uppercase"
-            fw={600}
-            mt="md"
-            mb={4}
-            style={{ letterSpacing: "0.12em" }}
-          >
-            Recent calls
-          </Text>
-          <LineChart
-            h={220}
-            data={[...history].reverse().map((h) => {
-              const [, mm, dd] = h.date.split("-");
-              const realized = h.realizedReturn5dQqq;
-              // Scale edge ×8 so a strong-bullish signal (+0.35% edge) reaches
-              // ~+2.8% — clearly visible against the ±1.5% threshold bands.
-              const scaledPrediction = Math.round(h.edge * 8 * 100) / 100;
-              return {
-                date: `${parseInt(mm, 10)}/${parseInt(dd, 10)}`,
-                "Signal (×8)": scaledPrediction,
-                "Realized %":
-                  realized != null
-                    ? Math.round(Math.max(-8, Math.min(8, realized)) * 100) / 100
-                    : null,
-              };
-            })}
-            dataKey="date"
-            series={[
-              { name: "Realized %", color: "teal.4" },
-              { name: "Signal (×8)", color: "blue.4", strokeDasharray: "5 5" },
-            ]}
-            withDots={false}
-            curveType="monotone"
-            connectNulls={false}
-            valueFormatter={(v) => `${v > 0 ? "+" : ""}${v.toFixed(2)}%`}
-            yAxisProps={{ domain: [-4, 4] }}
-            referenceLines={[
-              { y: 0, color: "gray.6", strokeDasharray: "4 4" },
-              { y: 1.5, color: "green.9", strokeDasharray: "3 3" },
-              { y: -1.5, color: "red.9", strokeDasharray: "3 3" },
-            ]}
-            withLegend
-          />
-          <Text size="10px" c="dimmed" mt={4}>
-            Signal edge scaled ×8 for visibility — when it crosses ±1.5% lines,
-            a Bullish/Bearish verdict fired · Realized clipped to ±8%
-          </Text>
-        </>
+        <RecentCallsChart history={history} />
       )}
     </Paper>
   );
@@ -680,6 +787,8 @@ export default function SentimentPage() {
       ) : data ? (
         <>
           <VerdictHeader data={data} />
+          <VolWarningCard signals={data.signals} />
+          <EventWarningCard events={data.upcomingEvents} />
           <SignalTable signals={data.signals} />
           <SignalEdgeChart signals={data.signals} />
           {data.accuracy && (

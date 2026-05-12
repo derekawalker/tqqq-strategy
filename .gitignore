@@ -44,4 +44,5 @@ tokens.json
 *.tsbuildinfo
 next-env.d.ts
 
-certificatessrc/data/tree-model.json
+certificates
+src/data/tree-model.json

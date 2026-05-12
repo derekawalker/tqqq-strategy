@@ -1,5 +1,6 @@
 import YahooFinance from "yahoo-finance2";
 import statsData from "@/data/signal-stats.json";
+import { getUpcomingEvents, type MacroEvent } from "@/lib/macroCalendar";
 import {
   snapshotVerdict,
   backfillRealizedReturns,
@@ -13,7 +14,7 @@ const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
 // ── types ──────────────────────────────────────────────────────────────────
 
-export type SignalKey = "vixTerm" | "vixSpike" | "rsi2InTrend" | "pctAbove200ma" | "realizedVol20Pct" | "hygSpyDiv" | "tnxMom20" | "tltMom20" | "skewLevel";
+export type SignalKey = "vixTerm" | "vixSpike" | "qqq1dRet" | "pctAbove200ma" | "realizedVol20Pct" | "tnxMom20" | "skewLevel";
 
 export interface SignalReading {
   key: SignalKey;
@@ -31,13 +32,17 @@ export interface SignalReading {
 
 export interface VerdictPayload {
   cachedAt: number;
+  upcomingEvents: MacroEvent[];    // FOMC/CPI events in the next 5 trading days
   baselineAvgReturn5d: number;
   yearsHistory: number;
   totalSamples: number;
   verdict: "lean-long" | "lean-short" | "chop";
   verdictLabel: string;
-  expectedReturn5d: number;      // signal-weighted avg of bin returns
-  edge: number;                  // expectedReturn5d - baseline
+  expectedReturn5d: number;      // signal-weighted avg of bin returns (legacy)
+  predictedReturn5d: number;     // OLS magnitude model output — headline forecast
+  modelMae: number;              // training MAE of the magnitude model (in-sample)
+  modelPearson: number;          // training pearson of the magnitude model (in-sample)
+  edge: number;                  // expectedReturn5d - baseline (legacy)
   agreement: { up: number; down: number; neutral: number };
   signals: SignalReading[];
   accuracy: AccuracyStats | null;
@@ -47,7 +52,20 @@ export interface VerdictPayload {
 // ── stats lookup ──────────────────────────────────────────────────────────
 
 type StatBin = { label: string; count: number; avgReturn5d: number; hitRateUp: number; lowConfidence: boolean };
-type Stats = typeof statsData & { signals: Record<SignalKey, StatBin[]> };
+type MagnitudeModel = {
+  intercept: number;
+  coefficients: Record<SignalKey, number>;
+  featureSignals: SignalKey[];
+  trainN: number;
+  mae: number;
+  rmse: number;
+  r2: number;
+  pearson: number;
+};
+type Stats = typeof statsData & {
+  signals: Record<SignalKey, StatBin[]>;
+  magnitudeModel: MagnitudeModel;
+};
 const STATS: Stats = statsData as Stats;
 
 function lookup(sk: SignalKey, binLabel: string | null): StatBin | null {
@@ -73,12 +91,12 @@ function vixSpikeBin(v: number): string {
   return ">15% (spike)";
 }
 
-function rsi2Bin(rsi2: number | null, inUptrend: boolean): string | null {
-  if (!inUptrend) return "Downtrend (any RSI)";
-  if (rsi2 == null) return null;
-  if (rsi2 < 10) return "Uptrend, RSI(2) <10 (oversold)";
-  if (rsi2 > 90) return "Uptrend, RSI(2) >90 (overbought)";
-  return "Uptrend, RSI(2) 10–90";
+function qqq1dRetBin(pct: number): string {
+  if (pct < -2.0) return "<-2% (big down)";
+  if (pct < -0.5) return "-2% – -0.5% (down)";
+  if (pct <  0.5) return "-0.5% – +0.5% (flat)";
+  if (pct <  2.0) return "+0.5% – +2% (up)";
+  return ">+2% (big up)";
 }
 
 function pctAbove200maBin(pct: number): string {
@@ -105,14 +123,6 @@ function tnxMom20Bin(change: number): string {
   return ">+0.30 (rates rising fast)";
 }
 
-function tltMom20Bin(pct: number): string {
-  if (pct < -4.0) return "<-4% (bonds selling off)";
-  if (pct < -1.0) return "-4% – -1%";
-  if (pct <  1.0) return "-1% – +1% (flat)";
-  if (pct <  3.0) return "+1% – +3%";
-  return ">+3% (bonds rallying)";
-}
-
 function skewLevelBin(v: number): string {
   if (v < 130) return "<130 (complacent)";
   if (v < 140) return "130 – 140 (moderate hedge)";
@@ -120,31 +130,7 @@ function skewLevelBin(v: number): string {
   return ">150 (heavy protection)";
 }
 
-function hygSpyDivBin(v: number): string {
-  if (v < -1.5) return "<-1.5% (credit lagging)";
-  if (v < -0.5) return "-1.5% – -0.5%";
-  if (v < 0.5)  return "-0.5% – 0.5%";
-  if (v < 1.5)  return "0.5% – 1.5%";
-  return ">1.5% (credit leading)";
-}
-
 // ── indicator math ────────────────────────────────────────────────────────
-
-function rsi(closes: number[], period: number): number | null {
-  const n = closes.length;
-  if (n < period + 1) return null;
-  let gain = 0;
-  let loss = 0;
-  for (let i = n - period; i < n; i++) {
-    const diff = closes[i] - closes[i - 1];
-    if (diff > 0) gain += diff;
-    else loss += Math.abs(diff);
-  }
-  gain /= period;
-  loss /= period;
-  if (loss === 0) return 100;
-  return 100 - 100 / (1 + gain / loss);
-}
 
 function sma(closes: number[], period: number): number | null {
   if (closes.length < period) return null;
@@ -203,6 +189,20 @@ function buildReading(
 // carry weak directional signal at the extremes only.
 const STRONG_EDGE = 0.3;
 
+// OLS magnitude model: predicted 5d return = intercept + Σ coef_k * bin_edge_k
+// Missing signals contribute zero (model treats absent signal as no edge).
+function predictMagnitude(signals: SignalReading[]): number {
+  const model = STATS.magnitudeModel;
+  let sum = model.intercept;
+  const byKey = new Map(signals.map((s) => [s.key, s]));
+  for (const sk of model.featureSignals) {
+    const s = byKey.get(sk);
+    const edge = s?.vsBaseline ?? 0;
+    sum += model.coefficients[sk] * edge;
+  }
+  return Math.round(sum * 1000) / 1000;
+}
+
 function buildVerdict(signals: SignalReading[]): {
   verdict: VerdictPayload["verdict"];
   verdictLabel: string;
@@ -259,14 +259,11 @@ export async function GET() {
     // Need 273 trading days (252d vol-percentile window + 20d warmup); pull 500 cal days.
     const period1 = new Date(Date.now() - 500 * 24 * 60 * 60 * 1000);
 
-    const [vixR, vix3mR, qqqR, hygR, spyR, tnxR, tltR, skewR] = await Promise.allSettled([
+    const [vixR, vix3mR, qqqR, tnxR, skewR] = await Promise.allSettled([
       yf.chart("^VIX",   { period1, interval: "1d" }),
       yf.chart("^VIX3M", { period1, interval: "1d" }),
       yf.chart("QQQ",    { period1, interval: "1d" }),
-      yf.chart("HYG",    { period1, interval: "1d" }),
-      yf.chart("SPY",    { period1, interval: "1d" }),
       yf.chart("^TNX",   { period1, interval: "1d" }),
-      yf.chart("TLT",    { period1, interval: "1d" }),
       yf.chart("^SKEW",  { period1, interval: "1d" }),
     ]);
 
@@ -278,11 +275,15 @@ export async function GET() {
     const vix   = closes(vixR);
     const vix3m = closes(vix3mR);
     const qqq   = closes(qqqR);
-    const hyg   = closes(hygR);
-    const spy   = closes(spyR);
     const tnx   = closes(tnxR);
-    const tlt   = closes(tltR);
     const skew  = closes(skewR);
+
+    // Trading day strings for upcoming-event lookup
+    const qqqDates: string[] = qqqR.status === "fulfilled"
+      ? qqqR.value.quotes.filter((q) => q.date != null).map((q) => (q.date as Date).toISOString().slice(0, 10))
+      : [];
+    const lastTradingDate = qqqDates[qqqDates.length - 1] ?? new Date().toISOString().slice(0, 10);
+    const upcomingEvents = getUpcomingEvents(qqqDates, lastTradingDate, 5);
 
     const readings: SignalReading[] = [];
 
@@ -318,10 +319,23 @@ export async function GET() {
       readings.push(buildReading("vixSpike", "VIX 1-day change", null, "—", null));
     }
 
-    // 3) QQQ vs 200d MA (trend filter — needed first for RSI in-trend signal)
+    // 3) QQQ 1-day return
+    if (qqq.length >= 2) {
+      const ret1d = ((qqq[qqq.length - 1] - qqq[qqq.length - 2]) / qqq[qqq.length - 2]) * 100;
+      readings.push(buildReading(
+        "qqq1dRet",
+        "QQQ 1-day return",
+        ret1d,
+        `${ret1d >= 0 ? "+" : ""}${ret1d.toFixed(2)}%`,
+        qqq1dRetBin(ret1d),
+      ));
+    } else {
+      readings.push(buildReading("qqq1dRet", "QQQ 1-day return", null, "—", null));
+    }
+
+    // 4) QQQ vs 200d MA
     const ma200 = sma(qqq, 200);
     const last = qqq[qqq.length - 1] ?? null;
-    const inUptrend = ma200 != null && last != null && last > ma200;
     if (ma200 != null && last != null) {
       const pct = ((last / ma200) - 1) * 100;
       readings.push(buildReading(
@@ -349,37 +363,7 @@ export async function GET() {
       readings.push(buildReading("realizedVol20Pct", "20d vol percentile", null, "—", null));
     }
 
-    // 4) RSI(2) within trend context
-    const rsi2 = rsi(qqq, 2);
-    if (rsi2 != null && ma200 != null) {
-      readings.push(buildReading(
-        "rsi2InTrend",
-        "RSI(2) + trend",
-        rsi2,
-        inUptrend ? `${rsi2.toFixed(1)} (uptrend)` : `${rsi2.toFixed(1)} (downtrend)`,
-        rsi2Bin(rsi2, inUptrend),
-      ));
-    } else {
-      readings.push(buildReading("rsi2InTrend", "RSI(2) + trend", null, "—", null));
-    }
-
-    // 5) HYG 5d − SPY 5d
-    if (hyg.length > 5 && spy.length > 5) {
-      const hyg5d = ((hyg[hyg.length - 1] - hyg[hyg.length - 6]) / hyg[hyg.length - 6]) * 100;
-      const spy5d = ((spy[spy.length - 1] - spy[spy.length - 6]) / spy[spy.length - 6]) * 100;
-      const div = hyg5d - spy5d;
-      readings.push(buildReading(
-        "hygSpyDiv",
-        "HYG − SPY (5d)",
-        div,
-        `${div >= 0 ? "+" : ""}${div.toFixed(2)}%`,
-        hygSpyDivBin(div),
-      ));
-    } else {
-      readings.push(buildReading("hygSpyDiv", "HYG − SPY (5d)", null, "—", null));
-    }
-
-    // 6) 10y yield 20d change — rising rates = headwind for QQQ (strongest bearish bin: −0.92% edge)
+    // 4) 10y yield 20d change — rising rates = headwind for QQQ (strongest bearish bin: −0.92% edge)
     if (tnx.length >= 21) {
       const change = tnx[tnx.length - 1] - tnx[tnx.length - 21];
       readings.push(buildReading(
@@ -391,56 +375,51 @@ export async function GET() {
       readings.push(buildReading("tnxMom20", "10y yield 20d Δ", null, "—", null));
     }
 
-    // 7) TLT 20d return — bonds rallying = tailwind (rate drop or flight to safety)
-    if (tlt.length >= 21) {
-      const tltMom = ((tlt[tlt.length - 1] - tlt[tlt.length - 21]) / tlt[tlt.length - 21]) * 100;
-      readings.push(buildReading(
-        "tltMom20", "TLT 20d return", tltMom,
-        `${tltMom >= 0 ? "+" : ""}${tltMom.toFixed(2)}%`,
-        tltMom20Bin(tltMom),
-      ));
-    } else {
-      readings.push(buildReading("tltMom20", "TLT 20d return", null, "—", null));
-    }
-
-    // 8) CBOE SKEW — informational context, not counted toward verdict
-    //    (correlated with existing signals; adding to vote pool dilutes precision)
+    // 7) CBOE SKEW — second-strongest individual signal (r=0.089), counts toward verdict
     if (skew.length > 0) {
       const sv = skew[skew.length - 1];
       readings.push(buildReading(
         "skewLevel", "CBOE SKEW", sv,
         sv.toFixed(1),
-        skewLevelBin(sv), true,
+        skewLevelBin(sv),
       ));
     } else {
-      readings.push(buildReading("skewLevel", "CBOE SKEW", null, "—", null, true));
+      readings.push(buildReading("skewLevel", "CBOE SKEW", null, "—", null));
     }
 
     const verdict = buildVerdict(readings);
+    const predictedReturn5d = predictMagnitude(readings);
 
     // Build base payload (without accuracy yet)
     const basePayload: Omit<VerdictPayload, "accuracy" | "recentHistory"> = {
       cachedAt: Date.now(),
+      upcomingEvents,
       baselineAvgReturn5d: STATS.baselineAvgReturn5d,
       yearsHistory: STATS.yearsHistory,
       totalSamples: STATS.totalSamples,
       ...verdict,
+      predictedReturn5d,
+      modelMae: STATS.magnitudeModel.mae,
+      modelPearson: STATS.magnitudeModel.pearson,
       signals: readings,
     };
 
-    // Persistence is best-effort — never break the page if Supabase is misconfigured/down.
+    // Each persistence step is independently best-effort so a Yahoo Finance
+    // hiccup during backfill doesn't wipe out the track record display.
     let accuracy: AccuracyStats | null = null;
     let recentHistory: HistoryRow[] = [];
+    try { await snapshotVerdict(basePayload as VerdictPayload); }
+    catch (e) { console.warn("[sentiment] snapshot failed:", e instanceof Error ? e.message : e); }
+    try { await backfillRealizedReturns(); }
+    catch (e) { console.warn("[sentiment] backfill failed:", e instanceof Error ? e.message : e); }
     try {
-      await snapshotVerdict(basePayload as VerdictPayload);
-      await backfillRealizedReturns();
-      recentHistory = await loadRecentHistory(120);
+      recentHistory = await loadRecentHistory(260);
       accuracy = computeAccuracy(recentHistory);
     } catch (e) {
-      console.warn("[sentiment] persistence skipped:", e instanceof Error ? e.message : e);
+      console.warn("[sentiment] history load failed:", e instanceof Error ? e.message : e);
     }
 
-    const payload: VerdictPayload = { ...basePayload, accuracy, recentHistory: recentHistory.slice(0, 30) };
+    const payload: VerdictPayload = { ...basePayload, accuracy, recentHistory };
 
     cached = payload;
     cachedTime = Date.now();
