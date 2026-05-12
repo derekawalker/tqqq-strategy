@@ -179,7 +179,7 @@ function VerdictHeader({ data }: { data: VerdictPayload }) {
           </Stack>
         </Group>
         <Text size="xs" c="dimmed" mt="sm" ta="center" maw={560}>
-          Bullish/Bearish fires when ≥3 of 8 signals hit extreme-edge bins
+          Bullish/Bearish fires when ≥3 of 8 core signals hit extreme-edge bins
           (|edge| &gt; 0.3%) in the same direction. Hit = realized 5d return
           &gt;+1.5% or &lt;−1.5% respectively.
         </Text>
@@ -207,6 +207,8 @@ const SIGNAL_DESCRIPTIONS: Record<string, string> = {
     "Change in the 10-year Treasury yield over 20 trading days (in percentage points). Rising rates are a headwind for QQQ — the strongest bearish bin in backtest. Falling rates are a tailwind.",
   "TLT 20d return":
     "20-day return of TLT (long-duration Treasury ETF). Bonds rallying means yields are dropping and/or risk-off money is rotating — historically a tailwind for a QQQ bounce.",
+  "CBOE SKEW":
+    "CBOE SKEW Index measures the relative cost of out-of-money puts vs calls. 130–140 (moderate hedging) is the historical sweet spot for forward returns. Below 130 = complacency (more downside risk). Above 150 = heavy tail hedging (dampened upside).",
 };
 
 // ── signal table ──────────────────────────────────────────────────────────
@@ -267,6 +269,11 @@ function SignalRow({ s }: { s: SignalReading }) {
           <Text size="xs" c="dimmed">
             n={s.sampleCount}
           </Text>
+          {s.informational && (
+            <Tooltip label="Context only — not counted toward the verdict" withArrow>
+              <Badge color="blue" variant="light" size="xs">context</Badge>
+            </Tooltip>
+          )}
           {s.lowConfidence && (
             <Tooltip
               label={`Fewer than 30 samples — treat with caution`}

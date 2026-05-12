@@ -40,7 +40,7 @@ function supabase() {
 // ── load signal stats ──────────────────────────────────────────────────────
 
 type StatBin = { label: string; count: number; avgReturn5d: number; hitRateUp: number; lowConfidence: boolean };
-type SignalKey = "vixTerm" | "vixSpike" | "rsi2InTrend" | "pctAbove200ma" | "realizedVol20Pct" | "hygSpyDiv" | "tnxMom20" | "tltMom20";
+type SignalKey = "vixTerm" | "vixSpike" | "rsi2InTrend" | "pctAbove200ma" | "realizedVol20Pct" | "hygSpyDiv" | "tnxMom20" | "tltMom20" | "skewLevel";
 type Stats = {
   baselineAvgReturn5d: number;
   yearsHistory: number;
@@ -113,6 +113,13 @@ function tltMom20Bin(pct: number): string {
   if (pct <  1.0) return "-1% – +1% (flat)";
   if (pct <  3.0) return "+1% – +3%";
   return ">+3% (bonds rallying)";
+}
+
+function skewLevelBin(v: number): string {
+  if (v < 130) return "<130 (complacent)";
+  if (v < 140) return "130 – 140 (moderate hedge)";
+  if (v < 150) return "140 – 150";
+  return ">150 (heavy protection)";
 }
 
 function hygSpyDivBin(v: number): string {
@@ -242,7 +249,7 @@ async function main() {
   console.log(`Backfilling ${YEARS}y of history${DRY_RUN ? " [DRY RUN — no writes]" : ""}...`);
 
   console.log("Fetching price data...");
-  const [qqq, vix, vix3m, hyg, spy, tqqq, tnx, tlt] = await Promise.all([
+  const [qqq, vix, vix3m, hyg, spy, tqqq, tnx, tlt, skew] = await Promise.all([
     fetchDaily("QQQ",    YEARS),
     fetchDaily("^VIX",   YEARS),
     fetchDaily("^VIX3M", YEARS),
@@ -251,9 +258,12 @@ async function main() {
     fetchDaily("TQQQ",   YEARS),
     fetchDaily("^TNX",   YEARS),
     fetchDaily("TLT",    YEARS),
+    fetchDaily("^SKEW",  YEARS),
   ]);
 
+  // Align without SKEW so missing SKEW dates don't drop rows
   const aligned = alignByDate({ QQQ: qqq, VIX: vix, VIX3M: vix3m, HYG: hyg, SPY: spy, TNX: tnx, TLT: tlt });
+  const skewMap = new Map(skew.map((d) => [d.date, d.close]));
   // TQQQ may not share all dates with the others (e.g. index rebalance days), so look it up separately
   const tqqqMap = new Map(tqqq.map((d) => [d.date, d.close]));
 
@@ -285,8 +295,8 @@ async function main() {
   const vix3mCloses = aligned.map((d) => d.values.VIX3M);
   const hygCloses = aligned.map((d) => d.values.HYG);
   const spyCloses = aligned.map((d) => d.values.SPY);
-  const tnxCloses = aligned.map((d) => d.values.TNX);
-  const tltCloses = aligned.map((d) => d.values.TLT);
+  const tnxCloses  = aligned.map((d) => d.values.TNX);
+  const tltCloses  = aligned.map((d) => d.values.TLT);
 
   // Pre-compute 20d realized vol (annualized %) for percentile calc
   const realizedVol20: (number | null)[] = qqqCloses.map((_, i) => {
@@ -346,6 +356,7 @@ async function main() {
       buildReading("hygSpyDiv",        "HYG − SPY (5d)",     hygSpyDivBin(hygDiv)),
       buildReading("tnxMom20",         "10y yield 20d Δ",    tnxMom != null ? tnxMom20Bin(tnxMom) : null),
       buildReading("tltMom20",         "TLT 20d return",     tltMom != null ? tltMom20Bin(tltMom) : null),
+      buildReading("skewLevel",        "CBOE SKEW",          (() => { const sv = skewMap.get(date); return sv != null ? skewLevelBin(sv) : null; })(), true),
     ];
 
     const { verdict, expectedReturn5d, edge, agreement } = buildVerdict(signals);

@@ -13,7 +13,7 @@ const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
 // ── types ──────────────────────────────────────────────────────────────────
 
-export type SignalKey = "vixTerm" | "vixSpike" | "rsi2InTrend" | "pctAbove200ma" | "realizedVol20Pct" | "hygSpyDiv" | "tnxMom20" | "tltMom20";
+export type SignalKey = "vixTerm" | "vixSpike" | "rsi2InTrend" | "pctAbove200ma" | "realizedVol20Pct" | "hygSpyDiv" | "tnxMom20" | "tltMom20" | "skewLevel";
 
 export interface SignalReading {
   key: SignalKey;
@@ -111,6 +111,13 @@ function tltMom20Bin(pct: number): string {
   if (pct <  1.0) return "-1% – +1% (flat)";
   if (pct <  3.0) return "+1% – +3%";
   return ">+3% (bonds rallying)";
+}
+
+function skewLevelBin(v: number): string {
+  if (v < 130) return "<130 (complacent)";
+  if (v < 140) return "130 – 140 (moderate hedge)";
+  if (v < 150) return "140 – 150";
+  return ">150 (heavy protection)";
 }
 
 function hygSpyDivBin(v: number): string {
@@ -252,7 +259,7 @@ export async function GET() {
     // Need 273 trading days (252d vol-percentile window + 20d warmup); pull 500 cal days.
     const period1 = new Date(Date.now() - 500 * 24 * 60 * 60 * 1000);
 
-    const [vixR, vix3mR, qqqR, hygR, spyR, tnxR, tltR] = await Promise.allSettled([
+    const [vixR, vix3mR, qqqR, hygR, spyR, tnxR, tltR, skewR] = await Promise.allSettled([
       yf.chart("^VIX",   { period1, interval: "1d" }),
       yf.chart("^VIX3M", { period1, interval: "1d" }),
       yf.chart("QQQ",    { period1, interval: "1d" }),
@@ -260,6 +267,7 @@ export async function GET() {
       yf.chart("SPY",    { period1, interval: "1d" }),
       yf.chart("^TNX",   { period1, interval: "1d" }),
       yf.chart("TLT",    { period1, interval: "1d" }),
+      yf.chart("^SKEW",  { period1, interval: "1d" }),
     ]);
 
     const closes = (r: typeof vixR): number[] =>
@@ -274,6 +282,7 @@ export async function GET() {
     const spy   = closes(spyR);
     const tnx   = closes(tnxR);
     const tlt   = closes(tltR);
+    const skew  = closes(skewR);
 
     const readings: SignalReading[] = [];
 
@@ -392,6 +401,19 @@ export async function GET() {
       ));
     } else {
       readings.push(buildReading("tltMom20", "TLT 20d return", null, "—", null));
+    }
+
+    // 8) CBOE SKEW — informational context, not counted toward verdict
+    //    (correlated with existing signals; adding to vote pool dilutes precision)
+    if (skew.length > 0) {
+      const sv = skew[skew.length - 1];
+      readings.push(buildReading(
+        "skewLevel", "CBOE SKEW", sv,
+        sv.toFixed(1),
+        skewLevelBin(sv), true,
+      ));
+    } else {
+      readings.push(buildReading("skewLevel", "CBOE SKEW", null, "—", null, true));
     }
 
     const verdict = buildVerdict(readings);

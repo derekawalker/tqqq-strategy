@@ -133,6 +133,13 @@ const BIN_DEFS = {
     { label: "+1% – +3%",                  min:  1.0,      max:  3.0 },
     { label: ">+3% (bonds rallying)",      min:  3.0,      max: Infinity },
   ],
+  // CBOE SKEW Index. Low SKEW = complacency (bearish); 130-140 = moderate hedging (bullish sweet spot).
+  skewLevel: [
+    { label: "<130 (complacent)",          min: -Infinity, max: 130 },
+    { label: "130 – 140 (moderate hedge)", min: 130,       max: 140 },
+    { label: "140 – 150",                  min: 140,       max: 150 },
+    { label: ">150 (heavy protection)",    min: 150,       max: Infinity },
+  ],
 } satisfies Record<string, BinDef[]>;
 
 type SignalKey = keyof typeof BIN_DEFS;
@@ -149,7 +156,7 @@ function findBin(defs: readonly BinDef[], value: number): string | null {
 
 async function main() {
   console.log(`Fetching ${YEARS}y of daily history...`);
-  const [qqq, vix, vix3m, hyg, spy, tnx, tlt] = await Promise.all([
+  const [qqq, vix, vix3m, hyg, spy, tnx, tlt, skew] = await Promise.all([
     fetchDaily("QQQ",   YEARS),
     fetchDaily("^VIX",  YEARS),
     fetchDaily("^VIX3M", YEARS),
@@ -157,11 +164,14 @@ async function main() {
     fetchDaily("SPY",   YEARS),
     fetchDaily("^TNX",  YEARS),
     fetchDaily("TLT",   YEARS),
+    fetchDaily("^SKEW", YEARS),
   ]);
 
-  console.log(`QQQ: ${qqq.length} days, VIX: ${vix.length}, VIX3M: ${vix3m.length}, HYG: ${hyg.length}, SPY: ${spy.length}, TNX: ${tnx.length}, TLT: ${tlt.length}`);
+  console.log(`QQQ: ${qqq.length} days, VIX: ${vix.length}, VIX3M: ${vix3m.length}, HYG: ${hyg.length}, SPY: ${spy.length}, TNX: ${tnx.length}, TLT: ${tlt.length}, SKEW: ${skew.length}`);
 
+  // Align without SKEW so missing SKEW dates don't drop rows
   const aligned = alignByDate({ QQQ: qqq, VIX: vix, VIX3M: vix3m, HYG: hyg, SPY: spy, TNX: tnx, TLT: tlt });
+  const skewMap = new Map(skew.map((d) => [d.date.toDateString(), d.close]));
   console.log(`Aligned dataset: ${aligned.length} common trading days`);
 
   const qqqCloses = aligned.map((d) => d.values.QQQ);
@@ -190,6 +200,7 @@ async function main() {
     hygSpyDiv: {},
     tnxMom20: {},
     tltMom20: {},
+    skewLevel: {},
   };
 
   for (const sk of Object.keys(BIN_DEFS) as SignalKey[]) {
@@ -263,11 +274,13 @@ async function main() {
       }
     }
     record("hygSpyDiv", findBin(BIN_DEFS.hygSpyDiv, hygDiv));
+    const skewVal = skewMap.get(aligned[i].date.toDateString());
+    if (skewVal != null) record("skewLevel", findBin(BIN_DEFS.skewLevel, skewVal));
   }
 
   // Compute final stats per bin
   const output: Record<SignalKey, { label: string; count: number; avgReturn5d: number; hitRateUp: number; lowConfidence: boolean }[]> = {
-    vixTerm: [], vixSpike: [], rsi2InTrend: [], pctAbove200ma: [], realizedVol20Pct: [], hygSpyDiv: [], tnxMom20: [], tltMom20: [],
+    vixTerm: [], vixSpike: [], rsi2InTrend: [], pctAbove200ma: [], realizedVol20Pct: [], hygSpyDiv: [], tnxMom20: [], tltMom20: [], skewLevel: [],
   };
 
   const baselineRet = (() => {

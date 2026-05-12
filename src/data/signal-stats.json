@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-05-11T21:50:22.982Z",
+  "generatedAt": "2026-05-12T02:18:23.442Z",
   "yearsHistory": 5,
   "forwardDays": 5,
   "minSamplesPerBin": 30,
-  "totalSamples": 1250,
-  "baselineAvgReturn5d": 0.356,
+  "totalSamples": 1249,
+  "baselineAvgReturn5d": 0.354,
   "signals": {
     "vixTerm": [
       {
@@ -23,9 +23,9 @@
       },
       {
         "label": "0.95 – 1.00",
-        "count": 192,
-        "avgReturn5d": 0.346,
-        "hitRateUp": 57.3,
+        "count": 191,
+        "avgReturn5d": 0.338,
+        "hitRateUp": 57.1,
         "lowConfidence": false
       },
       {
@@ -74,18 +74,18 @@
       },
       {
         "label": ">15% (spike)",
-        "count": 52,
-        "avgReturn5d": -0.107,
-        "hitRateUp": 63.5,
+        "count": 51,
+        "avgReturn5d": -0.144,
+        "hitRateUp": 62.7,
         "lowConfidence": false
       }
     ],
     "rsi2InTrend": [
       {
         "label": "Uptrend, RSI(2) <10 (oversold)",
-        "count": 197,
-        "avgReturn5d": 0.621,
-        "hitRateUp": 64,
+        "count": 196,
+        "avgReturn5d": 0.615,
+        "hitRateUp": 63.8,
         "lowConfidence": false
       },
       {
@@ -127,9 +127,9 @@
       },
       {
         "label": "0% – 5% (just above)",
-        "count": 106,
-        "avgReturn5d": 0.697,
-        "hitRateUp": 57.5,
+        "count": 105,
+        "avgReturn5d": 0.686,
+        "hitRateUp": 57.1,
         "lowConfidence": false
       },
       {
@@ -157,9 +157,9 @@
       },
       {
         "label": "15 – 40",
-        "count": 262,
-        "avgReturn5d": -0.208,
-        "hitRateUp": 50.8,
+        "count": 261,
+        "avgReturn5d": -0.216,
+        "hitRateUp": 50.6,
         "lowConfidence": false
       },
       {
@@ -215,9 +215,9 @@
       },
       {
         "label": ">1.5% (credit leading)",
-        "count": 169,
-        "avgReturn5d": 0.92,
-        "hitRateUp": 63.3,
+        "count": 168,
+        "avgReturn5d": 0.915,
+        "hitRateUp": 63.1,
         "lowConfidence": false
       }
     ],
@@ -238,9 +238,9 @@
       },
       {
         "label": "-0.10 – +0.10 (flat)",
-        "count": 401,
-        "avgReturn5d": 0.324,
-        "hitRateUp": 58.6,
+        "count": 400,
+        "avgReturn5d": 0.32,
+        "hitRateUp": 58.5,
         "lowConfidence": false
       },
       {
@@ -268,9 +268,9 @@
       },
       {
         "label": "-4% – -1%",
-        "count": 329,
-        "avgReturn5d": 0.465,
-        "hitRateUp": 59.3,
+        "count": 328,
+        "avgReturn5d": 0.46,
+        "hitRateUp": 59.1,
         "lowConfidence": false
       },
       {
@@ -292,6 +292,36 @@
         "count": 220,
         "avgReturn5d": 0.875,
         "hitRateUp": 70.5,
+        "lowConfidence": false
+      }
+    ],
+    "skewLevel": [
+      {
+        "label": "<130 (complacent)",
+        "count": 251,
+        "avgReturn5d": 0.061,
+        "hitRateUp": 53.8,
+        "lowConfidence": false
+      },
+      {
+        "label": "130 – 140 (moderate hedge)",
+        "count": 285,
+        "avgReturn5d": 0.722,
+        "hitRateUp": 65.3,
+        "lowConfidence": false
+      },
+      {
+        "label": "140 – 150",
+        "count": 376,
+        "avgReturn5d": 0.387,
+        "hitRateUp": 59.8,
+        "lowConfidence": false
+      },
+      {
+        "label": ">150 (heavy protection)",
+        "count": 297,
+        "avgReturn5d": 0.189,
+        "hitRateUp": 56.6,
         "lowConfidence": false
       }
     ]
