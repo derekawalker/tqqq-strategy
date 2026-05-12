@@ -61,7 +61,6 @@ function CacheAge({ cachedAt }: { cachedAt: number }) {
 
 // ── verdict header ────────────────────────────────────────────────────────
 
-
 function VerdictHeader({ data }: { data: VerdictPayload }) {
   const color = verdictColor(data.verdict);
   const bg = useCardBg(color);
@@ -85,10 +84,28 @@ function VerdictHeader({ data }: { data: VerdictPayload }) {
           {data.verdictLabel}
         </Text>
 
-        <Group gap="lg" mt="sm" justify="center" wrap="nowrap" align="flex-start">
+        <Group
+          gap="lg"
+          mt="sm"
+          justify="center"
+          wrap="nowrap"
+          align="flex-start"
+        >
           <Stack gap={4} align="center" style={{ minWidth: 80 }}>
-            <Tooltip label="Sample-weighted average of historical 5-day QQQ returns across the bins each signal currently sits in. Treat as a directional summary, NOT a forecast of magnitude — backtest pearson with realized 5d return is ~0.02." withArrow multiline maw={280}>
-              <Text size="xs" c="dimmed" tt="uppercase" fw={600} h={16} style={{ cursor: "help" }}>
+            <Tooltip
+              label="Sample-weighted average of historical 5-day QQQ returns across the bins each signal currently sits in. Treat as a directional summary, NOT a forecast of magnitude — backtest pearson with realized 5d return is ~0.02."
+              withArrow
+              multiline
+              maw={280}
+            >
+              <Text
+                size="xs"
+                c="dimmed"
+                tt="uppercase"
+                fw={600}
+                h={16}
+                style={{ cursor: "help" }}
+              >
                 Signal mean
               </Text>
             </Tooltip>
@@ -108,15 +125,32 @@ function VerdictHeader({ data }: { data: VerdictPayload }) {
                 <Text size="xs" c="dimmed" tt="uppercase" fw={600} h={16}>
                   Edge vs baseline
                 </Text>
-                <Text size="xl" fw={700} c={`${edgeColor(data.edge)}.4`} ta="center">
+                <Text
+                  size="xl"
+                  fw={700}
+                  c={`${edgeColor(data.edge)}.4`}
+                  ta="center"
+                >
                   {formatPct(data.edge)}
                 </Text>
               </Stack>
             </Tooltip>
           </Stack>
           <Stack gap={12} align="center" style={{ minWidth: 80 }}>
-            <Tooltip label="How many signals agree on direction. More ↑ or ↓ = higher confidence in the verdict. More – = signals are mixed/conflicting." withArrow multiline maw={240}>
-              <Text size="xs" c="dimmed" tt="uppercase" fw={600} h={16} style={{ cursor: "help" }}>
+            <Tooltip
+              label="How many signals agree on direction. More ↑ or ↓ = higher confidence in the verdict. More – = signals are mixed/conflicting."
+              withArrow
+              multiline
+              maw={240}
+            >
+              <Text
+                size="xs"
+                c="dimmed"
+                tt="uppercase"
+                fw={600}
+                h={16}
+                style={{ cursor: "help" }}
+              >
                 Agreement
               </Text>
             </Tooltip>
@@ -145,7 +179,9 @@ function VerdictHeader({ data }: { data: VerdictPayload }) {
           </Stack>
         </Group>
         <Text size="xs" c="dimmed" mt="sm" ta="center" maw={560}>
-          Bullish/Bearish fires when ≥3 of 8 signals hit extreme-edge bins (|edge| &gt; 0.3%) in the same direction. Hit = realized 5d return &gt;+1.5% or &lt;−1.5% respectively.
+          Bullish/Bearish fires when ≥3 of 8 signals hit extreme-edge bins
+          (|edge| &gt; 0.3%) in the same direction. Hit = realized 5d return
+          &gt;+1.5% or &lt;−1.5% respectively.
         </Text>
       </Stack>
     </Paper>
@@ -155,14 +191,22 @@ function VerdictHeader({ data }: { data: VerdictPayload }) {
 // ── signal descriptions ───────────────────────────────────────────────────
 
 const SIGNAL_DESCRIPTIONS: Record<string, string> = {
-  "VIX / VIX3M": "Compares short-term fear (VIX) to longer-term fear (VIX3M). Low value = market is calm. High value = market is panicked. Extreme panic often leads to bounces.",
-  "VIX 1-day change": "How much fear increased or decreased in one day. Big jumps in fear can be followed by small recoveries. But single-day spikes alone aren't reliable.",
-  "QQQ vs 200d MA": "How far current price is above/below its 200-day average. Modestly above (0–10%) is the strongest historical bin; far below or far above both underperform.",
-  "20d vol percentile": "Where today's 20-day realized volatility ranks against the past year. Very calm regimes (bottom 15th pctile) historically had the strongest 5d forward returns.",
-  "RSI(2) + trend": "Measures how stretched the price is (overbought or oversold) over 2 days. In an uptrend, very stretched-down = good time to bounce back up. In a downtrend = weak.",
-  "HYG − SPY (5d)": "Compares high-risk bonds (HYG) to stock market (SPY) over 5 days. Bonds falling faster = investors are scared (bearish). Bonds rising faster = investors are confident (bullish).",
-  "10y yield 20d Δ": "Change in the 10-year Treasury yield over 20 trading days (in percentage points). Rising rates are a headwind for QQQ — the strongest bearish bin in backtest. Falling rates are a tailwind.",
-  "TLT 20d return": "20-day return of TLT (long-duration Treasury ETF). Bonds rallying means yields are dropping and/or risk-off money is rotating — historically a tailwind for a QQQ bounce.",
+  "VIX / VIX3M":
+    "Compares short-term fear (VIX) to longer-term fear (VIX3M). Low value = market is calm. High value = market is panicked. Extreme panic often leads to bounces.",
+  "VIX 1-day change":
+    "How much fear increased or decreased in one day. Big jumps in fear can be followed by small recoveries. But single-day spikes alone aren't reliable.",
+  "QQQ vs 200d MA":
+    "How far current price is above/below its 200-day average. Modestly above (0–10%) is the strongest historical bin; far below or far above both underperform.",
+  "20d vol percentile":
+    "Where today's 20-day realized volatility ranks against the past year. Very calm regimes (bottom 15th pctile) historically had the strongest 5d forward returns.",
+  "RSI(2) + trend":
+    "Measures how stretched the price is (overbought or oversold) over 2 days. In an uptrend, very stretched-down = good time to bounce back up. In a downtrend = weak.",
+  "HYG − SPY (5d)":
+    "Compares high-risk bonds (HYG) to stock market (SPY) over 5 days. Bonds falling faster = investors are scared (bearish). Bonds rising faster = investors are confident (bullish).",
+  "10y yield 20d Δ":
+    "Change in the 10-year Treasury yield over 20 trading days (in percentage points). Rising rates are a headwind for QQQ — the strongest bearish bin in backtest. Falling rates are a tailwind.",
+  "TLT 20d return":
+    "20-day return of TLT (long-duration Treasury ETF). Bonds rallying means yields are dropping and/or risk-off money is rotating — historically a tailwind for a QQQ bounce.",
 };
 
 // ── signal table ──────────────────────────────────────────────────────────
@@ -179,8 +223,17 @@ function SignalRow({ s }: { s: SignalReading }) {
           </Text>
           {description && (
             <Tooltip label={description} multiline maw={260} withArrow>
-              <Box style={{ cursor: "help", display: "flex", alignItems: "center" }}>
-                <IconInfoCircle size={14} style={{ opacity: 0.6, flexShrink: 0 }} />
+              <Box
+                style={{
+                  cursor: "help",
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                <IconInfoCircle
+                  size={14}
+                  style={{ opacity: 0.6, flexShrink: 0 }}
+                />
               </Box>
             </Tooltip>
           )}
@@ -230,7 +283,6 @@ function SignalRow({ s }: { s: SignalReading }) {
   );
 }
 
-
 function SignalTable({ signals }: { signals: SignalReading[] }) {
   return (
     <Paper
@@ -249,56 +301,56 @@ function SignalTable({ signals }: { signals: SignalReading[] }) {
         Signals
       </Text>
       <Box style={{ overflowX: "auto" }}>
-      <Table verticalSpacing="sm" highlightOnHover>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Signal</Table.Th>
-            <Table.Th ta="right">Now</Table.Th>
-            <Table.Th ta="right">
-              <Tooltip
-                label="Historical avg QQQ 5d return when this signal was in its current bin"
-                withArrow
-                multiline
-                maw={240}
-              >
-                <Text size="xs" fw={600} style={{ cursor: "help" }}>
-                  Avg 5d
-                </Text>
-              </Tooltip>
-            </Table.Th>
-            <Table.Th ta="right">
-              <Tooltip
-                label="Avg 5d return minus the baseline. Positive = bin historically beat random."
-                withArrow
-                multiline
-                maw={240}
-              >
-                <Text size="xs" fw={600} style={{ cursor: "help" }}>
-                  Edge
-                </Text>
-              </Tooltip>
-            </Table.Th>
-            <Table.Th ta="right">
-              <Tooltip
-                label="% of historical 5d windows in this bin that closed up"
-                withArrow
-                multiline
-                maw={240}
-              >
-                <Text size="xs" fw={600} style={{ cursor: "help" }}>
-                  Hit ↑
-                </Text>
-              </Tooltip>
-            </Table.Th>
-            <Table.Th ta="right">Samples</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {signals.map((s) => (
-            <SignalRow key={s.key} s={s} />
-          ))}
-        </Table.Tbody>
-      </Table>
+        <Table verticalSpacing="sm" highlightOnHover>
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Signal</Table.Th>
+              <Table.Th ta="right">Now</Table.Th>
+              <Table.Th ta="right">
+                <Tooltip
+                  label="Historical avg QQQ 5d return when this signal was in its current bin"
+                  withArrow
+                  multiline
+                  maw={240}
+                >
+                  <Text size="xs" fw={600} style={{ cursor: "help" }}>
+                    Avg 5d
+                  </Text>
+                </Tooltip>
+              </Table.Th>
+              <Table.Th ta="right">
+                <Tooltip
+                  label="Avg 5d return minus the baseline. Positive = bin historically beat random."
+                  withArrow
+                  multiline
+                  maw={240}
+                >
+                  <Text size="xs" fw={600} style={{ cursor: "help" }}>
+                    Edge
+                  </Text>
+                </Tooltip>
+              </Table.Th>
+              <Table.Th ta="right">
+                <Tooltip
+                  label="% of historical 5d windows in this bin that closed up"
+                  withArrow
+                  multiline
+                  maw={240}
+                >
+                  <Text size="xs" fw={600} style={{ cursor: "help" }}>
+                    Hit ↑
+                  </Text>
+                </Tooltip>
+              </Table.Th>
+              <Table.Th ta="right">Samples</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {signals.map((s) => (
+              <SignalRow key={s.key} s={s} />
+            ))}
+          </Table.Tbody>
+        </Table>
       </Box>
     </Paper>
   );
@@ -313,8 +365,19 @@ function SignalEdgeChart({ signals }: { signals: SignalReading[] }) {
   }));
 
   return (
-    <Paper p="md" radius={CARD_RADIUS} style={{ background: "rgba(26, 27, 30, 0.65)" }}>
-      <Text size="xs" c="dimmed" tt="uppercase" fw={600} mb="xs" style={{ letterSpacing: "0.12em" }}>
+    <Paper
+      p="md"
+      radius={CARD_RADIUS}
+      style={{ background: "rgba(26, 27, 30, 0.65)" }}
+    >
+      <Text
+        size="xs"
+        c="dimmed"
+        tt="uppercase"
+        fw={600}
+        mb="xs"
+        style={{ letterSpacing: "0.12em" }}
+      >
         Signal edges vs baseline
       </Text>
       <BarChart
@@ -405,55 +468,74 @@ function AccuracyPanel({
       </Group>
 
       <Box style={{ overflowX: "auto" }}>
-      <Table verticalSpacing="xs">
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Verdict</Table.Th>
-            <Table.Th ta="right">N</Table.Th>
-            <Table.Th ta="right">
-              <Tooltip
-                label="Average expected QQQ 5d return when this verdict fired"
-                withArrow
-                multiline
-                maw={240}
-              >
-                <Text size="xs" fw={600} style={{ cursor: "help" }}>
-                  Predicted
-                </Text>
-              </Tooltip>
-            </Table.Th>
-            <Table.Th ta="right">
-              <Tooltip
-                label="Average actual QQQ 5d return that followed"
-                withArrow
-                multiline
-                maw={240}
-              >
-                <Text size="xs" fw={600} style={{ cursor: "help" }}>
-                  Realized QQQ
-                </Text>
-              </Tooltip>
-            </Table.Th>
-            <Table.Th ta="right">Realized TQQQ</Table.Th>
-            <Table.Th ta="right">
-              <Tooltip
-                label="Bullish hit = realized 5d QQQ return >+1.5%. Bearish hit = <−1.5%. Neutral hit = within ±1.5%."
-                withArrow
-                multiline
-                maw={260}
-              >
-                <Text size="xs" fw={600} style={{ cursor: "help" }}>
-                  Hit rate
-                </Text>
-              </Tooltip>
-            </Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {(["lean-long", "chop", "lean-short"] as const).map((v) => {
-            const row = accuracy.byVerdict[v];
-            const meta = VERDICT_META[v];
-            if (row.n === 0)
+        <Table verticalSpacing="xs">
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Verdict</Table.Th>
+              <Table.Th ta="right">N</Table.Th>
+              <Table.Th ta="right">
+                <Tooltip
+                  label="Average expected QQQ 5d return when this verdict fired"
+                  withArrow
+                  multiline
+                  maw={240}
+                >
+                  <Text size="xs" fw={600} style={{ cursor: "help" }}>
+                    Predicted
+                  </Text>
+                </Tooltip>
+              </Table.Th>
+              <Table.Th ta="right">
+                <Tooltip
+                  label="Average actual QQQ 5d return that followed"
+                  withArrow
+                  multiline
+                  maw={240}
+                >
+                  <Text size="xs" fw={600} style={{ cursor: "help" }}>
+                    Realized QQQ
+                  </Text>
+                </Tooltip>
+              </Table.Th>
+              <Table.Th ta="right">Realized TQQQ</Table.Th>
+              <Table.Th ta="right">
+                <Tooltip
+                  label="Bullish hit = realized 5d QQQ return >+1.5%. Bearish hit = <−1.5%. Neutral hit = within ±1.5%."
+                  withArrow
+                  multiline
+                  maw={260}
+                >
+                  <Text size="xs" fw={600} style={{ cursor: "help" }}>
+                    Hit rate
+                  </Text>
+                </Tooltip>
+              </Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {(["lean-long", "chop", "lean-short"] as const).map((v) => {
+              const row = accuracy.byVerdict[v];
+              const meta = VERDICT_META[v];
+              if (row.n === 0)
+                return (
+                  <Table.Tr key={v}>
+                    <Table.Td>
+                      <Badge color={meta.color} variant="light" size="sm">
+                        {meta.label}
+                      </Badge>
+                    </Table.Td>
+                    <Table.Td ta="right">
+                      <Text size="sm" c="dimmed">
+                        0
+                      </Text>
+                    </Table.Td>
+                    <Table.Td colSpan={4}>
+                      <Text size="xs" c="dimmed" ta="right">
+                        No realized samples yet
+                      </Text>
+                    </Table.Td>
+                  </Table.Tr>
+                );
               return (
                 <Table.Tr key={v}>
                   <Table.Td>
@@ -462,52 +544,33 @@ function AccuracyPanel({
                     </Badge>
                   </Table.Td>
                   <Table.Td ta="right">
-                    <Text size="sm" c="dimmed">
-                      0
+                    <Text size="sm">{row.n}</Text>
+                  </Table.Td>
+                  <Table.Td ta="right">
+                    <Text size="sm">{formatPct(row.avgPredicted)}</Text>
+                  </Table.Td>
+                  <Table.Td ta="right">
+                    <Text
+                      size="sm"
+                      fw={600}
+                      c={`${edgeColor(row.avgRealizedQqq)}.4`}
+                    >
+                      {formatPct(row.avgRealizedQqq)}
                     </Text>
                   </Table.Td>
-                  <Table.Td colSpan={4}>
-                    <Text size="xs" c="dimmed" ta="right">
-                      No realized samples yet
+                  <Table.Td ta="right">
+                    <Text size="sm" c="dimmed">
+                      {formatPct(row.avgRealizedTqqq)}
                     </Text>
+                  </Table.Td>
+                  <Table.Td ta="right">
+                    <Text size="sm">{row.hitRateQqq.toFixed(0)}%</Text>
                   </Table.Td>
                 </Table.Tr>
               );
-            return (
-              <Table.Tr key={v}>
-                <Table.Td>
-                  <Badge color={meta.color} variant="light" size="sm">
-                    {meta.label}
-                  </Badge>
-                </Table.Td>
-                <Table.Td ta="right">
-                  <Text size="sm">{row.n}</Text>
-                </Table.Td>
-                <Table.Td ta="right">
-                  <Text size="sm">{formatPct(row.avgPredicted)}</Text>
-                </Table.Td>
-                <Table.Td ta="right">
-                  <Text
-                    size="sm"
-                    fw={600}
-                    c={`${edgeColor(row.avgRealizedQqq)}.4`}
-                  >
-                    {formatPct(row.avgRealizedQqq)}
-                  </Text>
-                </Table.Td>
-                <Table.Td ta="right">
-                  <Text size="sm" c="dimmed">
-                    {formatPct(row.avgRealizedTqqq)}
-                  </Text>
-                </Table.Td>
-                <Table.Td ta="right">
-                  <Text size="sm">{row.hitRateQqq.toFixed(0)}%</Text>
-                </Table.Td>
-              </Table.Tr>
-            );
-          })}
-        </Table.Tbody>
-      </Table>
+            })}
+          </Table.Tbody>
+        </Table>
       </Box>
 
       {history.length > 0 && (
@@ -525,6 +588,10 @@ function AccuracyPanel({
           </Text>
           <Box style={{ display: "flex", gap: 2 }}>
             {[...history].reverse().map((h) => {
+              {
+                console.log(h);
+              }
+
               const meta = VERDICT_META[h.verdict];
               const realized = h.realizedReturn5dQqq;
               const hit =
@@ -544,24 +611,30 @@ function AccuracyPanel({
                       minWidth: 4,
                       height: 24,
                       borderRadius: 2,
+                      textAlign: "center",
+                      fontSize: ".65em",
+                      lineHeight: "24px",
                       background:
                         realized == null
                           ? "var(--mantine-color-dark-4)"
                           : hit
-                          ? "var(--mantine-color-green-6)"
-                          : `var(--mantine-color-${meta.color}-8)`,
+                            ? "var(--mantine-color-green-6)"
+                            : `var(--mantine-color-${meta.color}-8)`,
                       border:
                         realized == null
                           ? "1px dashed var(--mantine-color-dark-3)"
                           : "none",
                     }}
-                  />
+                  >
+                    {parseInt(h.date.split("-")[2], 10)}
+                  </Box>
                 </Tooltip>
               );
             })}
           </Box>
           <Text size="10px" c="dimmed" mt={4}>
-            Green = verdict hit · darker = missed · dashed = pending realized return
+            Green = verdict hit · darker = missed · dashed = pending realized
+            return
           </Text>
         </>
       )}
