@@ -594,47 +594,39 @@ function AccuracyPanel({
             Recent calls
           </Text>
           <LineChart
-            h={200}
+            h={220}
             data={[...history].reverse().map((h) => {
               const [, mm, dd] = h.date.split("-");
+              const realized = h.realizedReturn5dQqq;
               return {
                 date: `${parseInt(mm, 10)}/${parseInt(dd, 10)}`,
-                realized:
-                  h.realizedReturn5dQqq != null
-                    ? Math.round(h.realizedReturn5dQqq * 100) / 100
+                "Predicted %": Math.round(h.expectedReturn5d * 100) / 100,
+                "Realized %":
+                  realized != null
+                    ? Math.round(Math.max(-8, Math.min(8, realized)) * 100) / 100
                     : null,
-                prediction:
-                  h.verdict === "lean-long"
-                    ? 1.5
-                    : h.verdict === "lean-short"
-                      ? -1.5
-                      : 0,
               };
             })}
             dataKey="date"
             series={[
-              { name: "realized", color: "teal.4", label: "Realized 5d" },
-              {
-                name: "prediction",
-                color: "gray.5",
-                strokeDasharray: "4 4",
-                label: "Prediction",
-              },
+              { name: "Realized %", color: "teal.4" },
+              { name: "Predicted %", color: "blue.4", strokeDasharray: "5 5" },
             ]}
             withDots={false}
             curveType="monotone"
             connectNulls={false}
             valueFormatter={(v) => `${v > 0 ? "+" : ""}${v.toFixed(2)}%`}
+            yAxisProps={{ domain: [-4, 4] }}
             referenceLines={[
               { y: 0, color: "gray.6", strokeDasharray: "4 4" },
-              { y: 1.5, color: "green.8", strokeDasharray: "3 3" },
-              { y: -1.5, color: "red.8", strokeDasharray: "3 3" },
+              { y: 1.5, color: "green.9", strokeDasharray: "3 3" },
+              { y: -1.5, color: "red.9", strokeDasharray: "3 3" },
             ]}
             withLegend
           />
           <Text size="10px" c="dimmed" mt={4}>
-            Prediction line: +1.5 = Bullish · 0 = Neutral · −1.5 = Bearish ·
-            Dashed lines = ±1.5% outcome thresholds
+            Realized values beyond ±8% are clipped to the chart boundary · Dashed
+            lines = ±1.5% outcome thresholds
           </Text>
         </>
       )}
