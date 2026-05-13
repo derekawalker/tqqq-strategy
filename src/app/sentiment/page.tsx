@@ -22,7 +22,6 @@ import {
   IconArrowDown,
   IconMinus,
 } from "@tabler/icons-react";
-import { LineChart } from "@mantine/charts";
 import type { PredictionPayload, FeatureReading } from "@/app/api/sentiment/route";
 import type { MacroEvent } from "@/lib/macroCalendar";
 import type { DailyRow, PredictionAccuracy } from "@/lib/predictionHistory";
@@ -296,28 +295,27 @@ function AccuracyPanel({
   const RANGE_DAYS: Record<string, number> = { "1mo": 21, "3mo": 63, "6mo": 126, "1yr": 252 };
   const days = RANGE_DAYS[range] ?? 21;
 
-  const actualDir = (ret: number) => (ret > 0.5 ? "up" : ret < -0.5 ? "down" : "flat");
+  const actualDir = (ret: number | null) =>
+    ret == null ? null : ret > 0.5 ? "up" : ret < -0.5 ? "down" : "flat";
 
-  // Rolling 20-day direction accuracy over the selected range
-  const WINDOW = 20;
-  const realized = [...history]
-    .filter((r) => r.predictedDirection != null && r.realized1dRet != null)
-    .reverse(); // oldest first
+  // flat prediction is never red; only up/down or down/up is red
+  const matchColor = (pred: string | null, actual: string | null): string | null => {
+    if (pred == null || actual == null) return null;
+    if (pred === "flat") return "green";
+    if ((pred === "up" && actual === "down") || (pred === "down" && actual === "up")) return "red";
+    return "green";
+  };
 
-  // Build rolling accuracy for last `days + WINDOW` rows, then slice to `days`
-  const rollingData: { date: string; "Accuracy %": number }[] = [];
-  const pool = realized.slice(-(days + WINDOW));
-  for (let i = WINDOW - 1; i < pool.length; i++) {
-    const w = pool.slice(i - WINDOW + 1, i + 1);
-    const correct = w.filter((r) => r.predictedDirection === actualDir(r.realized1dRet!)).length;
-    const [, mm, dd] = pool[i].date.split("-");
-    rollingData.push({
-      date: `${parseInt(mm)}/${parseInt(dd)}`,
-      "Accuracy %": Math.round((correct / WINDOW) * 1000) / 10,
-    });
-  }
+  const slice = [...history].slice(0, days).reverse();
 
   const dirColorMap: Record<string, string> = { up: "green", down: "red", flat: "gray" };
+
+  const DirIcon = ({ dir }: { dir: string | null }) => {
+    if (dir === "up")   return <Text size="xs" c="green.4" fw={700} lh={1}>↑</Text>;
+    if (dir === "down") return <Text size="xs" c="red.4"   fw={700} lh={1}>↓</Text>;
+    if (dir === "flat") return <Text size="xs" c="dimmed"  fw={700} lh={1}>—</Text>;
+    return <Text size="xs" c="dimmed" lh={1}>·</Text>;
+  };
 
   return (
     <Paper p="md" radius={CARD_RADIUS} style={{ background: "rgba(26,27,30,0.65)" }}>
@@ -410,32 +408,56 @@ function AccuracyPanel({
             </Box>
           )}
 
-          {rollingData.length > 0 && (
+          {slice.length > 0 && (
             <>
-              <Group justify="space-between" align="center" mb={4} mt="md">
-                <Tooltip
-                  label="Rolling 20-day direction accuracy: what % of the last 20 predictions matched actual direction (up/down/flat at ±0.5%). Dashed line = 33% random baseline."
-                  withArrow multiline maw={280}
-                >
-                  <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: "0.12em", cursor: "help" }}>
-                    Rolling accuracy (20d)
-                  </Text>
-                </Tooltip>
+              <Group justify="space-between" align="center" mt="md" mb="xs">
+                <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: "0.12em" }}>
+                  Calls
+                </Text>
                 <SegmentedControl size="xs" value={range} onChange={setRange} data={["1mo", "3mo", "6mo", "1yr"]} />
               </Group>
-              <LineChart
-                h={200}
-                data={rollingData}
-                dataKey="date"
-                series={[{ name: "Accuracy %", color: "teal.4" }]}
-                withDots={false}
-                curveType="monotone"
-                strokeWidth={2}
-                valueFormatter={(v) => `${v.toFixed(0)}%`}
-                yAxisProps={{ domain: [0, 100] }}
-                referenceLines={[{ y: 33, color: "gray.5", strokeDasharray: "4 4", label: "random" }]}
-                withLegend={false}
-              />
+              <Box style={{ overflowX: "auto" }}>
+                <Box style={{ display: "inline-flex", gap: 2, alignItems: "flex-start" }}>
+                  {/* Label column */}
+                  <Stack gap={0} style={{ marginRight: 4, paddingTop: 18 }}>
+                    {["Pred", "Act", ""].map((label) => (
+                      <Box key={label} style={{ height: 22, display: "flex", alignItems: "center" }}>
+                        <Text size="9px" c="dimmed" style={{ whiteSpace: "nowrap" }}>{label}</Text>
+                      </Box>
+                    ))}
+                  </Stack>
+                  {/* Data columns */}
+                  {slice.map((row) => {
+                    const actual = actualDir(row.realized1dRet ?? null);
+                    const mc = matchColor(row.predictedDirection, actual);
+                    const [, mm, dd] = row.date.split("-");
+                    return (
+                      <Stack key={row.date} gap={0} align="center" style={{ minWidth: 26 }}>
+                        <Text size="9px" c="dimmed" ta="center" style={{ height: 18, lineHeight: "18px" }}>
+                          {`${parseInt(mm)}/${parseInt(dd)}`}
+                        </Text>
+                        <Box style={{ height: 22, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <DirIcon dir={row.predictedDirection} />
+                        </Box>
+                        <Box style={{ height: 22, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                          <DirIcon dir={actual} />
+                        </Box>
+                        <Box style={{
+                          width: 20, height: 14, borderRadius: 2,
+                          background: mc === "green"
+                            ? "rgba(74,222,128,0.35)"
+                            : mc === "red"
+                            ? "rgba(248,113,113,0.35)"
+                            : "transparent",
+                          border: mc
+                            ? `1px solid ${mc === "green" ? "rgba(74,222,128,0.5)" : "rgba(248,113,113,0.5)"}`
+                            : "1px solid rgba(255,255,255,0.08)",
+                        }} />
+                      </Stack>
+                    );
+                  })}
+                </Box>
+              </Box>
             </>
           )}
         </>
