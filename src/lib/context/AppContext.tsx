@@ -337,82 +337,125 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    async function load() {
-      setSnapshotLoading(true);
-      try {
-        const [schwabResult, tastyResult] = await Promise.allSettled([
-          fetch("/api/schwab/data").then((r) => r.json()),
-          fetch("/api/tastytrade/data").then((r) => (r.ok ? r.json() : null)),
-        ]);
+    let requestsComplete = 0;
+
+    const markComplete = () => {
+      requestsComplete++;
+      if (requestsComplete === 2 && !cancelled) {
+        setSnapshotLoading(false);
+      }
+    };
+
+    setSnapshotLoading(true);
+
+    const tastyNums = new Set(
+      accounts.filter(a => a.broker === "tastytrade").map(a => a.accountNumber)
+    );
+
+    function mergeByTime<T>(a: T[] = [], b: T[] = [], key: keyof T): T[] {
+      return [...a, ...b].sort(
+        (x, y) =>
+          new Date(y[key] as string).getTime() - new Date(x[key] as string).getTime(),
+      );
+    }
+
+    // Process Schwab data as soon as it arrives
+    fetch("/api/schwab/data")
+      .then((r) => r.json())
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then((s: any) => {
         if (cancelled) return;
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const s: any = schwabResult.status === "fulfilled" ? schwabResult.value : null;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const t: any = tastyResult.status === "fulfilled" ? tastyResult.value : null;
-
-        function mergeByTime<T>(a: T[] = [], b: T[] = [], key: keyof T): T[] {
-          return [...a, ...b].sort(
-            (x, y) =>
-              new Date(y[key] as string).getTime() - new Date(x[key] as string).getTime(),
-          );
-        }
-
-        // Identify tastytrade accounts so we can preserve each broker's data on failure
-        const tastyNums = new Set(
-          accounts.filter(a => a.broker === "tastytrade").map(a => a.accountNumber)
-        );
         const sOk = Array.isArray(s?.filledOrders);
-        const tOk = Array.isArray(t?.filledOrders);
-
-        // If tastytrade data failed, re-check auth so the TT button reflects disconnected state
-        if (tastyResult.status === "fulfilled" && tastyResult.value === null) {
-          checkTastytradeAuth();
-        }
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        function safeSetOrders<T extends { accountNumber: string }>(
-          setter: React.Dispatch<React.SetStateAction<T[]>>,
-          sData: T[] | undefined,
-          tData: T[] | undefined,
-          key: keyof T,
-        ) {
-          setter(prev => {
-            const prevSchwab = prev.filter(o => !tastyNums.has(o.accountNumber));
+        if (sOk) {
+          setAllFilledOrders(prev => {
             const prevTasty = prev.filter(o => tastyNums.has(o.accountNumber));
-            return mergeByTime(
-              Array.isArray(sData) ? sData : prevSchwab,
-              Array.isArray(tData) ? tData : prevTasty,
-              key,
-            );
+            return mergeByTime(s?.filledOrders ?? [], prevTasty, "time" as never);
+          });
+          setAllFilledOptionOrders(prev => {
+            const prevTasty = prev.filter(o => tastyNums.has(o.accountNumber));
+            return mergeByTime(s?.filledOptionOrders ?? [], prevTasty, "time" as never);
+          });
+          setAllExpiredOptionOrders(prev => {
+            const prevTasty = prev.filter(o => tastyNums.has(o.accountNumber));
+            return mergeByTime(s?.expiredOptionOrders ?? [], prevTasty, "time" as never);
+          });
+          setAllWorkingOrders(prev => {
+            const prevTasty = prev.filter(o => tastyNums.has(o.accountNumber));
+            return mergeByTime(s?.workingOrders ?? [], prevTasty, "enteredTime" as never);
+          });
+          setAllOptionPositions(prev => [
+            ...(s?.optionPositions ?? []),
+            ...prev.filter(p => tastyNums.has(p.accountNumber)),
+          ]);
+          setAllTqqqShares(prev => ({ ...prev, ...(s?.tqqqShares ?? {}) }));
+          setAllTqqqAvgPrice(prev => ({ ...prev, ...(s?.tqqqAvgPrice ?? {}) }));
+          setAllBalances(prev => [
+            ...(s?.balances ?? []),
+            ...prev.filter(b => tastyNums.has(b.accountNumber)),
+          ]);
+          setAllTransactions(prev => {
+            const prevTasty = prev.filter(t => tastyNums.has(t.accountNumber));
+            return mergeByTime(s?.transactions ?? [], prevTasty, "time" as never);
           });
         }
-
-        safeSetOrders(setAllFilledOrders, s?.filledOrders, t?.filledOrders, "time" as never);
-        safeSetOrders(setAllFilledOptionOrders, s?.filledOptionOrders, t?.filledOptionOrders, "time" as never);
-        safeSetOrders(setAllExpiredOptionOrders, s?.expiredOptionOrders, t?.expiredOptionOrders, "time" as never);
-        safeSetOrders(setAllWorkingOrders, s?.workingOrders, t?.workingOrders, "enteredTime" as never);
-
-        if (sOk || tOk) {
-          setAllOptionPositions(prev => [
-            ...(sOk ? (s?.optionPositions ?? []) : prev.filter(p => !tastyNums.has(p.accountNumber))),
-            ...(tOk ? (t?.optionPositions ?? []) : prev.filter(p => tastyNums.has(p.accountNumber))),
-          ]);
-          setAllTqqqShares(prev => ({ ...prev, ...(s?.tqqqShares ?? {}), ...(t?.tqqqShares ?? {}) }));
-          setAllTqqqAvgPrice(prev => ({ ...prev, ...(s?.tqqqAvgPrice ?? {}), ...(t?.tqqqAvgPrice ?? {}) }));
-          setAllBalances(prev => [
-            ...(sOk ? (s?.balances ?? []) : prev.filter(b => !tastyNums.has(b.accountNumber))),
-            ...(tOk ? (t?.balances ?? []) : prev.filter(b => tastyNums.has(b.accountNumber))),
-          ]);
-          safeSetOrders(setAllTransactions, s?.transactions, t?.transactions, "time" as never);
-        }
-      } catch {
+      })
+      .catch(() => {
         // ignore
-      } finally {
-        if (!cancelled) setSnapshotLoading(false);
-      }
-    }
-    load();
+      })
+      .finally(() => markComplete());
+
+    // Process Tastytrade data as soon as it arrives
+    fetch("/api/tastytrade/data")
+      .then((r) => (r.ok ? r.json() : null))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then((t: any) => {
+        if (cancelled) return;
+
+        if (t === null) {
+          checkTastytradeAuth();
+          return;
+        }
+
+        const tOk = Array.isArray(t?.filledOrders);
+        if (tOk) {
+          setAllFilledOrders(prev => {
+            const prevSchwab = prev.filter(o => !tastyNums.has(o.accountNumber));
+            return mergeByTime(prevSchwab, t?.filledOrders ?? [], "time" as never);
+          });
+          setAllFilledOptionOrders(prev => {
+            const prevSchwab = prev.filter(o => !tastyNums.has(o.accountNumber));
+            return mergeByTime(prevSchwab, t?.filledOptionOrders ?? [], "time" as never);
+          });
+          setAllExpiredOptionOrders(prev => {
+            const prevSchwab = prev.filter(o => !tastyNums.has(o.accountNumber));
+            return mergeByTime(prevSchwab, t?.expiredOptionOrders ?? [], "time" as never);
+          });
+          setAllWorkingOrders(prev => {
+            const prevSchwab = prev.filter(o => !tastyNums.has(o.accountNumber));
+            return mergeByTime(prevSchwab, t?.workingOrders ?? [], "enteredTime" as never);
+          });
+          setAllOptionPositions(prev => [
+            ...prev.filter(p => !tastyNums.has(p.accountNumber)),
+            ...(t?.optionPositions ?? []),
+          ]);
+          setAllTqqqShares(prev => ({ ...prev, ...(t?.tqqqShares ?? {}) }));
+          setAllTqqqAvgPrice(prev => ({ ...prev, ...(t?.tqqqAvgPrice ?? {}) }));
+          setAllBalances(prev => [
+            ...prev.filter(b => !tastyNums.has(b.accountNumber)),
+            ...(t?.balances ?? []),
+          ]);
+          setAllTransactions(prev => {
+            const prevSchwab = prev.filter(tx => !tastyNums.has(tx.accountNumber));
+            return mergeByTime(prevSchwab, t?.transactions ?? [], "time" as never);
+          });
+        }
+      })
+      .catch(() => {
+        // ignore
+      })
+      .finally(() => markComplete());
+
     return () => { cancelled = true; };
   }, [refreshTick]);
 

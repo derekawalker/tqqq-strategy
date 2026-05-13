@@ -20,12 +20,15 @@ import {
   CopyButton,
   Alert,
   Switch,
+  ActionIcon,
 } from "@mantine/core";
 import {
   IconCheck,
   IconCopy,
   IconPlayerPlayFilled,
   IconShield,
+  IconClock,
+  IconTrash,
 } from "@tabler/icons-react";
 import { MiniChartCard } from "@/components/MiniChartCard";
 import { CARD_RADIUS } from "@/lib/cardStyles";
@@ -102,6 +105,28 @@ export default function WorkingOrdersPage() {
   const [sandboxMode, setSandboxMode] = useState(false);
   const isTastytrade = activeAccount?.broker === "tastytrade";
 
+  interface QueuedPlaceOrder {
+    side: "BUY" | "SELL";
+    shares: number;
+    price: number;
+  }
+  interface QueuedCancelOrder {
+    orderId: string;
+    accountNumber: string;
+    side: "BUY" | "SELL";
+    shares: number;
+    price: number;
+  }
+
+  const [queuedPlaceOrders, setQueuedPlaceOrders] = useState<QueuedPlaceOrder[]>([]);
+  const [queuedCancelOrders, setQueuedCancelOrders] = useState<QueuedCancelOrder[]>([]);
+
+  const isPlaceOrderQueued = (side: "BUY" | "SELL", shares: number, price: number) =>
+    queuedPlaceOrders.some((o) => o.side === side && o.shares === shares && o.price === price);
+
+  const isCancelOrderQueued = (orderId: string) =>
+    queuedCancelOrders.some((o) => o.orderId === orderId);
+
   useEffect(() => {
     if (!isTastytrade) return;
     fetch("/api/tastytrade/sandbox")
@@ -118,9 +143,6 @@ export default function WorkingOrdersPage() {
     });
   };
 
-  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(
-    null,
-  );
   const [cancelConfirm, setCancelConfirm] = useState<{
     orderId: string;
     accountNumber: string;
@@ -128,22 +150,12 @@ export default function WorkingOrdersPage() {
     shares: number;
     price: number;
   } | null>(null);
+  const [submitConfirm, setSubmitConfirm] = useState(false);
 
-  const confirmCancel = async () => {
+  const confirmCancel = () => {
     if (!cancelConfirm) return;
-    const { orderId, accountNumber } = cancelConfirm;
-    setCancellingOrderId(orderId);
+    setQueuedCancelOrders((prev) => [...prev, cancelConfirm]);
     setCancelConfirm(null);
-    try {
-      await fetch("/api/tastytrade/orders", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId, accountNumber }),
-      });
-      tickRefresh();
-    } finally {
-      setCancellingOrderId(null);
-    }
   };
 
   const openPlaceOrder = (
@@ -157,42 +169,94 @@ export default function WorkingOrdersPage() {
     setOrderResult(null);
   };
 
-  const submitOrder = async () => {
-    if (!placeOrderModal || !activeAccount) return;
+  const addToQueue = () => {
+    if (!placeOrderModal) return;
+    setQueuedPlaceOrders((prev) => [...prev, placeOrderModal]);
+    closePlaceOrder();
+  };
+
+  const directQueueOrder = (side: "BUY" | "SELL", shares: number, price: number) => {
+    setQueuedPlaceOrders((prev) => [...prev, { side, shares, price }]);
+  };
+
+  const directQueueCancel = (orderId: string, accountNumber: string, side: "BUY" | "SELL", shares: number, price: number) => {
+    setQueuedCancelOrders((prev) => [...prev, { orderId, accountNumber, side, shares, price }]);
+  };
+
+  const submitQueue = async () => {
+    if (!activeAccount) return;
     setOrderLoading(true);
     setOrderResult(null);
-    try {
-      const res = await fetch("/api/tastytrade/orders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          accountNumber: activeAccount.accountNumber,
-          side: placeOrderModal.side,
-          shares: placeOrderModal.shares,
-          price: placeOrderModal.price,
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        const raw =
-          json?.error?.errors?.[0]?.message ??
-          json?.error?.message ??
-          json?.error?.error ??
-          json?.error;
-        const detail = typeof raw === "string" ? raw : JSON.stringify(raw);
-        setOrderResult({ ok: false, message: detail ?? "Order failed" });
-      } else {
-        setOrderResult({ ok: true, message: "Order placed successfully." });
-        tickRefresh();
+
+    const results: { type: "place" | "cancel"; ok: boolean; message: string }[] = [];
+
+    // Submit all cancellations first
+    for (const order of queuedCancelOrders) {
+      try {
+        const res = await fetch("/api/tastytrade/orders", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orderId: order.orderId,
+            accountNumber: order.accountNumber,
+          }),
+        });
+        if (res.ok) {
+          results.push({ type: "cancel", ok: true, message: `Cancelled ${order.side} ${order.shares}` });
+        } else {
+          const json = await res.json();
+          const detail = json?.error?.message ?? "Cancel failed";
+          results.push({ type: "cancel", ok: false, message: detail });
+        }
+      } catch (err) {
+        results.push({ type: "cancel", ok: false, message: "Network error" });
       }
-    } catch {
-      setOrderResult({
-        ok: false,
-        message: "Network error — order not placed.",
-      });
-    } finally {
-      setOrderLoading(false);
     }
+
+    // Then submit all new orders
+    for (const order of queuedPlaceOrders) {
+      try {
+        const res = await fetch("/api/tastytrade/orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            accountNumber: activeAccount.accountNumber,
+            side: order.side,
+            shares: order.shares,
+            price: order.price,
+          }),
+        });
+        const json = await res.json();
+        if (res.ok) {
+          results.push({ type: "place", ok: true, message: `Placed ${order.side} ${order.shares}` });
+        } else {
+          const raw =
+            json?.error?.errors?.[0]?.message ??
+            json?.error?.message ??
+            json?.error?.error ??
+            json?.error;
+          const detail = typeof raw === "string" ? raw : JSON.stringify(raw);
+          results.push({ type: "place", ok: false, message: detail });
+        }
+      } catch (err) {
+        results.push({ type: "place", ok: false, message: "Network error" });
+      }
+    }
+
+    const successes = results.filter((r) => r.ok).length;
+    const total = results.length;
+    setOrderResult({
+      ok: successes === total,
+      message: `${successes}/${total} orders completed`,
+    });
+
+    if (successes > 0) {
+      tickRefresh();
+    }
+
+    setQueuedPlaceOrders([]);
+    setQueuedCancelOrders([]);
+    setOrderLoading(false);
   };
 
   const warnBelow = activeAccount?.settings.orderWarnBelow ?? 3;
@@ -431,16 +495,47 @@ export default function WorkingOrdersPage() {
               {fmt(cancelConfirm.shares, 0)} TQQQ @ ${fmt(cancelConfirm.price)}?
             </Text>
           )}
+          {(queuedPlaceOrders.length > 0 || queuedCancelOrders.length > 0) && (
+            <Alert color="blue" variant="light" size="sm">
+              Queue: {queuedCancelOrders.length} to cancel, {queuedPlaceOrders.length} to place
+            </Alert>
+          )}
+          <Group justify="flex-end">
+            <Button color="red" onClick={() => {
+              confirmCancel();
+              setCancelConfirm(null);
+            }}>
+              Add to Queue
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal
+        opened={submitConfirm}
+        onClose={() => setSubmitConfirm(false)}
+        title="Submit Queue"
+        size="sm"
+      >
+        <Stack gap="md">
+          <Text size="sm">
+            Submit {queuedCancelOrders.length} cancellation{queuedCancelOrders.length !== 1 ? "s" : ""} and {queuedPlaceOrders.length} new order{queuedPlaceOrders.length !== 1 ? "s" : ""}?
+          </Text>
           <Group justify="flex-end">
             <Button
               variant="subtle"
               color="gray"
-              onClick={() => setCancelConfirm(null)}
+              onClick={() => setSubmitConfirm(false)}
             >
-              Keep
+              Cancel
             </Button>
-            <Button color="red" onClick={confirmCancel}>
-              Cancel Order
+            <Button
+              onClick={() => {
+                setSubmitConfirm(false);
+                submitQueue();
+              }}
+            >
+              Submit
             </Button>
           </Group>
         </Stack>
@@ -451,7 +546,7 @@ export default function WorkingOrdersPage() {
         onClose={closePlaceOrder}
         title={
           <Group gap="xs">
-            <Text fw={700}>Place Order{sandboxMode ? " — SANDBOX" : ""}</Text>
+            <Text fw={700}>Queue Order{sandboxMode ? " — SANDBOX" : ""}</Text>
             {sandboxMode && (
               <IconShield size={16} color="var(--mantine-color-orange-5)" />
             )}
@@ -481,35 +576,26 @@ export default function WorkingOrdersPage() {
               {fmt(placeOrderModal.price)} GTC Ext Overnight limit
             </Text>
           )}
-          {orderResult && (
-            <Alert color={orderResult.ok ? "teal" : "red"} variant="light">
-              {orderResult.message}
+          {(queuedPlaceOrders.length > 0 || queuedCancelOrders.length > 0) && (
+            <Alert color="blue" variant="light">
+              Queue: {queuedCancelOrders.length} to cancel, {queuedPlaceOrders.length} to place
             </Alert>
           )}
-          {!orderResult && (
-            <Group justify="flex-end">
-              <Button
-                variant="subtle"
-                color="gray"
-                onClick={closePlaceOrder}
-                disabled={orderLoading}
-              >
-                Cancel
-              </Button>
-              <Button
-                color={placeOrderModal?.side === "BUY" ? "teal" : "red"}
-                loading={orderLoading}
-                onClick={submitOrder}
-              >
-                Confirm
-              </Button>
-            </Group>
-          )}
-          {orderResult && (
-            <Button variant="subtle" onClick={closePlaceOrder}>
-              Close
+          <Group justify="flex-end">
+            <Button
+              variant="subtle"
+              color="gray"
+              onClick={closePlaceOrder}
+            >
+              Cancel
             </Button>
-          )}
+            <Button
+              color={placeOrderModal?.side === "BUY" ? "teal" : "red"}
+              onClick={addToQueue}
+            >
+              Add to Queue
+            </Button>
+          </Group>
         </Stack>
       </Modal>
 
@@ -566,6 +652,144 @@ export default function WorkingOrdersPage() {
             </Group>
           </Group>
         </Group>
+
+        {(queuedPlaceOrders.length > 0 || queuedCancelOrders.length > 0) && isTastytrade && (
+          <Stack gap="md" p="md" style={{ border: "1px solid var(--mantine-color-blue-7)", borderRadius: 8, backgroundColor: "rgba(13, 110, 253, 0.05)" }}>
+            <Group justify="space-between" align="flex-start">
+              <Text fw={700} size="sm">
+                Queued Orders ({queuedCancelOrders.length + queuedPlaceOrders.length} total)
+              </Text>
+              <Button
+                variant="subtle"
+                color="gray"
+                size="xs"
+                onClick={() => {
+                  setQueuedPlaceOrders([]);
+                  setQueuedCancelOrders([]);
+                }}
+              >
+                Clear All
+              </Button>
+            </Group>
+
+            <ScrollArea>
+              <Table size="sm" striped>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th ta="center">Type</Table.Th>
+                    <Table.Th ta="center">Side</Table.Th>
+                    <Table.Th ta="center">Shares</Table.Th>
+                    <Table.Th ta="center">Price</Table.Th>
+                    <Table.Th ta="center">Order Type</Table.Th>
+                    <Table.Th ta="center">Time in Force</Table.Th>
+                    <Table.Th ta="center">Session</Table.Th>
+                    <Table.Th ta="center">Action</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {queuedCancelOrders.map((order) => (
+                    <Table.Tr key={order.orderId}>
+                      <Table.Td ta="center">
+                        <Badge size="sm" color="red" variant="light">
+                          Cancel
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td ta="center">
+                        <Text size="sm" fw={600} c={order.side === "BUY" ? "teal" : "red"}>
+                          {order.side}
+                        </Text>
+                      </Table.Td>
+                      <Table.Td ta="center">
+                        <Text size="sm">{fmt(order.shares, 0)}</Text>
+                      </Table.Td>
+                      <Table.Td ta="center">
+                        <Text size="sm">${fmt(order.price)}</Text>
+                      </Table.Td>
+                      <Table.Td ta="center">
+                        <Text size="sm">Limit</Text>
+                      </Table.Td>
+                      <Table.Td ta="center">
+                        <Text size="sm">GTC</Text>
+                      </Table.Td>
+                      <Table.Td ta="center">
+                        <Text size="sm">Extended Overnight</Text>
+                      </Table.Td>
+                      <Table.Td ta="center">
+                        <ActionIcon
+                          size="sm"
+                          color="red"
+                          variant="light"
+                          onClick={() =>
+                            setQueuedCancelOrders((prev) =>
+                              prev.filter((o) => o.orderId !== order.orderId)
+                            )
+                          }
+                        >
+                          <IconTrash size={14} />
+                        </ActionIcon>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                  {queuedPlaceOrders.map((order, idx) => (
+                    <Table.Tr key={`${order.side}-${order.shares}-${order.price}-${idx}`}>
+                      <Table.Td ta="center">
+                        <Badge size="sm" color="teal" variant="light">
+                          Place
+                        </Badge>
+                      </Table.Td>
+                      <Table.Td ta="center">
+                        <Text size="sm" fw={600} c={order.side === "BUY" ? "teal" : "red"}>
+                          {order.side}
+                        </Text>
+                      </Table.Td>
+                      <Table.Td ta="center">
+                        <Text size="sm">{fmt(order.shares, 0)}</Text>
+                      </Table.Td>
+                      <Table.Td ta="center">
+                        <Text size="sm">${fmt(order.price)}</Text>
+                      </Table.Td>
+                      <Table.Td ta="center">
+                        <Text size="sm">Limit</Text>
+                      </Table.Td>
+                      <Table.Td ta="center">
+                        <Text size="sm">GTC</Text>
+                      </Table.Td>
+                      <Table.Td ta="center">
+                        <Text size="sm">Extended Overnight</Text>
+                      </Table.Td>
+                      <Table.Td ta="center">
+                        <ActionIcon
+                          size="sm"
+                          color="teal"
+                          variant="light"
+                          onClick={() =>
+                            setQueuedPlaceOrders((prev) =>
+                              prev.filter(
+                                (o, i) =>
+                                  !(i === idx && o.side === order.side && o.shares === order.shares && o.price === order.price)
+                              )
+                            )
+                          }
+                        >
+                          <IconTrash size={14} />
+                        </ActionIcon>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </ScrollArea>
+
+            <Group justify="flex-end">
+              <Button
+                size="sm"
+                onClick={() => setSubmitConfirm(true)}
+              >
+                Submit Queue
+              </Button>
+            </Group>
+          </Stack>
+        )}
 
         <ScrollArea>
           <Table>
@@ -649,7 +873,7 @@ export default function WorkingOrdersPage() {
                                 onClick={() => {
                                   if (topLevel.buyPrice == null) return;
                                   isTastytrade
-                                    ? openPlaceOrder(
+                                    ? directQueueOrder(
                                         "BUY",
                                         topLevel.shares,
                                         topLevel.buyPrice!,
@@ -899,71 +1123,87 @@ export default function WorkingOrdersPage() {
                                           o.shares === row.shares,
                                       )
                                     : null;
+                                  const isQueued = order ? isCancelOrderQueued(String(order.orderId)) : false;
                                   return order ? (
-                                    <Badge
-                                      variant="outline"
-                                      size="md"
-                                      fw={700}
-                                      color="teal"
-                                      style={{
-                                        cursor: cancellingOrderId === String(order.orderId) ? "default" : "pointer",
-                                        ...(isMobile ? { paddingInline: 8 } : {}),
-                                      }}
-                                      onClick={() =>
-                                        cancellingOrderId == null &&
-                                        setCancelConfirm({
-                                          orderId: String(order.orderId),
-                                          accountNumber: order.accountNumber,
-                                          side: order.side,
-                                          shares: order.shares,
-                                          price: order.limitPrice,
-                                        })
-                                      }
-                                    >
-                                      {row.buys}
-                                    </Badge>
+                                    <Tooltip label={isQueued ? "Queued for cancellation" : "Click to queue cancellation"}>
+                                      <Badge
+                                        variant="outline"
+                                        size="md"
+                                        fw={700}
+                                        color={isQueued ? "orange" : "teal"}
+                                        style={{
+                                          cursor: "pointer",
+                                          ...(isMobile ? { paddingInline: 8 } : {}),
+                                        }}
+                                        leftSection={isQueued ? <IconClock size={12} /> : undefined}
+                                        onClick={() =>
+                                          !isQueued &&
+                                          (isTastytrade
+                                            ? directQueueCancel(String(order.orderId), order.accountNumber, order.side, order.shares, order.limitPrice)
+                                            : setCancelConfirm({
+                                                orderId: String(order.orderId),
+                                                accountNumber: order.accountNumber,
+                                                side: order.side,
+                                                shares: order.shares,
+                                                price: order.limitPrice,
+                                              }))
+                                        }
+                                      >
+                                        {row.buys}
+                                      </Badge>
+                                    </Tooltip>
                                   ) : (
                                     <Text size="sm" c="teal">{row.buys}</Text>
                                   );
                                 })()
                               ) : buyColVisible ? (
-                                <Badge
-                                  variant="filled"
-                                  size="md"
-                                  fw={700}
-                                  style={{
-                                    background: bufferMissing
-                                      ? "rgba(251,146,60,0.9)"
-                                      : "var(--mantine-color-teal-7)",
-                                    color: "#fff",
-                                    cursor:
-                                      row.buyPrice != null
-                                        ? "pointer"
-                                        : "default",
-                                    ...(isMobile ? { paddingInline: 8 } : {}),
-                                  }}
-                                  onClick={() => {
-                                    if (row.buyPrice == null) return;
-                                    isTastytrade
-                                      ? openPlaceOrder(
-                                          "BUY",
-                                          row.shares,
-                                          row.buyPrice,
-                                        )
-                                      : row.sellPrice != null &&
-                                        setTosModal({
-                                          text: buildTosText(
-                                            "BUY",
-                                            row.shares,
-                                            row.buyPrice,
-                                            row.sellPrice,
-                                            4,
-                                          ),
-                                        });
-                                  }}
-                                >
-                                  +
-                                </Badge>
+                                (() => {
+                                  const isQueued = row.buyPrice != null && isPlaceOrderQueued("BUY", row.shares, row.buyPrice);
+                                  return (
+                                    <Tooltip label={isQueued ? "Queued for placement" : "Click to queue"}>
+                                      <Badge
+                                        variant="filled"
+                                        size="md"
+                                        fw={700}
+                                        style={{
+                                          background: isQueued
+                                            ? "rgba(251,146,60,0.9)"
+                                            : bufferMissing
+                                              ? "rgba(251,146,60,0.9)"
+                                              : "var(--mantine-color-teal-7)",
+                                          color: "#fff",
+                                          cursor:
+                                            row.buyPrice != null
+                                              ? "pointer"
+                                              : "default",
+                                          ...(isMobile ? { paddingInline: 8 } : {}),
+                                        }}
+                                        leftSection={isQueued ? <IconClock size={12} /> : undefined}
+                                        onClick={() => {
+                                          if (row.buyPrice == null || isQueued) return;
+                                          isTastytrade
+                                            ? directQueueOrder(
+                                                "BUY",
+                                                row.shares,
+                                                row.buyPrice,
+                                              )
+                                            : row.sellPrice != null &&
+                                              setTosModal({
+                                                text: buildTosText(
+                                                  "BUY",
+                                                  row.shares,
+                                                  row.buyPrice,
+                                                  row.sellPrice,
+                                                  4,
+                                                ),
+                                              });
+                                        }}
+                                      >
+                                        {isQueued ? "" : "+"}
+                                      </Badge>
+                                    </Tooltip>
+                                  );
+                                })()
                               ) : null}
                             </div>
                           </Table.Td>
@@ -1012,71 +1252,87 @@ export default function WorkingOrdersPage() {
                                           o.shares === row.shares,
                                       )
                                     : null;
+                                  const isQueued = order ? isCancelOrderQueued(String(order.orderId)) : false;
                                   return order ? (
-                                    <Badge
-                                      variant="outline"
-                                      size="md"
-                                      fw={700}
-                                      color="red"
-                                      style={{
-                                        cursor: cancellingOrderId === String(order.orderId) ? "default" : "pointer",
-                                        ...(isMobile ? { paddingInline: 8 } : {}),
-                                      }}
-                                      onClick={() =>
-                                        cancellingOrderId == null &&
-                                        setCancelConfirm({
-                                          orderId: String(order.orderId),
-                                          accountNumber: order.accountNumber,
-                                          side: order.side,
-                                          shares: order.shares,
-                                          price: order.limitPrice,
-                                        })
-                                      }
-                                    >
-                                      {row.sells}
-                                    </Badge>
+                                    <Tooltip label={isQueued ? "Queued for cancellation" : "Click to queue cancellation"}>
+                                      <Badge
+                                        variant="outline"
+                                        size="md"
+                                        fw={700}
+                                        color={isQueued ? "orange" : "red"}
+                                        style={{
+                                          cursor: "pointer",
+                                          ...(isMobile ? { paddingInline: 8 } : {}),
+                                        }}
+                                        leftSection={isQueued ? <IconClock size={12} /> : undefined}
+                                        onClick={() =>
+                                          !isQueued &&
+                                          (isTastytrade
+                                            ? directQueueCancel(String(order.orderId), order.accountNumber, order.side, order.shares, order.limitPrice)
+                                            : setCancelConfirm({
+                                                orderId: String(order.orderId),
+                                                accountNumber: order.accountNumber,
+                                                side: order.side,
+                                                shares: order.shares,
+                                                price: order.limitPrice,
+                                              }))
+                                        }
+                                      >
+                                        {row.sells}
+                                      </Badge>
+                                    </Tooltip>
                                   ) : (
                                     <Text size="sm" c="red">{row.sells}</Text>
                                   );
                                 })()
                               ) : sellColVisible ? (
-                                <Badge
-                                  variant="filled"
-                                  size="md"
-                                  fw={700}
-                                  style={{
-                                    background: bufferMissing
-                                      ? "rgba(251,146,60,0.9)"
-                                      : "var(--mantine-color-red-7)",
-                                    color: "#fff",
-                                    cursor:
-                                      row.sellPrice != null
-                                        ? "pointer"
-                                        : "default",
-                                    ...(isMobile ? { paddingInline: 8 } : {}),
-                                  }}
-                                  onClick={() => {
-                                    if (row.sellPrice == null) return;
-                                    isTastytrade
-                                      ? openPlaceOrder(
-                                          "SELL",
-                                          row.shares,
-                                          row.sellPrice,
-                                        )
-                                      : row.buyPrice != null &&
-                                        setTosModal({
-                                          text: buildTosText(
-                                            "SELL",
-                                            row.shares,
-                                            row.buyPrice,
-                                            row.sellPrice,
-                                            4,
-                                          ),
-                                        });
-                                  }}
-                                >
-                                  +
-                                </Badge>
+                                (() => {
+                                  const isQueued = row.sellPrice != null && isPlaceOrderQueued("SELL", row.shares, row.sellPrice);
+                                  return (
+                                    <Tooltip label={isQueued ? "Queued for placement" : "Click to queue"}>
+                                      <Badge
+                                        variant="filled"
+                                        size="md"
+                                        fw={700}
+                                        style={{
+                                          background: isQueued
+                                            ? "rgba(251,146,60,0.9)"
+                                            : bufferMissing
+                                              ? "rgba(251,146,60,0.9)"
+                                              : "var(--mantine-color-red-7)",
+                                          color: "#fff",
+                                          cursor:
+                                            row.sellPrice != null
+                                              ? "pointer"
+                                              : "default",
+                                          ...(isMobile ? { paddingInline: 8 } : {}),
+                                        }}
+                                        leftSection={isQueued ? <IconClock size={12} /> : undefined}
+                                        onClick={() => {
+                                          if (row.sellPrice == null || isQueued) return;
+                                          isTastytrade
+                                            ? directQueueOrder(
+                                                "SELL",
+                                                row.shares,
+                                                row.sellPrice,
+                                              )
+                                            : row.buyPrice != null &&
+                                              setTosModal({
+                                                text: buildTosText(
+                                                  "SELL",
+                                                  row.shares,
+                                                  row.buyPrice,
+                                                  row.sellPrice,
+                                                  4,
+                                                ),
+                                              });
+                                        }}
+                                      >
+                                        {isQueued ? "" : "+"}
+                                      </Badge>
+                                    </Tooltip>
+                                  );
+                                })()
                               ) : null}
                             </div>
                           </Table.Td>
