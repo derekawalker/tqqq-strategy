@@ -427,8 +427,13 @@ function AccuracyPanel({
                   {/* Data columns */}
                   {slice.map((row) => {
                     const actual = actualDir(row.realized1dRet ?? null);
+                    const diff = (row.realized1dRet ?? null) != null && row.predicted1dRet != null
+                      ? row.realized1dRet! - row.predicted1dRet
+                      : null;
                     const mc = row.predictedDirection != null && actual != null
-                      ? (row.predictedDirection === actual ? "green" : "red")
+                      ? row.predictedDirection === actual
+                        ? "green"
+                        : diff != null && diff > 0 ? "gray" : "red"
                       : null;
                     const [, mm, dd] = row.date.split("-");
                     return (
@@ -449,9 +454,15 @@ function AccuracyPanel({
                             ? "rgba(74,222,128,0.35)"
                             : mc === "red"
                             ? "rgba(248,113,113,0.35)"
+                            : mc === "gray"
+                            ? "rgba(150,150,150,0.2)"
                             : "transparent",
-                          border: mc
-                            ? `1px solid ${mc === "green" ? "rgba(74,222,128,0.5)" : "rgba(248,113,113,0.5)"}`
+                          border: mc === "green"
+                            ? "1px solid rgba(74,222,128,0.5)"
+                            : mc === "red"
+                            ? "1px solid rgba(248,113,113,0.5)"
+                            : mc === "gray"
+                            ? "1px solid rgba(150,150,150,0.35)"
                             : "1px solid rgba(255,255,255,0.08)",
                         }}>
                           {row.realized1dRet != null && row.predicted1dRet != null && (
