@@ -298,13 +298,6 @@ function AccuracyPanel({
   const actualDir = (ret: number | null) =>
     ret == null ? null : ret > 0.5 ? "up" : ret < -0.5 ? "down" : "flat";
 
-  // flat prediction is never red; only up/down or down/up is red
-  const matchColor = (pred: string | null, actual: string | null): string | null => {
-    if (pred == null || actual == null) return null;
-    if (pred === "flat") return "green";
-    if ((pred === "up" && actual === "down") || (pred === "down" && actual === "up")) return "red";
-    return "green";
-  };
 
   const slice = [...history].slice(0, days).reverse();
 
@@ -434,9 +427,8 @@ function AccuracyPanel({
                   {/* Data columns */}
                   {slice.map((row) => {
                     const actual = actualDir(row.realized1dRet ?? null);
-                    const p = row.predicted1dRet, r = row.realized1dRet ?? null;
-                    const mc = p != null && r != null
-                      ? ((r - p) > -0.33 ? "green" : "red")
+                    const mc = row.predictedDirection != null && actual != null
+                      ? (row.predictedDirection === actual ? "green" : "red")
                       : null;
                     const [, mm, dd] = row.date.split("-");
                     return (
