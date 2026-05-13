@@ -21,8 +21,8 @@ function nextWeekday(dateStr: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-const RET_UP_THRESH = 0.5;
-const RET_DOWN_THRESH = -0.5;
+const RET_UP_THRESH = 0.25;
+const RET_DOWN_THRESH = -0.25;
 
 function toDir(predictedRet: number): "up" | "down" | "flat" {
   if (predictedRet > RET_UP_THRESH) return "up";
@@ -41,6 +41,14 @@ export interface FeatureReading {
   olsContribution: number | null;   // how much this feature pushes the magnitude prediction
 }
 
+export interface DayPrediction {
+  forDate: string;                        // the session being predicted
+  direction: "up" | "down" | "flat";
+  probUp: number;
+  predictedRet: number;
+  realizedRet: number | null;             // actual return for that session, if known
+}
+
 export interface PredictionPayload {
   cachedAt: number;
   lastTradingDate: string;
@@ -48,6 +56,7 @@ export interface PredictionPayload {
   direction: "up" | "down" | "flat";
   probUp: number;
   predictedRet: number;
+  todayPrediction: DayPrediction | null;  // prediction for current/last trading session
   features: FeatureReading[];
   modelFittedAt: string | null;
   modelTrainN: number | null;
@@ -162,29 +171,48 @@ export async function GET(request: Request) {
       };
     });
 
-    // Run inference
-    let direction: "up" | "down" | "flat" = "flat";
-    let probUp = 0.5;
-    let predictedRet = 0;
-
-    if (model && rawFeatures) {
+    // Run inference helper
+    function runInference(features: ReturnType<typeof computeFeaturesAt>) {
+      if (!model || !features) return null;
       const skewFallback = model.featureMeans["skewLevel"] ?? 135;
-      const rawVec = featuresToArray(rawFeatures, skewFallback);
+      const rawVec = featuresToArray(features, skewFallback);
       const means = FEATURE_NAMES.map((n) => model.featureMeans[n]);
       const stdevs = FEATURE_NAMES.map((n) => model.featureStdevs[n]);
       const normVec = normalize(rawVec, means, stdevs);
-
-      probUp = Math.round(predictProb(normVec, model.logisticWeights) * 10000) / 10000;
+      const probUp = Math.round(predictProb(normVec, model.logisticWeights) * 10000) / 10000;
       const rawOls = predictMagnitude(normVec, model.olsWeights);
-      predictedRet = Math.round(
-        volAdjustedPrediction(
-          rawOls,
-          rawFeatures.realizedVol20d,
-          model.featureMeans["realizedVol20d"],
-          model.magnitudePearson,
-        ) * 10000,
+      const predictedRet = Math.round(
+        volAdjustedPrediction(rawOls, features.realizedVol20d, model.featureMeans["realizedVol20d"], model.magnitudePearson) * 10000,
       ) / 10000;
-      direction = toDir(predictedRet);
+      return { probUp, predictedRet, direction: toDir(predictedRet) };
+    }
+
+    // Tomorrow's prediction (from lastIdx features)
+    let direction: "up" | "down" | "flat" = "flat";
+    let probUp = 0.5;
+    let predictedRet = 0;
+    const tomorrowInf = runInference(rawFeatures);
+    if (tomorrowInf) ({ direction, probUp, predictedRet } = tomorrowInf);
+
+    // Today's prediction (from lastIdx-1 features, predicting for lastDate)
+    let todayPrediction: DayPrediction | null = null;
+    if (lastIdx >= 1) {
+      const prevDate = dates[lastIdx - 1];
+      const prevFeatures = computeFeaturesAt(
+        lastIdx - 1, qqqCloses, vixCloses, vix3mCloses, tnxCloses,
+        skewByDate.get(prevDate) ?? null,
+        prevDate,
+      );
+      const todayInf = runInference(prevFeatures);
+      if (todayInf) {
+        todayPrediction = {
+          forDate: lastDate,
+          direction: todayInf.direction,
+          probUp: todayInf.probUp,
+          predictedRet: todayInf.predictedRet,
+          realizedRet: rawFeatures?.qqq1dRet ?? null,
+        };
+      }
     }
 
     // Best-effort: snapshot today's features + prediction, backfill realized
@@ -230,6 +258,7 @@ export async function GET(request: Request) {
       direction,
       probUp,
       predictedRet,
+      todayPrediction,
       features: featureReadings,
       modelFittedAt: model?.fittedAt ?? null,
       modelTrainN: model?.trainN ?? null,
