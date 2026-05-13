@@ -310,11 +310,16 @@ function AccuracyPanel({
 
   const dirColorMap: Record<string, string> = { up: "green", down: "red", flat: "gray" };
 
-  const DirIcon = ({ dir }: { dir: string | null }) => {
-    if (dir === "up")   return <Text size="xs" c="green.4" fw={700} lh={1}>↑</Text>;
-    if (dir === "down") return <Text size="xs" c="red.4"   fw={700} lh={1}>↓</Text>;
-    if (dir === "flat") return <Text size="xs" c="dimmed"  fw={700} lh={1}>—</Text>;
-    return <Text size="xs" c="dimmed" lh={1}>·</Text>;
+  const DirCell = ({ dir, pct }: { dir: string | null; pct: number | null }) => {
+    const color = dir === "up" ? "green.4" : dir === "down" ? "red.4" : "dimmed";
+    const arrow = dir === "up" ? "↑" : dir === "down" ? "↓" : dir === "flat" ? "—" : "·";
+    const pctStr = pct != null ? `${pct > 0 ? "+" : ""}${pct.toFixed(1)}` : "";
+    return (
+      <Group gap={1} wrap="nowrap" justify="center">
+        <Text size="9px" c={color} fw={700} lh={1}>{arrow}</Text>
+        {pctStr && <Text size="8px" c={color} lh={1}>{pctStr}</Text>}
+      </Group>
+    );
   };
 
   return (
@@ -432,18 +437,18 @@ function AccuracyPanel({
                     const mc = matchColor(row.predictedDirection, actual);
                     const [, mm, dd] = row.date.split("-");
                     return (
-                      <Stack key={row.date} gap={0} align="center" style={{ minWidth: 36 }}>
+                      <Stack key={row.date} gap={0} align="center" style={{ minWidth: 48 }}>
                         <Text size="9px" c="dimmed" ta="center" style={{ height: 18, lineHeight: "18px" }}>
                           {`${parseInt(mm)}/${parseInt(dd)}`}
                         </Text>
                         <Box style={{ height: 22, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <DirIcon dir={row.predictedDirection} />
+                          <DirCell dir={row.predictedDirection} pct={row.predicted1dRet} />
                         </Box>
                         <Box style={{ height: 22, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                          <DirIcon dir={actual} />
+                          <DirCell dir={actual} pct={row.realized1dRet ?? null} />
                         </Box>
                         <Box style={{
-                          width: 34, height: 20, borderRadius: 2,
+                          width: 46, height: 20, borderRadius: 2,
                           display: "flex", alignItems: "center", justifyContent: "center",
                           background: mc === "green"
                             ? "rgba(74,222,128,0.35)"
