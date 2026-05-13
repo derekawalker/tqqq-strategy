@@ -14,6 +14,13 @@ import { getUpcomingEvents, type MacroEvent } from "@/lib/macroCalendar";
 
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
+function nextWeekday(dateStr: string): string {
+  const d = new Date(dateStr + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 // Thresholds on probUp (P(next day QQQ > +0.5%)).
 // Model's probUp distribution: median ~0.34, p80 ~0.42, p20 ~0.30.
 // These asymmetric thresholds target ~20% up / ~15% down / ~65% flat.
@@ -40,6 +47,7 @@ export interface FeatureReading {
 export interface PredictionPayload {
   cachedAt: number;
   lastTradingDate: string;
+  predictionDate: string;        // the trading day this prediction is for
   direction: "up" | "down" | "flat";
   probUp: number;
   predictedRet: number;
@@ -115,6 +123,9 @@ export async function GET(request: Request) {
 
     const lastIdx = dates.length - 1;
     const lastDate = dates[lastIdx];
+
+    // Next trading day: use next date in series if available, else next weekday
+    const predictionDate = dates[lastIdx + 1] ?? nextWeekday(lastDate);
 
     // Compute today's feature vector
     const rawFeatures = computeFeaturesAt(
@@ -210,6 +221,7 @@ export async function GET(request: Request) {
     const payload: PredictionPayload = {
       cachedAt: Date.now(),
       lastTradingDate: lastDate,
+      predictionDate,
       direction,
       probUp,
       predictedRet,

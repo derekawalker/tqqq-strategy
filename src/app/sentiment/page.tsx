@@ -60,7 +60,7 @@ function DirectionHeader({ data }: { data: PredictionPayload }) {
     <Paper p="xl" radius={CARD_RADIUS} style={{ background: bg }}>
       <Stack gap="xs" align="center">
         <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: "0.12em" }}>
-          QQQ tomorrow
+          QQQ · {data.predictionDate}
         </Text>
 
         <Group gap="sm" align="center">
@@ -113,7 +113,7 @@ function DirectionHeader({ data }: { data: PredictionPayload }) {
         )}
 
         <Text size="xs" c="dimmed" mt={4} ta="center">
-          Based on data through {data.lastTradingDate}
+          Based on {data.lastTradingDate} close
         </Text>
       </Stack>
     </Paper>
