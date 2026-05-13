@@ -294,17 +294,28 @@ function AccuracyPanel({
 }) {
   const [range, setRange] = useState("1mo");
   const RANGE_DAYS: Record<string, number> = { "1mo": 21, "3mo": 63, "6mo": 126, "1yr": 252 };
-  const days = RANGE_DAYS[range] ?? 63;
-  const slice = [...history].slice(0, days).reverse();
+  const days = RANGE_DAYS[range] ?? 21;
 
-  const chartData = slice.map((h) => {
-    const [, mm, dd] = h.date.split("-");
-    return {
+  const actualDir = (ret: number) => (ret > 0.5 ? "up" : ret < -0.5 ? "down" : "flat");
+
+  // Rolling 20-day direction accuracy over the selected range
+  const WINDOW = 20;
+  const realized = [...history]
+    .filter((r) => r.predictedDirection != null && r.realized1dRet != null)
+    .reverse(); // oldest first
+
+  // Build rolling accuracy for last `days + WINDOW` rows, then slice to `days`
+  const rollingData: { date: string; "Accuracy %": number }[] = [];
+  const pool = realized.slice(-(days + WINDOW));
+  for (let i = WINDOW - 1; i < pool.length; i++) {
+    const w = pool.slice(i - WINDOW + 1, i + 1);
+    const correct = w.filter((r) => r.predictedDirection === actualDir(r.realized1dRet!)).length;
+    const [, mm, dd] = pool[i].date.split("-");
+    rollingData.push({
       date: `${parseInt(mm)}/${parseInt(dd)}`,
-      "Predicted %": h.predicted1dRet != null ? Math.round(h.predicted1dRet * 100) / 100 : null,
-      "Realized %":  h.realized1dRet != null  ? Math.round(Math.max(-5, Math.min(5, h.realized1dRet)) * 100) / 100 : null,
-    };
-  });
+      "Accuracy %": Math.round((correct / WINDOW) * 1000) / 10,
+    });
+  }
 
   const dirColorMap: Record<string, string> = { up: "green", down: "red", flat: "gray" };
 
@@ -399,32 +410,32 @@ function AccuracyPanel({
             </Box>
           )}
 
-          {chartData.length > 0 && (
+          {rollingData.length > 0 && (
             <>
-              <Group justify="space-between" align="center" mb={4}>
-                <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: "0.12em" }}>
-                  Predicted vs realized
-                </Text>
+              <Group justify="space-between" align="center" mb={4} mt="md">
+                <Tooltip
+                  label="Rolling 20-day direction accuracy: what % of the last 20 predictions matched actual direction (up/down/flat at ±0.5%). Dashed line = 33% random baseline."
+                  withArrow multiline maw={280}
+                >
+                  <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: "0.12em", cursor: "help" }}>
+                    Rolling accuracy (20d)
+                  </Text>
+                </Tooltip>
                 <SegmentedControl size="xs" value={range} onChange={setRange} data={["1mo", "3mo", "6mo", "1yr"]} />
               </Group>
               <LineChart
                 h={200}
-                data={chartData}
+                data={rollingData}
                 dataKey="date"
-                series={[
-                  { name: "Realized %", color: "teal.4" },
-                  { name: "Predicted %", color: "blue.4" },
-                ]}
+                series={[{ name: "Accuracy %", color: "teal.4" }]}
                 withDots={false}
                 curveType="monotone"
-                connectNulls={false}
-                strokeWidth={1.5}
-                valueFormatter={(v) => fmtPct(v)}
-                yAxisProps={{ domain: [-4, 4] }}
-                referenceLines={[{ y: 0, color: "gray.6", strokeDasharray: "4 4" }]}
-                withLegend
+                strokeWidth={2}
+                valueFormatter={(v) => `${v.toFixed(0)}%`}
+                yAxisProps={{ domain: [0, 100] }}
+                referenceLines={[{ y: 33, color: "gray.5", strokeDasharray: "4 4", label: "random" }]}
+                withLegend={false}
               />
-              <Text size="10px" c="dimmed" mt={4}>Realized clipped to ±5%</Text>
             </>
           )}
         </>

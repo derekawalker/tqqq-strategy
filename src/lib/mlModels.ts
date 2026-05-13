@@ -132,18 +132,29 @@ export function predictMagnitude(x: number[], weights: number[]): number {
 
 // ── vol-adjusted prediction ───────────────────────────────────────────────────
 
-// Scale the raw OLS prediction by the ratio of today's expected daily move
-// to the model's average prediction magnitude (its training std).
-// This preserves the directional signal while giving realistic magnitudes:
-// calm days → small predictions, volatile days → larger predictions.
+// Calibrated, vol-adjusted prediction.
+//
+// Step 1 — recalibrate: OLS predictions are compressed toward zero because
+//   MSE minimization hedges to the mean when signal is weak. Dividing by the
+//   Pearson correlation (≈ sqrt(R²)) inverts that compression, rescaling
+//   predictions to the same magnitude as actual returns.
+//
+// Step 2 — vol-adjust: multiply by (currentVol / avgVol) so predictions grow
+//   on volatile days and shrink on calm days. Big moves only happen when vol
+//   is elevated — this reflects that reality.
+//
+// Result is capped at ±15% to prevent extreme outliers dominating the chart.
 export function volAdjustedPrediction(
   rawOlsPrediction: number,
   currentAnnualizedVol: number,  // today's 20d realized vol (annualized %)
-  olsPredictionStd: number,      // std of OLS outputs on training data
+  avgAnnualizedVol: number,      // featureMeans["realizedVol20d"] from model
+  pearson: number,               // magnitudePearson from model
 ): number {
-  if (olsPredictionStd < 1e-10) return rawOlsPrediction;
-  const currentDailyVol = currentAnnualizedVol / Math.sqrt(252);
-  return (rawOlsPrediction / olsPredictionStd) * currentDailyVol;
+  const p = Math.abs(pearson);
+  if (p < 0.01 || avgAnnualizedVol < 0.01) return rawOlsPrediction;
+  const calibrated = rawOlsPrediction / p;
+  const volScaled = calibrated * (currentAnnualizedVol / avgAnnualizedVol);
+  return Math.max(-15, Math.min(15, volScaled));
 }
 
 export function stdev(xs: number[]): number {

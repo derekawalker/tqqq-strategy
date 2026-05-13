@@ -177,7 +177,12 @@ export async function GET(request: Request) {
       probUp = Math.round(predictProb(normVec, model.logisticWeights) * 10000) / 10000;
       const rawOls = predictMagnitude(normVec, model.olsWeights);
       predictedRet = Math.round(
-        volAdjustedPrediction(rawOls, rawFeatures.realizedVol20d, model.olsPredictionStd) * 10000,
+        volAdjustedPrediction(
+          rawOls,
+          rawFeatures.realizedVol20d,
+          model.featureMeans["realizedVol20d"],
+          model.magnitudePearson,
+        ) * 10000,
       ) / 10000;
       direction = toDir(predictedRet);
     }

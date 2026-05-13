@@ -70,7 +70,12 @@ async function main() {
       const probUp = Math.round(predictProb(normVec, model.logisticWeights) * 10000) / 10000;
       const rawOls = predictMagnitude(normVec, model.olsWeights);
       const predicted1dRet = Math.round(
-        volAdjustedPrediction(rawOls, feat.realizedVol20d, model.olsPredictionStd) * 10000,
+        volAdjustedPrediction(
+          rawOls,
+          feat.realizedVol20d,
+          model.featureMeans["realizedVol20d"],
+          model.magnitudePearson,
+        ) * 10000,
       ) / 10000;
       const direction = predicted1dRet > RET_UP_THRESH ? "up" : predicted1dRet < RET_DOWN_THRESH ? "down" : "flat";
 
