@@ -436,7 +436,7 @@ function AccuracyPanel({
                     const actual = actualDir(row.realized1dRet ?? null);
                     const p = row.predicted1dRet, r = row.realized1dRet ?? null;
                     const mc = p != null && r != null
-                      ? ((p > 0 && r > 0) || (p < 0 && r < 0) ? "green" : "red")
+                      ? ((r - p) > -0.33 ? "green" : "red")
                       : null;
                     const [, mm, dd] = row.date.split("-");
                     return (
