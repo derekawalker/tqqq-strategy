@@ -292,7 +292,7 @@ function AccuracyPanel({
   history: DailyRow[];
   model: { fittedAt: string | null; trainN: number | null; dirAcc: number | null; mae: number | null; pearson: number | null };
 }) {
-  const [range, setRange] = useState("3mo");
+  const [range, setRange] = useState("1mo");
   const RANGE_DAYS: Record<string, number> = { "1mo": 21, "3mo": 63, "6mo": 126, "1yr": 252 };
   const days = RANGE_DAYS[range] ?? 63;
   const slice = [...history].slice(0, days).reverse();
