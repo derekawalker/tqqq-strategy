@@ -1,119 +1,99 @@
 /**
- * Backfills predicted_return_5d for all historical rows that have signals JSONB
- * but a null predicted_return_5d — no price data re-fetch needed.
+ * Backfill predictions for all historical daily_features rows that have
+ * features but no predicted_direction yet. Uses the currently stored model.
  *
- * Run with:
  *   npx tsx --env-file=.env.local scripts/backfill-predictions.ts
- *   npx tsx --env-file=.env.local scripts/backfill-predictions.ts --dry-run
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
-const DRY_RUN = process.argv.includes("--dry-run");
-
-function supabase() {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set");
-  return createClient(url, key);
-}
-
-type SignalKey =
-  | "vixTerm" | "vixSpike" | "rsi2InTrend" | "pctAbove200ma"
-  | "realizedVol20Pct" | "hygSpyDiv" | "tnxMom20" | "tltMom20" | "skewLevel";
-
-type MagnitudeModel = {
-  intercept: number;
-  coefficients: Record<SignalKey, number>;
-  featureSignals: SignalKey[];
-  mae: number;
-  pearson: number;
-};
-
-const statsData = JSON.parse(
-  readFileSync(resolve(process.cwd(), "src/data/signal-stats.json"), "utf8")
-) as { magnitudeModel: MagnitudeModel };
-
-const MODEL: MagnitudeModel = statsData.magnitudeModel;
-
-function applyModel(signals: Array<{ key: string; vsBaseline: number | null }>): number {
-  const byKey = new Map(signals.map((s) => [s.key, s.vsBaseline ?? 0]));
-  let sum = MODEL.intercept;
-  for (const sk of MODEL.featureSignals) {
-    const edge = byKey.get(sk) ?? 0;
-    sum += (MODEL.coefficients[sk] ?? 0) * edge;
-  }
-  return Math.round(sum * 1000) / 1000;
-}
+import { FEATURE_NAMES, normalize, predictProb, predictMagnitude } from "@/lib/mlModels";
+import { featuresToArray } from "@/lib/features";
+import { loadModelCoefficients } from "@/lib/predictionHistory";
+import type { RawFeatures } from "@/lib/features";
 
 async function main() {
-  const db = supabase();
+  const sb = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 
-  console.log("Fetching rows with null predicted_return_5d...");
-  const { data, error } = await db
-    .from("sentiment_verdict_history")
-    .select("date, signals")
-    .is("predicted_return_5d", null)
-    .not("signals", "is", null)
-    .order("date", { ascending: true });
+  const model = await loadModelCoefficients();
+  if (!model) {
+    console.error("No model found in model_coefficients. Click Retrain in the app first.");
+    process.exit(1);
+  }
+  console.log(`Model fitted ${model.fittedAt.slice(0, 10)}, trained on ${model.trainN} rows.`);
 
-  if (error) throw new Error(`Supabase fetch failed: ${error.message}`);
+  // Load all rows that have features but no prediction yet
+  const { data, error } = await sb
+    .from("daily_features")
+    .select("date, qqq_close, qqq_1d_ret, qqq_3d_ret, qqq_5d_ret, vix_level, vix_1d_change, vix_term, pct_above_200ma, realized_vol_20d, tnx_mom_20d, skew_level")
+    .not("qqq_1d_ret", "is", null)
+    .order("date", { ascending: true })
+    .limit(10000);
+
+  if (error) { console.error(error.message); process.exit(1); }
   if (!data || data.length === 0) {
-    console.log("No rows to update — all already have predicted_return_5d.");
+    console.log("No rows to backfill — all rows already have predictions.");
     return;
   }
 
-  console.log(`Found ${data.length} rows to update.`);
+  console.log(`Backfilling predictions for ${data.length} rows...`);
 
-  // Compute predictions
-  type Update = { date: string; predicted_return_5d: number };
-  const updates: Update[] = [];
-  for (const row of data) {
-    const signals = row.signals as Array<{ key: string; vsBaseline: number | null }>;
-    if (!Array.isArray(signals) || signals.length === 0) continue;
-    updates.push({
-      date: row.date as string,
-      predicted_return_5d: applyModel(signals),
-    });
-  }
+  const skewFallback = model.featureMeans["skewLevel"] ?? 135;
+  const means = FEATURE_NAMES.map((n) => model.featureMeans[n]);
+  const stdevs = FEATURE_NAMES.map((n) => model.featureStdevs[n]);
 
-  console.log(`\nSample (first 5):`);
-  for (const u of updates.slice(0, 5)) {
-    console.log(`  ${u.date}  predicted=${u.predicted_return_5d >= 0 ? "+" : ""}${u.predicted_return_5d.toFixed(3)}%`);
-  }
+  const PROB_UP_THRESH = 0.42;
+  const PROB_DOWN_THRESH = 0.30;
 
-  if (DRY_RUN) {
-    console.log(`\nDry run — ${updates.length} rows would be updated.`);
-    return;
-  }
-
-  // Update 10 at a time using parallel .update().eq() calls
-  const PARALLEL = 10;
+  const BATCH = 100;
   let updated = 0;
-  for (let i = 0; i < updates.length; i += PARALLEL) {
-    const batch = updates.slice(i, i + PARALLEL);
-    await Promise.all(
-      batch.map((u) =>
-        db
-          .from("sentiment_verdict_history")
-          .update({ predicted_return_5d: u.predicted_return_5d })
-          .eq("date", u.date)
-          .then(({ error: upErr }) => {
-            if (upErr) throw new Error(`Update failed for ${u.date}: ${upErr.message}`);
-          }),
-      ),
-    );
-    updated += batch.length;
-    process.stdout.write(`\rUpdated ${updated} / ${updates.length}...`);
+
+  for (let i = 0; i < data.length; i += BATCH) {
+    const batch = data.slice(i, i + BATCH);
+    const updates = batch.map((row) => {
+      const feat: RawFeatures = {
+        date: row.date as string,
+        qqqClose: row.qqq_close as number,
+        qqq1dRet: row.qqq_1d_ret as number,
+        qqq3dRet: row.qqq_3d_ret as number,
+        qqq5dRet: row.qqq_5d_ret as number,
+        vixLevel: row.vix_level as number,
+        vix1dChange: row.vix_1d_change as number,
+        vixTerm: row.vix_term as number,
+        pctAbove200ma: row.pct_above_200ma as number,
+        realizedVol20d: row.realized_vol_20d as number,
+        tnxMom20d: row.tnx_mom_20d as number,
+        skewLevel: row.skew_level as number | null,
+      };
+
+      const rawVec = featuresToArray(feat, skewFallback);
+      const normVec = normalize(rawVec, means, stdevs);
+      const probUp = Math.round(predictProb(normVec, model.logisticWeights) * 10000) / 10000;
+      const predicted1dRet = Math.round(predictMagnitude(normVec, model.olsWeights) * 10000) / 10000;
+      const direction = probUp > PROB_UP_THRESH ? "up" : probUp < PROB_DOWN_THRESH ? "down" : "flat";
+
+      return {
+        date: feat.date,
+        qqq_close: feat.qqqClose,
+        predicted_direction: direction,
+        predicted_prob_up: probUp,
+        predicted_1d_ret: predicted1dRet,
+        updated_at: new Date().toISOString(),
+      };
+    });
+
+    const { error: upsertErr } = await sb
+      .from("daily_features")
+      .upsert(updates, { onConflict: "date" });
+
+    if (upsertErr) {
+      console.error(`Batch ${Math.floor(i / BATCH) + 1} failed:`, upsertErr.message);
+    } else {
+      updated += batch.length;
+      process.stdout.write(`\r  ${updated}/${data.length} rows updated`);
+    }
   }
 
-  console.log(`\nDone. ${updated} rows backfilled with predicted_return_5d.`);
-  console.log(`Model: intercept=${MODEL.intercept}, MAE=${MODEL.mae}%, pearson=${MODEL.pearson}`);
+  console.log(`\nDone. ${updated} rows backfilled.`);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+main().catch((e) => { console.error(e); process.exit(1); });
