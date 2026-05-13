@@ -421,7 +421,7 @@ function AccuracyPanel({
                   {/* Label column */}
                   <Stack gap={0} style={{ marginRight: 4, paddingTop: 18 }}>
                     {["Pred", "Act", ""].map((label) => (
-                      <Box key={label} style={{ height: 22, display: "flex", alignItems: "center" }}>
+                      <Box key={label} style={{ height: label === "" ? 20 : 22, display: "flex", alignItems: "center" }}>
                         <Text size="9px" c="dimmed" style={{ whiteSpace: "nowrap" }}>{label}</Text>
                       </Box>
                     ))}
@@ -432,7 +432,7 @@ function AccuracyPanel({
                     const mc = matchColor(row.predictedDirection, actual);
                     const [, mm, dd] = row.date.split("-");
                     return (
-                      <Stack key={row.date} gap={0} align="center" style={{ minWidth: 26 }}>
+                      <Stack key={row.date} gap={0} align="center" style={{ minWidth: 36 }}>
                         <Text size="9px" c="dimmed" ta="center" style={{ height: 18, lineHeight: "18px" }}>
                           {`${parseInt(mm)}/${parseInt(dd)}`}
                         </Text>
@@ -443,7 +443,8 @@ function AccuracyPanel({
                           <DirIcon dir={actual} />
                         </Box>
                         <Box style={{
-                          width: 20, height: 14, borderRadius: 2,
+                          width: 34, height: 20, borderRadius: 2,
+                          display: "flex", alignItems: "center", justifyContent: "center",
                           background: mc === "green"
                             ? "rgba(74,222,128,0.35)"
                             : mc === "red"
@@ -452,7 +453,15 @@ function AccuracyPanel({
                           border: mc
                             ? `1px solid ${mc === "green" ? "rgba(74,222,128,0.5)" : "rgba(248,113,113,0.5)"}`
                             : "1px solid rgba(255,255,255,0.08)",
-                        }} />
+                        }}>
+                          {row.realized1dRet != null && (
+                            <Text size="8px" fw={600} style={{ lineHeight: 1 }}
+                              c={row.realized1dRet > 0 ? "green.4" : row.realized1dRet < 0 ? "red.4" : "dimmed"}
+                            >
+                              {row.realized1dRet > 0 ? "+" : ""}{row.realized1dRet.toFixed(1)}
+                            </Text>
+                          )}
+                        </Box>
                       </Stack>
                     );
                   })}
