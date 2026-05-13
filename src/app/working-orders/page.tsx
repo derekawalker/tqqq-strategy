@@ -496,7 +496,7 @@ export default function WorkingOrdersPage() {
             </Text>
           )}
           {(queuedPlaceOrders.length > 0 || queuedCancelOrders.length > 0) && (
-            <Alert color="blue" variant="light" size="sm">
+            <Alert color="blue" variant="light">
               Queue: {queuedCancelOrders.length} to cancel, {queuedPlaceOrders.length} to place
             </Alert>
           )}
@@ -673,7 +673,7 @@ export default function WorkingOrdersPage() {
             </Group>
 
             <ScrollArea>
-              <Table size="sm" striped>
+              <Table striped>
                 <Table.Thead>
                   <Table.Tr>
                     <Table.Th ta="center">Type</Table.Th>
