@@ -434,7 +434,10 @@ function AccuracyPanel({
                   {/* Data columns */}
                   {slice.map((row) => {
                     const actual = actualDir(row.realized1dRet ?? null);
-                    const mc = matchColor(row.predictedDirection, actual);
+                    const p = row.predicted1dRet, r = row.realized1dRet ?? null;
+                    const mc = p != null && r != null
+                      ? ((p > 0 && r > 0) || (p < 0 && r < 0) ? "green" : "red")
+                      : null;
                     const [, mm, dd] = row.date.split("-");
                     return (
                       <Stack key={row.date} gap={0} align="center" style={{ minWidth: 48 }}>
