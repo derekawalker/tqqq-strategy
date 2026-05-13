@@ -21,15 +21,12 @@ function nextWeekday(dateStr: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-// Thresholds on probUp (P(next day QQQ > +0.5%)).
-// Model's probUp distribution: median ~0.34, p80 ~0.42, p20 ~0.30.
-// These asymmetric thresholds target ~20% up / ~15% down / ~65% flat.
-const PROB_UP_THRESH = 0.42;
-const PROB_DOWN_THRESH = 0.30;
+const RET_UP_THRESH = 0.5;
+const RET_DOWN_THRESH = -0.5;
 
-function toDir(probUp: number): "up" | "down" | "flat" {
-  if (probUp > PROB_UP_THRESH) return "up";
-  if (probUp < PROB_DOWN_THRESH) return "down";
+function toDir(predictedRet: number): "up" | "down" | "flat" {
+  if (predictedRet > RET_UP_THRESH) return "up";
+  if (predictedRet < RET_DOWN_THRESH) return "down";
   return "flat";
 }
 
@@ -179,7 +176,7 @@ export async function GET(request: Request) {
 
       probUp = Math.round(predictProb(normVec, model.logisticWeights) * 10000) / 10000;
       predictedRet = Math.round(predictMagnitude(normVec, model.olsWeights) * 10000) / 10000;
-      direction = toDir(probUp);
+      direction = toDir(predictedRet);
     }
 
     // Best-effort: snapshot today's features + prediction, backfill realized

@@ -41,8 +41,8 @@ async function main() {
   const means = FEATURE_NAMES.map((n) => model.featureMeans[n]);
   const stdevs = FEATURE_NAMES.map((n) => model.featureStdevs[n]);
 
-  const PROB_UP_THRESH = 0.42;
-  const PROB_DOWN_THRESH = 0.30;
+  const RET_UP_THRESH = 0.5;
+  const RET_DOWN_THRESH = -0.5;
 
   const BATCH = 100;
   let updated = 0;
@@ -69,7 +69,7 @@ async function main() {
       const normVec = normalize(rawVec, means, stdevs);
       const probUp = Math.round(predictProb(normVec, model.logisticWeights) * 10000) / 10000;
       const predicted1dRet = Math.round(predictMagnitude(normVec, model.olsWeights) * 10000) / 10000;
-      const direction = probUp > PROB_UP_THRESH ? "up" : probUp < PROB_DOWN_THRESH ? "down" : "flat";
+      const direction = predicted1dRet > RET_UP_THRESH ? "up" : predicted1dRet < RET_DOWN_THRESH ? "down" : "flat";
 
       return {
         date: feat.date,

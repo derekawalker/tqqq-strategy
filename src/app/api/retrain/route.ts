@@ -20,12 +20,12 @@ import {
 
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
-const PROB_UP_THRESH = 0.42;
-const PROB_DOWN_THRESH = 0.30;
+const RET_UP_THRESH = 0.5;
+const RET_DOWN_THRESH = -0.5;
 
-function toDir(probUp: number): "up" | "down" | "flat" {
-  if (probUp > PROB_UP_THRESH) return "up";
-  if (probUp < PROB_DOWN_THRESH) return "down";
+function toDir(predictedRet: number): "up" | "down" | "flat" {
+  if (predictedRet > RET_UP_THRESH) return "up";
+  if (predictedRet < RET_DOWN_THRESH) return "down";
   return "flat";
 }
 
