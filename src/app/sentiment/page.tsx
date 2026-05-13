@@ -459,12 +459,17 @@ function AccuracyPanel({
                             ? `1px solid ${mc === "green" ? "rgba(74,222,128,0.5)" : "rgba(248,113,113,0.5)"}`
                             : "1px solid rgba(255,255,255,0.08)",
                         }}>
-                          {row.realized1dRet != null && (
-                            <Text size="8px" fw={600} style={{ lineHeight: 1 }}
-                              c={row.realized1dRet > 0 ? "green.4" : row.realized1dRet < 0 ? "red.4" : "dimmed"}
-                            >
-                              {row.realized1dRet > 0 ? "+" : ""}{row.realized1dRet.toFixed(1)}
-                            </Text>
+                          {row.realized1dRet != null && row.predicted1dRet != null && (
+                            (() => {
+                              const diff = row.realized1dRet - row.predicted1dRet;
+                              return (
+                                <Text size="8px" fw={600} style={{ lineHeight: 1 }}
+                                  c={diff > 0 ? "green.4" : diff < 0 ? "red.4" : "dimmed"}
+                                >
+                                  {diff > 0 ? "+" : ""}{diff.toFixed(1)}
+                                </Text>
+                              );
+                            })()
                           )}
                         </Box>
                       </Stack>
