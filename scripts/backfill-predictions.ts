@@ -6,7 +6,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { FEATURE_NAMES, normalize, predictProb, predictMagnitude } from "@/lib/mlModels";
+import { FEATURE_NAMES, normalize, predictProb, predictMagnitude, volAdjustedPrediction } from "@/lib/mlModels";
 import { featuresToArray } from "@/lib/features";
 import { loadModelCoefficients } from "@/lib/predictionHistory";
 import type { RawFeatures } from "@/lib/features";
@@ -68,7 +68,10 @@ async function main() {
       const rawVec = featuresToArray(feat, skewFallback);
       const normVec = normalize(rawVec, means, stdevs);
       const probUp = Math.round(predictProb(normVec, model.logisticWeights) * 10000) / 10000;
-      const predicted1dRet = Math.round(predictMagnitude(normVec, model.olsWeights) * 10000) / 10000;
+      const rawOls = predictMagnitude(normVec, model.olsWeights);
+      const predicted1dRet = Math.round(
+        volAdjustedPrediction(rawOls, feat.realizedVol20d, model.olsPredictionStd) * 10000,
+      ) / 10000;
       const direction = predicted1dRet > RET_UP_THRESH ? "up" : predicted1dRet < RET_DOWN_THRESH ? "down" : "flat";
 
       return {

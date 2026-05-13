@@ -1,5 +1,5 @@
 import YahooFinance from "yahoo-finance2";
-import { FEATURE_NAMES, normalize, predictProb, predictMagnitude } from "@/lib/mlModels";
+import { FEATURE_NAMES, normalize, predictProb, predictMagnitude, volAdjustedPrediction } from "@/lib/mlModels";
 import { computeFeaturesAt, alignSeries, featuresToArray } from "@/lib/features";
 import {
   loadModelCoefficients,
@@ -175,7 +175,10 @@ export async function GET(request: Request) {
       const normVec = normalize(rawVec, means, stdevs);
 
       probUp = Math.round(predictProb(normVec, model.logisticWeights) * 10000) / 10000;
-      predictedRet = Math.round(predictMagnitude(normVec, model.olsWeights) * 10000) / 10000;
+      const rawOls = predictMagnitude(normVec, model.olsWeights);
+      predictedRet = Math.round(
+        volAdjustedPrediction(rawOls, rawFeatures.realizedVol20d, model.olsPredictionStd) * 10000,
+      ) / 10000;
       direction = toDir(predictedRet);
     }
 

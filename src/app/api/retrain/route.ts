@@ -8,6 +8,7 @@ import {
   predictProb,
   predictMagnitude,
   computePearson,
+  stdev,
   type ModelCoefficients,
 } from "@/lib/mlModels";
 import { computeFeaturesAt, alignSeries, featuresToArray } from "@/lib/features";
@@ -149,6 +150,7 @@ export async function POST() {
     const magErrs = yMagPred.map((p, i) => Math.abs(p - yMag[i]));
     const magnitudeMae = magErrs.reduce((s, e) => s + e, 0) / magErrs.length;
     const magnitudePearson = computePearson(yMagPred, yMag);
+    const olsPredictionStd = stdev(yMagPred);
 
     const featureMeans = Object.fromEntries(
       FEATURE_NAMES.map((name, i) => [name, means[i]])
@@ -166,6 +168,7 @@ export async function POST() {
       featureStdevs,
       logisticWeights,
       olsWeights,
+      olsPredictionStd: Math.round(olsPredictionStd * 10000) / 10000,
       directionAccuracy: Math.round(dirAcc * 10000) / 10000,
       magnitudeMae: Math.round(magnitudeMae * 1000) / 1000,
       magnitudePearson: Math.round(magnitudePearson * 10000) / 10000,

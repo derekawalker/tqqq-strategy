@@ -20,6 +20,7 @@ export interface ModelCoefficients {
   // [bias, w1, ..., wk] — index 0 is intercept/bias
   logisticWeights: number[];
   olsWeights: number[];
+  olsPredictionStd: number;    // std of raw OLS outputs on training data (for vol scaling)
   directionAccuracy: number;   // fraction correct on training data
   magnitudeMae: number;        // in-sample MAE in %
   magnitudePearson: number;    // in-sample pearson(predicted, realized)
@@ -127,6 +128,28 @@ export function predictProb(x: number[], weights: number[]): number {
 
 export function predictMagnitude(x: number[], weights: number[]): number {
   return weights[0] + dot(x, weights.slice(1));
+}
+
+// ── vol-adjusted prediction ───────────────────────────────────────────────────
+
+// Scale the raw OLS prediction by the ratio of today's expected daily move
+// to the model's average prediction magnitude (its training std).
+// This preserves the directional signal while giving realistic magnitudes:
+// calm days → small predictions, volatile days → larger predictions.
+export function volAdjustedPrediction(
+  rawOlsPrediction: number,
+  currentAnnualizedVol: number,  // today's 20d realized vol (annualized %)
+  olsPredictionStd: number,      // std of OLS outputs on training data
+): number {
+  if (olsPredictionStd < 1e-10) return rawOlsPrediction;
+  const currentDailyVol = currentAnnualizedVol / Math.sqrt(252);
+  return (rawOlsPrediction / olsPredictionStd) * currentDailyVol;
+}
+
+export function stdev(xs: number[]): number {
+  const n = xs.length;
+  const m = xs.reduce((s, x) => s + x, 0) / n;
+  return Math.sqrt(xs.reduce((s, x) => s + (x - m) ** 2, 0) / n);
 }
 
 // ── accuracy metrics ──────────────────────────────────────────────────────────
