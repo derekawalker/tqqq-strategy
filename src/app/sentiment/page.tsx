@@ -12,18 +12,32 @@ import {
   Table,
   Tooltip,
   Button,
+  ActionIcon,
   SegmentedControl,
-  Progress,
   SimpleGrid,
   Accordion,
+  Chip,
 } from "@mantine/core";
 import {
   IconAlertTriangle,
   IconRefresh,
-  IconArrowUp,
-  IconArrowDown,
-  IconArrowRight,
+  IconCheck,
+  IconX,
+  IconTrendingUp,
+  IconTrendingDown,
+  IconArrowBounce,
+  IconChevronLeft,
+  IconChevronRight,
+  IconChevronsLeft,
+  IconChevronsRight,
 } from "@tabler/icons-react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  YAxis,
+  Tooltip as RechartsTooltip,
+} from "recharts";
 import type {
   PredictionPayload,
   FeatureReading,
@@ -32,14 +46,17 @@ import type { MacroEvent } from "@/lib/macroCalendar";
 import type { DailyRow, PredictionAccuracy } from "@/lib/predictionHistory";
 import { CARD_RADIUS } from "@/lib/cardStyles";
 import { useCardBg } from "@/lib/hooks/useCardBg";
+import {
+  computeBottomIndicators,
+  computeVerdict,
+  scoreVerdict,
+  type Verdict,
+  type BottomIndicator,
+  type VerdictInputs,
+  type VerdictOutcome,
+} from "@/lib/verdict";
 
 // ── helpers ────────────────────────────────────────────────────────────────────
-
-function dirColor(dir: string): string {
-  if (dir === "up") return "green";
-  if (dir === "down") return "red";
-  return "gray";
-}
 
 function fmtPct(v: number | null, withSign = true): string {
   if (v == null) return "—";
@@ -52,148 +69,462 @@ function fmtFraction(v: number | null): string {
   return `${(v * 100).toFixed(1)}%`;
 }
 
-// ── direction header ───────────────────────────────────────────────────────────
+function featureValue(features: FeatureReading[], key: string): number | null {
+  return features.find((f) => f.key === key)?.value ?? null;
+}
 
-function PredictionCol({
-  label,
-  forDate,
-  direction,
-  probUp,
-  predictedRet,
+// ── verdict logic ──────────────────────────────────────────────────────────────
+
+function verdictInputsFromFeatures(features: FeatureReading[]): VerdictInputs {
+  return {
+    rsi14: featureValue(features, "rsi14"),
+    vixLevel: featureValue(features, "vixLevel"),
+    vix1dChange: featureValue(features, "vix1dChange"),
+    qqq5dRet: featureValue(features, "qqq5dRet"),
+    daysSinceHigh: featureValue(features, "daysSinceHigh"),
+    vixTerm: featureValue(features, "vixTerm"),
+    realizedVol20d: featureValue(features, "realizedVol20d"),
+    tnxMom20d: featureValue(features, "tnxMom20d"),
+  };
+}
+
+function verdictInputsFromRow(row: DailyRow): VerdictInputs {
+  return {
+    rsi14: row.rsi14,
+    vixLevel: row.vixLevel,
+    vix1dChange: row.vix1dChange,
+    qqq5dRet: row.qqq5dRet,
+    daysSinceHigh: row.daysSinceHigh,
+    vixTerm: row.vixTerm,
+    realizedVol20d: row.realizedVol20d,
+    tnxMom20d: row.tnxMom20d,
+  };
+}
+
+const VERDICT_META: Record<
+  Verdict,
+  { label: string; color: string; Icon: typeof IconTrendingUp; sub: string }
+> = {
+  dca: {
+    label: "BUY",
+    color: "green",
+    Icon: IconTrendingUp,
+    sub: "Operate as usual",
+  },
+  skip: {
+    label: "PAUSE",
+    color: "orange",
+    Icon: IconTrendingDown,
+    sub: "Pause buying — drop likely",
+  },
+  catchup: {
+    label: "BOTTOM",
+    color: "violet",
+    Icon: IconArrowBounce,
+    sub: "Bottom is in — resume buying",
+  },
+};
+
+// ── price sparkline ────────────────────────────────────────────────────────────
+
+function PriceSparkline({
+  prices,
+  verdictColor,
   realizedRet,
-  basedOnDate,
-  noModel,
 }: {
-  label: string;
-  forDate: string;
-  direction: "up" | "down" | "flat";
-  probUp: number;
-  predictedRet: number;
+  prices: PredictionPayload["recentPrices"];
+  verdictColor: string;
   realizedRet?: number | null;
-  basedOnDate: string;
-  noModel: boolean;
 }) {
-  const color = dirColor(direction);
-  const bg = useCardBg(color);
-  const Icon =
-    direction === "up" ? IconArrowUp : direction === "down" ? IconArrowDown : IconArrowRight;
-  const dirLabel = direction === "up" ? "Up" : direction === "down" ? "Down" : "Flat";
+  const lastActualClose = prices.filter((p) => !p.predicted).at(-1)?.close ?? null;
+  const actualOutcomeClose =
+    lastActualClose != null && realizedRet != null
+      ? Math.round(lastActualClose * (1 + realizedRet / 100) * 100) / 100
+      : null;
+
+  const allCloses = [
+    ...prices.map((p) => p.close),
+    ...(actualOutcomeClose != null ? [actualOutcomeClose] : []),
+  ];
+  const min = Math.min(...allCloses);
+  const max = Math.max(...allCloses);
+  const pad = (max - min) * 0.08 || 0.5;
+  const domain: [number, number] = [min - pad, max + pad];
+
+  // `actual`: solid line for historical closes
+  // `projected`: dashed colored line from last actual → predicted
+  // `outcome`: single dot at the predicted date showing where price actually landed
+  const chartData = prices.map((p, i) => ({
+    date: p.date,
+    actual: p.predicted ? null : p.close,
+    projected: (p.predicted || i === prices.length - 2) ? p.close : null,
+    outcome: p.predicted ? actualOutcomeClose : null,
+    // Bridge for outcome line: last actual close + outcome, so the line connects
+    outcomeBridge: (p.predicted || i === prices.length - 2) ? (p.predicted ? actualOutcomeClose : p.close) : null,
+  }));
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tooltipContent = (props: any) => {
+    const d = props?.payload?.[0]?.payload as (typeof chartData)[0] | undefined;
+    if (!d) return null;
+    const close = d.actual ?? d.projected;
+    const isPredicted = d.actual == null && d.projected != null;
+    return (
+      <Box
+        style={{
+          background: "rgba(26,27,30,0.92)",
+          border: "1px solid rgba(255,255,255,0.1)",
+          borderRadius: 6,
+          padding: "4px 8px",
+        }}
+      >
+        <Text size="xs" c="dimmed">{d.date}</Text>
+        <Text size="xs" fw={600} c={isPredicted ? `${verdictColor}.4` : "gray.2"}>
+          ${close?.toFixed(2)}{isPredicted ? " (proj)" : ""}
+        </Text>
+        {d.outcome != null && (
+          <Text size="xs" fw={600} c={d.outcome >= (lastActualClose ?? d.outcome) ? "green.4" : "red.4"}>
+            ${d.outcome.toFixed(2)} (actual)
+          </Text>
+        )}
+      </Box>
+    );
+  };
+
+  return (
+    <Box style={{ width: "100%", height: 72 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData} margin={{ top: 8, right: 12, bottom: 8, left: 12 }}>
+          <YAxis domain={domain} hide />
+          <RechartsTooltip content={tooltipContent} cursor={{ stroke: "rgba(255,255,255,0.1)" }} />
+
+          {/* Solid line: actual closes */}
+          <Line
+            type="monotone"
+            dataKey="actual"
+            dot={{ r: 2, fill: "rgba(150,150,150,0.7)", strokeWidth: 0 }}
+            activeDot={{ r: 3 }}
+            stroke="rgba(150,150,150,0.6)"
+            strokeWidth={2}
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+
+          {/* Dashed line: last actual → projected, tacked onto the solid line */}
+          <Line
+            type="monotone"
+            dataKey="projected"
+            dot={(props) => {
+              const { cx, cy, index } = props as { cx: number; cy: number; index: number };
+              if (index < chartData.length - 1) return <g key={`pd-${index}`} />;
+              return (
+                <circle
+                  key="proj-dot"
+                  cx={cx}
+                  cy={cy}
+                  r={5}
+                  fill={`var(--mantine-color-${verdictColor}-5)`}
+                  stroke={`var(--mantine-color-${verdictColor}-3)`}
+                  strokeWidth={1.5}
+                />
+              );
+            }}
+            stroke={`var(--mantine-color-${verdictColor}-5)`}
+            strokeWidth={1.5}
+            strokeDasharray="4 3"
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+
+          {/* Solid line + dot + label: last actual → actual outcome */}
+          {actualOutcomeClose != null && (
+            <Line
+              type="monotone"
+              dataKey="outcomeBridge"
+              dot={(props) => {
+                const { cx, cy, index } = props as { cx: number; cy: number; index: number };
+                if (index < chartData.length - 1) return <g key={`ob-${index}`} />;
+                const up = actualOutcomeClose >= (lastActualClose ?? actualOutcomeClose);
+                return (
+                  <circle
+                    key="outcome-dot"
+                    cx={cx}
+                    cy={cy}
+                    r={5}
+                    fill={up ? "var(--mantine-color-green-5)" : "var(--mantine-color-red-5)"}
+                    stroke={up ? "var(--mantine-color-green-3)" : "var(--mantine-color-red-3)"}
+                    strokeWidth={1.5}
+                  />
+                );
+              }}
+              activeDot={false}
+              stroke={actualOutcomeClose >= (lastActualClose ?? actualOutcomeClose)
+                ? "var(--mantine-color-green-6)"
+                : "var(--mantine-color-red-6)"}
+              strokeWidth={1.5}
+              connectNulls={false}
+              isAnimationActive={false}
+            />
+          )}
+        </LineChart>
+      </ResponsiveContainer>
+    </Box>
+  );
+}
+
+// ── verdict card ───────────────────────────────────────────────────────────────
+
+function VerdictCard({
+  verdict,
+  reason,
+  predictedRet,
+  predictionDate,
+  recentPrices,
+  realizedRet,
+  outcome,
+  onPrev,
+  onNext,
+  onFirst,
+  onLast,
+  canPrev,
+  canNext,
+}: {
+  verdict: Verdict;
+  reason: string;
+  predictedRet: number;
+  predictionDate: string;
+  recentPrices?: PredictionPayload["recentPrices"];
+  realizedRet?: number | null;
+  outcome?: VerdictOutcome | null;
+  onPrev?: () => void;
+  onNext?: () => void;
+  onFirst?: () => void;
+  onLast?: () => void;
+  canPrev?: boolean;
+  canNext?: boolean;
+}) {
+  const meta = VERDICT_META[verdict];
+  const bg = useCardBg(meta.color);
+  const Icon = meta.Icon;
 
   return (
     <Paper p="xl" radius={CARD_RADIUS} style={{ background: bg }}>
-      <Stack gap="xs" align="center">
-        <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: "0.12em" }}>
-          QQQ · {label} · {forDate}
-        </Text>
-
-        <Group gap="sm" align="center">
-          <Icon size={36} color={`var(--mantine-color-${color}-4)`} />
-          <Text style={{ fontSize: "2.5rem", fontWeight: 700, lineHeight: 1 }} c={`${color}.4`}>
-            {dirLabel}
+      <Stack gap="md" align="center">
+        <Group justify="space-between" w="100%">
+          <Group gap={2}>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              disabled={!canPrev}
+              onClick={onLast}
+              aria-label="Oldest"
+            >
+              <IconChevronsLeft size={18} />
+            </ActionIcon>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              disabled={!canPrev}
+              onClick={onPrev}
+              aria-label="Previous day"
+            >
+              <IconChevronLeft size={18} />
+            </ActionIcon>
+          </Group>
+          <Text
+            size="xs"
+            c="dimmed"
+            tt="uppercase"
+            fw={600}
+            style={{ letterSpacing: "0.12em" }}
+          >
+            Verdict for {predictionDate}
           </Text>
+          <Group gap={2}>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              disabled={!canNext}
+              onClick={onNext}
+              aria-label="Next day"
+            >
+              <IconChevronRight size={18} />
+            </ActionIcon>
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              disabled={!canNext}
+              onClick={onFirst}
+              aria-label="Latest"
+            >
+              <IconChevronsRight size={18} />
+            </ActionIcon>
+          </Group>
         </Group>
 
-        <Group gap="xl" mt="sm" justify="center">
-          <Stack gap={4} align="center">
-            <Tooltip
-              label="Probability that QQQ closes more than +0.25% higher, based on logistic regression."
-              withArrow
-              multiline
-              maw={280}
+        <Group gap="md" align="center">
+          <Icon size={56} color={`var(--mantine-color-${meta.color}-4)`} />
+          <Stack gap={0}>
+            <Text
+              style={{ fontSize: "3rem", fontWeight: 800, lineHeight: 1 }}
+              c={`${meta.color}.4`}
             >
-              <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ cursor: "help" }}>
-                P(up &gt;0.25%)
-              </Text>
-            </Tooltip>
-            <Text size="xl" fw={700} c={`${color}.4`}>
-              {(probUp * 100).toFixed(0)}%
+              {meta.label}
             </Text>
-            <Progress value={probUp * 100} color={color} size="sm" w={80} />
+            <Text size="sm" c="dimmed" mt={4}>
+              {meta.sub}
+            </Text>
           </Stack>
+        </Group>
 
-          <Stack gap={4} align="center">
-            <Tooltip
-              label="OLS linear regression estimate of QQQ return. Treat as a directional lean, not a precise target."
-              withArrow
-              multiline
-              maw={280}
+        <Text size="sm" ta="center" maw={520} c="gray.3">
+          {reason}
+        </Text>
+
+        {recentPrices && recentPrices.length > 0 && (
+          <Box style={{ width: "100%", maxWidth: 360 }}>
+            <PriceSparkline prices={recentPrices} verdictColor={meta.color} realizedRet={realizedRet} />
+          </Box>
+        )}
+
+        <Group gap="xl" mt="xs">
+          <Stack gap={2} align="center">
+            <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+              Predicted Δ
+            </Text>
+            <Text
+              size="lg"
+              fw={700}
+              c={
+                predictedRet > 0
+                  ? "green.4"
+                  : predictedRet < 0
+                    ? "red.4"
+                    : "dimmed"
+              }
             >
-              <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ cursor: "help" }}>
-                Predicted Δ
-              </Text>
-            </Tooltip>
-            <Text size="xl" fw={700} c={`${color}.4`}>
               {fmtPct(predictedRet)}
             </Text>
           </Stack>
-
           {realizedRet != null && (
-            <Stack gap={4} align="center">
+            <Stack gap={2} align="center">
               <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-                Actual Δ
+                Realized Δ
               </Text>
               <Text
-                size="xl"
+                size="lg"
                 fw={700}
-                c={realizedRet > 0 ? "green.4" : realizedRet < 0 ? "red.4" : "dimmed"}
+                c={
+                  realizedRet > 0
+                    ? "green.4"
+                    : realizedRet < 0
+                      ? "red.4"
+                      : "dimmed"
+                }
               >
                 {fmtPct(realizedRet)}
               </Text>
             </Stack>
           )}
+          {outcome && (
+            <Stack gap={2} align="center">
+              <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                Outcome
+              </Text>
+              <Badge
+                color={
+                  outcome === "right"
+                    ? "green"
+                    : outcome === "wrong"
+                      ? "red"
+                      : "gray"
+                }
+                variant="light"
+              >
+                {outcome}
+              </Badge>
+            </Stack>
+          )}
         </Group>
-
-        {noModel && (
-          <Text size="xs" c="orange.4" mt="xs" ta="center">
-            No model yet — click Retrain to fit the model on historical data.
-          </Text>
-        )}
-
-        <Text size="xs" c="dimmed" mt={4} ta="center">
-          Based on {basedOnDate} close
-        </Text>
       </Stack>
     </Paper>
   );
 }
 
-function DirectionHeader({ data }: { data: PredictionPayload }) {
-  return (
-    <SimpleGrid cols={{ base: 1, sm: 2 }}>
-      {data.todayPrediction ? (
-        <PredictionCol
-          label="Today"
-          forDate={data.todayPrediction.forDate}
-          direction={data.todayPrediction.direction}
-          probUp={data.todayPrediction.probUp}
-          predictedRet={data.todayPrediction.predictedRet}
-          realizedRet={data.todayPrediction.realizedRet}
-          basedOnDate={data.lastTradingDate}
-          noModel={data.noModel}
-        />
-      ) : (
-        <Paper p="xl" radius={CARD_RADIUS} style={{ background: "rgba(26,27,30,0.65)" }}>
-          <Stack gap="xs" align="center">
-            <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ letterSpacing: "0.12em" }}>
-              QQQ · Today
-            </Text>
-            <Text size="sm" c="dimmed" ta="center" mt="sm">
-              Awaiting previous session data
-            </Text>
-          </Stack>
-        </Paper>
-      )}
+// ── bottom-indicator checklist ─────────────────────────────────────────────────
 
-      <PredictionCol
-        label="Tomorrow"
-        forDate={data.predictionDate}
-        direction={data.direction}
-        probUp={data.probUp}
-        predictedRet={data.predictedRet}
-        basedOnDate={data.lastTradingDate}
-        noModel={data.noModel}
-      />
-    </SimpleGrid>
+function BottomChecklist({
+  indicators,
+  hits,
+}: {
+  indicators: BottomIndicator[];
+  hits: number;
+}) {
+  const tone = hits >= 2 ? "violet" : hits >= 1 ? "yellow" : "gray";
+  return (
+    <Paper
+      p="md"
+      radius={CARD_RADIUS}
+      style={{ background: "rgba(26,27,30,0.65)" }}
+    >
+      <Group justify="space-between" align="baseline" mb="sm">
+        <Text
+          size="xs"
+          c="dimmed"
+          tt="uppercase"
+          fw={600}
+          style={{ letterSpacing: "0.12em" }}
+        >
+          Bottom indicators
+        </Text>
+        <Badge color={tone} variant="light">
+          {hits} of {indicators.length} triggered
+        </Badge>
+      </Group>
+      <Text size="xs" c="dimmed" mb="sm">
+        When 2+ trigger together, the bottom looks in — resume buying even if
+        the next-day prediction is still negative.
+      </Text>
+      <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
+        {indicators.map((ind) => (
+          <Tooltip
+            key={ind.label}
+            label={ind.hint}
+            multiline
+            maw={260}
+            withArrow
+          >
+            <Group
+              gap="xs"
+              wrap="nowrap"
+              p="xs"
+              style={{
+                borderRadius: 8,
+                background: ind.hit
+                  ? "rgba(139,92,246,0.10)"
+                  : "rgba(255,255,255,0.02)",
+                border: ind.hit
+                  ? "1px solid rgba(139,92,246,0.35)"
+                  : "1px solid rgba(255,255,255,0.06)",
+                cursor: "help",
+              }}
+            >
+              {ind.hit ? (
+                <IconCheck size={16} color="var(--mantine-color-violet-4)" />
+              ) : (
+                <IconX size={16} color="var(--mantine-color-dark-2)" />
+              )}
+              <Text size="sm" fw={600} style={{ flex: 1 }}>
+                {ind.label}
+              </Text>
+              <Text size="sm" c={ind.hit ? "violet.3" : "dimmed"} fw={600}>
+                {ind.detail}
+              </Text>
+            </Group>
+          </Tooltip>
+        ))}
+      </SimpleGrid>
+    </Paper>
   );
 }
 
@@ -298,131 +629,89 @@ const FEATURE_DESCRIPTIONS: Record<string, string> = {
     "Annualized 20-day realized volatility. Higher vol = wider expected range tomorrow.",
   tnxMom20d:
     "20-day change in the 10-year yield (pp). Rising rates have historically been a headwind for QQQ.",
-  skewLevel:
-    "CBOE SKEW index. Measures the relative price of tail-risk protection vs standard options.",
+  volRatio:
+    "Today's QQQ volume vs the 20-day average. High volume confirms moves.",
+  rsi14: "14-day RSI on QQQ. <30 oversold, >70 overbought.",
+  daysSinceHigh:
+    "Trading days since QQQ's 20-day closing high. 0 = today is the high.",
 };
-
-function contribColor(v: number | null): string {
-  if (v == null) return "gray";
-  if (v > 0.05) return "green";
-  if (v > 0.01) return "lime";
-  if (v < -0.05) return "red";
-  if (v < -0.01) return "orange";
-  return "gray";
-}
 
 function FeatureTable({ features }: { features: FeatureReading[] }) {
   return (
-    <Paper
-      p="md"
-      radius={CARD_RADIUS}
-      style={{ background: "rgba(26,27,30,0.65)" }}
-    >
-      <Text
-        size="xs"
-        c="dimmed"
-        tt="uppercase"
-        fw={600}
-        mb="xs"
-        style={{ letterSpacing: "0.12em" }}
-      >
-        Today&apos;s inputs
-      </Text>
-      <Box style={{ overflowX: "auto" }}>
-        <Table verticalSpacing="sm" highlightOnHover>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Feature</Table.Th>
-              <Table.Th ta="right">Value</Table.Th>
-              <Table.Th ta="right">
-                <Tooltip
-                  label="Z-score vs training mean. 0 = neutral, ±2 = significant."
-                  withArrow
-                  multiline
-                  maw={200}
-                >
-                  <Text size="xs" fw={600} style={{ cursor: "help" }}>
-                    Z-score
+    <Box style={{ overflowX: "auto" }}>
+      <Table verticalSpacing="sm" highlightOnHover>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>Feature</Table.Th>
+            <Table.Th ta="right">Value</Table.Th>
+            <Table.Th ta="right">
+              <Tooltip
+                label="Z-score vs training mean. 0 = neutral, ±2 = significant."
+                withArrow
+                multiline
+                maw={200}
+              >
+                <Text size="xs" fw={600} style={{ cursor: "help" }}>
+                  Z-score
+                </Text>
+              </Tooltip>
+            </Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {features.map((f) => {
+            const desc = FEATURE_DESCRIPTIONS[f.key];
+            return (
+              <Table.Tr key={f.key}>
+                <Table.Td>
+                  <Group gap={4} align="flex-start" wrap="nowrap">
+                    <Text size="sm" fw={600}>
+                      {f.name}
+                    </Text>
+                    {desc && (
+                      <Tooltip label={desc} multiline maw={260} withArrow>
+                        <Box
+                          style={{
+                            cursor: "help",
+                            display: "flex",
+                            alignItems: "center",
+                          }}
+                        >
+                          <Text size="xs" c="dimmed">
+                            (?)
+                          </Text>
+                        </Box>
+                      </Tooltip>
+                    )}
+                  </Group>
+                </Table.Td>
+                <Table.Td>
+                  <Text size="sm" ta="right">
+                    {f.display}
                   </Text>
-                </Tooltip>
-              </Table.Th>
-              <Table.Th ta="right">
-                <Tooltip
-                  label="How much this feature pushes the OLS magnitude prediction (in %)."
-                  withArrow
-                  multiline
-                  maw={220}
-                >
-                  <Text size="xs" fw={600} style={{ cursor: "help" }}>
-                    Contribution
+                </Table.Td>
+                <Table.Td>
+                  <Text
+                    size="sm"
+                    ta="right"
+                    c={
+                      f.normalizedValue != null &&
+                      Math.abs(f.normalizedValue) > 1.5
+                        ? "yellow.4"
+                        : undefined
+                    }
+                  >
+                    {f.normalizedValue != null
+                      ? f.normalizedValue.toFixed(2)
+                      : "—"}
                   </Text>
-                </Tooltip>
-              </Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {features.map((f) => {
-              const desc = FEATURE_DESCRIPTIONS[f.key];
-              const cc = contribColor(f.olsContribution);
-              return (
-                <Table.Tr key={f.key}>
-                  <Table.Td>
-                    <Group gap={4} align="flex-start" wrap="nowrap">
-                      <Text size="sm" fw={600}>
-                        {f.name}
-                      </Text>
-                      {desc && (
-                        <Tooltip label={desc} multiline maw={260} withArrow>
-                          <Box
-                            style={{
-                              cursor: "help",
-                              display: "flex",
-                              alignItems: "center",
-                            }}
-                          >
-                            <Text size="xs" c="dimmed">
-                              (?)
-                            </Text>
-                          </Box>
-                        </Tooltip>
-                      )}
-                    </Group>
-                  </Table.Td>
-                  <Table.Td>
-                    <Text size="sm" ta="right">
-                      {f.display}
-                    </Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <Text
-                      size="sm"
-                      ta="right"
-                      c={
-                        f.normalizedValue != null &&
-                        Math.abs(f.normalizedValue) > 1.5
-                          ? "yellow.4"
-                          : undefined
-                      }
-                    >
-                      {f.normalizedValue != null
-                        ? f.normalizedValue.toFixed(2)
-                        : "—"}
-                    </Text>
-                  </Table.Td>
-                  <Table.Td>
-                    <Text size="sm" ta="right" fw={600} c={`${cc}.4`}>
-                      {f.olsContribution != null
-                        ? fmtPct(f.olsContribution)
-                        : "—"}
-                    </Text>
-                  </Table.Td>
-                </Table.Tr>
-              );
-            })}
-          </Table.Tbody>
-        </Table>
-      </Box>
-    </Paper>
+                </Table.Td>
+              </Table.Tr>
+            );
+          })}
+        </Table.Tbody>
+      </Table>
+    </Box>
   );
 }
 
@@ -431,19 +720,19 @@ function FeatureTable({ features }: { features: FeatureReading[] }) {
 function AccuracyPanel({
   accuracy,
   history,
+  fullHistory,
   model,
 }: {
   accuracy: PredictionAccuracy;
   history: DailyRow[];
+  fullHistory: DailyRow[];
   model: {
     fittedAt: string | null;
     trainN: number | null;
-    dirAcc: number | null;
-    mae: number | null;
-    pearson: number | null;
   };
 }) {
   const [range, setRange] = useState("1mo");
+  const [verdictFilter, setVerdictFilter] = useState<Verdict[]>(["dca", "skip", "catchup"]);
   const RANGE_DAYS: Record<string, number> = {
     "1mo": 21,
     "3mo": 63,
@@ -452,42 +741,76 @@ function AccuracyPanel({
   };
   const days = RANGE_DAYS[range] ?? 21;
 
-  const actualDir = (ret: number | null) =>
-    ret == null ? null : ret > 0.25 ? "up" : ret < -0.25 ? "down" : "flat";
+  interface ScoredRow {
+    row: DailyRow;
+    verdict: Verdict | null;
+    outcome: VerdictOutcome | null;
+  }
 
-  const slice = [...history].slice(0, days).reverse();
+  function scoreRows(rows: DailyRow[]): ScoredRow[] {
+    return rows.map((row) => {
+      if (row.predicted1dRet == null)
+        return { row, verdict: null, outcome: null };
+      const inputs = verdictInputsFromRow(row);
+      const hits = computeBottomIndicators(inputs).filter((i) => i.hit).length;
+      const { verdict } = computeVerdict(
+        row.predicted1dRet,
+        hits,
+        null,
+        row.qqq5dRet,
+        row.realizedVol20d,
+        row.tnxMom20d,
+      );
+      const outcome =
+        row.realized1dRet != null
+          ? scoreVerdict(verdict, row.realized1dRet)
+          : null;
+      return { row, verdict, outcome };
+    });
+  }
 
-  const dirColorMap: Record<string, string> = {
-    up: "green",
-    down: "red",
-    flat: "gray",
+  // Stats use full history so small-N buckets aren't misleading.
+  const allScored: ScoredRow[] = scoreRows(fullHistory);
+  // Grid uses recent 120 rows.
+  const scored: ScoredRow[] = scoreRows(history);
+
+  const realizedScored = allScored.filter((s) => s.verdict && s.outcome);
+  const verdictRightRate =
+    realizedScored.length > 0
+      ? realizedScored.filter((s) => s.outcome === "right").length /
+        realizedScored.length
+      : null;
+
+  const byVerdict: Record<
+    Verdict,
+    {
+      n: number;
+      right: number;
+      wrong: number;
+      neutral: number;
+      avgRealized: number;
+    }
+  > = {
+    dca: { n: 0, right: 0, wrong: 0, neutral: 0, avgRealized: 0 },
+    skip: { n: 0, right: 0, wrong: 0, neutral: 0, avgRealized: 0 },
+    catchup: { n: 0, right: 0, wrong: 0, neutral: 0, avgRealized: 0 },
   };
+  for (const s of realizedScored) {
+    const v = s.verdict!;
+    const bucket = byVerdict[v];
+    bucket.n += 1;
+    if (s.outcome === "right") bucket.right += 1;
+    else if (s.outcome === "wrong") bucket.wrong += 1;
+    else bucket.neutral += 1;
+    bucket.avgRealized += s.row.realized1dRet!;
+  }
+  for (const v of Object.keys(byVerdict) as Verdict[]) {
+    if (byVerdict[v].n > 0) byVerdict[v].avgRealized /= byVerdict[v].n;
+  }
 
-  const DirCell = ({
-    dir,
-    pct,
-  }: {
-    dir: string | null;
-    pct: number | null;
-  }) => {
-    const color =
-      dir === "up" ? "green.4" : dir === "down" ? "red.4" : "dimmed";
-    const arrow =
-      dir === "up" ? "↑" : dir === "down" ? "↓" : dir === "flat" ? "→" : "·";
-    const pctStr = pct != null ? `${pct > 0 ? "+" : ""}${pct.toFixed(2)}` : "";
-    return (
-      <Group gap={1} wrap="nowrap" justify="center">
-        <Text size="9px" c={color} fw={700} lh={1}>
-          {arrow}
-        </Text>
-        {pctStr && (
-          <Text size="8px" c={color} lh={1}>
-            {pctStr}
-          </Text>
-        )}
-      </Group>
-    );
-  };
+  const slice = scored
+    .slice(0, days)
+    .filter((s) => s.verdict == null || verdictFilter.includes(s.verdict));
 
   return (
     <Stack gap="lg">
@@ -519,119 +842,97 @@ function AccuracyPanel({
         ) : (
           <>
             <Group gap="xl" mb="md" wrap="wrap">
-              {accuracy.directionAccuracy != null && (
-                <Tooltip
-                  label="Fraction of calls where predicted direction matched actual direction (up/down/flat at ±0.25% threshold)."
-                  withArrow
-                  multiline
-                  maw={260}
-                >
-                  <Stack gap={2} style={{ cursor: "help" }}>
-                    <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-                      Direction accuracy
-                    </Text>
-                    <Text size="lg" fw={700}>
-                      {fmtFraction(accuracy.directionAccuracy)}
-                    </Text>
-                  </Stack>
-                </Tooltip>
+              {verdictRightRate != null && (
+                <Stack gap={2}>
+                  <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                    Verdict right rate
+                  </Text>
+                  <Text size="lg" fw={700}>
+                    {fmtFraction(verdictRightRate)}
+                  </Text>
+                </Stack>
               )}
               {accuracy.magnitudeMae != null && (
-                <Tooltip
-                  label="Mean absolute error of the predicted vs realized 1-day QQQ return."
-                  withArrow
-                  multiline
-                  maw={240}
-                >
-                  <Stack gap={2} style={{ cursor: "help" }}>
-                    <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-                      MAE
-                    </Text>
-                    <Text size="lg" fw={700}>
-                      {fmtPct(accuracy.magnitudeMae, false)}
-                    </Text>
-                  </Stack>
-                </Tooltip>
+                <Stack gap={2}>
+                  <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                    MAE
+                  </Text>
+                  <Text size="lg" fw={700}>
+                    {fmtPct(accuracy.magnitudeMae, false)}
+                  </Text>
+                </Stack>
               )}
               {accuracy.magnitudeBias != null && (
-                <Tooltip
-                  label="Mean(predicted − realized). Positive = bullish-biased."
-                  withArrow
-                  multiline
-                  maw={240}
-                >
-                  <Stack gap={2} style={{ cursor: "help" }}>
-                    <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-                      Bias
-                    </Text>
-                    <Text
-                      size="lg"
-                      fw={700}
-                      c={accuracy.magnitudeBias > 0 ? "green.4" : "red.4"}
-                    >
-                      {fmtPct(accuracy.magnitudeBias)}
-                    </Text>
-                  </Stack>
-                </Tooltip>
-              )}
-              {accuracy.magnitudePearson != null && (
-                <Tooltip
-                  label="Live pearson(predicted, realized). >0 = some signal present."
-                  withArrow
-                  multiline
-                  maw={240}
-                >
-                  <Stack gap={2} style={{ cursor: "help" }}>
-                    <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-                      Pearson
-                    </Text>
-                    <Text size="lg" fw={700}>
-                      {accuracy.magnitudePearson.toFixed(2)}
-                    </Text>
-                  </Stack>
-                </Tooltip>
+                <Stack gap={2}>
+                  <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                    Bias
+                  </Text>
+                  <Text
+                    size="lg"
+                    fw={700}
+                    c={accuracy.magnitudeBias > 0 ? "green.4" : "red.4"}
+                  >
+                    {fmtPct(accuracy.magnitudeBias)}
+                  </Text>
+                </Stack>
               )}
             </Group>
 
-            {Object.keys(accuracy.byDirection).length > 0 && (
+            {realizedScored.length > 0 && (
               <Box style={{ overflowX: "auto" }}>
                 <Table verticalSpacing="xs">
                   <Table.Thead>
                     <Table.Tr>
-                      <Table.Th>Called</Table.Th>
+                      <Table.Th>Verdict</Table.Th>
                       <Table.Th ta="right">N</Table.Th>
-                      <Table.Th ta="right">Hit rate</Table.Th>
-                      <Table.Th ta="right">Avg realized</Table.Th>
+                      <Table.Th ta="right">Right</Table.Th>
+                      <Table.Th ta="right">Neutral</Table.Th>
+                      <Table.Th ta="right">Wrong</Table.Th>
+                      <Table.Th ta="right">Avg next-day</Table.Th>
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
-                    {(["up", "flat", "down"] as const).map((dir) => {
-                      const row = accuracy.byDirection[dir];
-                      if (!row) return null;
+                    {(["dca", "skip", "catchup"] as const).map((v) => {
+                      const stats = byVerdict[v];
+                      if (stats.n === 0) return null;
+                      const meta = VERDICT_META[v];
                       return (
-                        <Table.Tr key={dir}>
+                        <Table.Tr key={v}>
                           <Table.Td>
                             <Badge
-                              color={dirColorMap[dir]}
+                              color={meta.color}
                               variant="light"
                               size="sm"
+                              leftSection={<meta.Icon size={11} />}
                             >
-                              {dir.charAt(0).toUpperCase() + dir.slice(1)}
+                              {meta.label}
                             </Badge>
                           </Table.Td>
                           <Table.Td ta="right">
-                            <Text size="sm">{row.n}</Text>
+                            <Text size="sm">{stats.n}</Text>
                           </Table.Td>
                           <Table.Td ta="right">
-                            <Text size="sm">{fmtFraction(row.hitRate)}</Text>
+                            <Text size="sm" c="green.4" fw={600}>
+                              {fmtFraction(stats.right / stats.n)}
+                            </Text>
+                          </Table.Td>
+                          <Table.Td ta="right">
+                            <Text size="sm" c="dimmed">
+                              {fmtFraction(stats.neutral / stats.n)}
+                            </Text>
+                          </Table.Td>
+                          <Table.Td ta="right">
+                            <Text size="sm" c="red.4" fw={600}>
+                              {fmtFraction(stats.wrong / stats.n)}
+                            </Text>
                           </Table.Td>
                           <Table.Td ta="right">
                             <Text
                               size="sm"
                               fw={600}
-                              c={`${row.avgRealized > 0 ? "green" : row.avgRealized < 0 ? "red" : "gray"}.4`}
+                              c={`${stats.avgRealized > 0 ? "green" : stats.avgRealized < 0 ? "red" : "gray"}.4`}
                             >
-                              {fmtPct(row.avgRealized)}
+                              {fmtPct(stats.avgRealized)}
                             </Text>
                           </Table.Td>
                         </Table.Tr>
@@ -647,20 +948,18 @@ function AccuracyPanel({
         {model.fittedAt && (
           <Text size="xs" c="dimmed" mt="md">
             Model fitted {model.fittedAt.slice(0, 10)} on{" "}
-            {model.trainN?.toLocaleString()} training days · in-sample direction
-            accuracy {model.dirAcc != null ? fmtFraction(model.dirAcc) : "—"} ·
-            MAE {model.mae != null ? fmtPct(model.mae, false) : "—"}
+            {model.trainN?.toLocaleString()} training days
           </Text>
         )}
       </Paper>
 
-      {slice.length > 0 && (
+      {scored.length > 0 && (
         <Paper
           p="md"
           radius={CARD_RADIUS}
           style={{ background: "rgba(26,27,30,0.65)" }}
         >
-          <Group justify="space-between" align="center" mb="md">
+          <Group justify="space-between" align="center" mb="md" wrap="wrap">
             <Text
               size="xs"
               c="dimmed"
@@ -668,15 +967,42 @@ function AccuracyPanel({
               fw={600}
               style={{ letterSpacing: "0.12em" }}
             >
-              Calls
+              Verdict history
             </Text>
-            <SegmentedControl
-              size="xs"
-              value={range}
-              onChange={setRange}
-              data={["1mo", "3mo", "6mo", "1yr"]}
-            />
+            <Group gap="xs">
+              <Chip.Group
+                multiple
+                value={verdictFilter}
+                onChange={(v) => setVerdictFilter(v as Verdict[])}
+              >
+                {(["dca", "skip", "catchup"] as const).map((v) => {
+                  const meta = VERDICT_META[v];
+                  return (
+                    <Chip
+                      key={v}
+                      value={v}
+                      size="xs"
+                      color={meta.color}
+                      icon={<meta.Icon size={10} />}
+                    >
+                      {meta.label}
+                    </Chip>
+                  );
+                })}
+              </Chip.Group>
+              <SegmentedControl
+                size="xs"
+                value={range}
+                onChange={setRange}
+                data={["1mo", "3mo", "6mo", "1yr"]}
+              />
+            </Group>
           </Group>
+          {slice.length === 0 ? (
+            <Text size="sm" c="dimmed" ta="center" py="md">
+              No verdicts match the selected filters.
+            </Text>
+          ) : (
           <Box style={{ overflowX: "auto" }}>
             <Box
               style={{
@@ -685,50 +1011,34 @@ function AccuracyPanel({
                 alignItems: "flex-start",
               }}
             >
-              {/* Label column */}
-              <Stack gap={0} style={{ marginRight: 4, paddingTop: 18 }}>
-                {["Pred", "Act", ""].map((label) => (
-                  <Box
-                    key={label}
-                    style={{
-                      height: label === "" ? 20 : 22,
-                      display: "flex",
-                      alignItems: "center",
-                    }}
-                  >
-                    <Text
-                      size="9px"
-                      c="dimmed"
-                      style={{ whiteSpace: "nowrap" }}
-                    >
-                      {label}
-                    </Text>
-                  </Box>
-                ))}
-              </Stack>
-              {/* Data columns */}
-              {slice.reverse().map((row) => {
-                const actual = actualDir(row.realized1dRet ?? null);
-                const predicted = actualDir(row.predicted1dRet ?? null);
-                const isGreen =
-                  (predicted === "up" && actual === "up") ||
-                  (predicted === "flat" && actual === "up") ||
-                  (predicted === "flat" && actual === "flat") ||
-                  (predicted === "down" && actual === "down");
-                const absDiff = Math.abs((row.realized1dRet ?? 0) - (row.predicted1dRet ?? 0));
-                const isRed =
-                  (predicted === "up" && actual === "down") ||
-                  (predicted === "down" && actual === "up") ||
-                  (predicted === "flat" && actual === "down" && absDiff > 0.5);
-                const mc =
-                  predicted != null && actual != null
-                    ? isGreen
-                      ? "green"
-                      : isRed
-                        ? "red"
-                        : "gray"
-                    : null;
+              {slice.map(({ row, verdict, outcome }) => {
+                const meta = verdict ? VERDICT_META[verdict] : null;
                 const [, mm, dd] = row.date.split("-");
+                const bg =
+                  outcome === "right"
+                    ? "rgba(74,222,128,0.30)"
+                    : outcome === "wrong"
+                      ? "rgba(248,113,113,0.30)"
+                      : outcome === "neutral"
+                        ? "rgba(150,150,150,0.18)"
+                        : "transparent";
+                const border =
+                  outcome === "right"
+                    ? "1px solid rgba(74,222,128,0.5)"
+                    : outcome === "wrong"
+                      ? "1px solid rgba(248,113,113,0.5)"
+                      : outcome === "neutral"
+                        ? "1px solid rgba(150,150,150,0.35)"
+                        : "1px solid rgba(255,255,255,0.08)";
+                const realized = row.realized1dRet;
+                const realizedColor =
+                  realized == null
+                    ? "dimmed"
+                    : realized > 0
+                      ? "green.4"
+                      : realized < 0
+                        ? "red.4"
+                        : "dimmed";
                 return (
                   <Stack
                     key={row.date}
@@ -746,82 +1056,111 @@ function AccuracyPanel({
                     </Text>
                     <Box
                       style={{
-                        height: 22,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <DirCell
-                        dir={predicted}
-                        pct={row.predicted1dRet}
-                      />
-                    </Box>
-                    <Box
-                      style={{
-                        height: 22,
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <DirCell
-                        dir={actual}
-                        pct={row.realized1dRet ?? null}
-                      />
-                    </Box>
-                    <Box
-                      style={{
                         width: 40,
-                        height: 20,
                         borderRadius: 2,
                         display: "flex",
+                        flexDirection: "column",
                         alignItems: "center",
                         justifyContent: "center",
-                        background:
-                          mc === "green"
-                            ? "rgba(74,222,128,0.35)"
-                            : mc === "red"
-                              ? "rgba(248,113,113,0.35)"
-                              : mc === "gray"
-                                ? "rgba(150,150,150,0.2)"
-                                : "transparent",
-                        border:
-                          mc === "green"
-                            ? "1px solid rgba(74,222,128,0.5)"
-                            : mc === "red"
-                              ? "1px solid rgba(248,113,113,0.5)"
-                              : mc === "gray"
-                                ? "1px solid rgba(150,150,150,0.35)"
-                                : "1px solid rgba(255,255,255,0.08)",
+                        gap: 2,
+                        padding: "4px 0",
+                        background: bg,
+                        border,
                       }}
                     >
-                      {row.realized1dRet != null &&
-                        row.predicted1dRet != null &&
-                        (() => {
-                          const absDiff = Math.abs(row.realized1dRet - row.predicted1dRet);
-                          const opacity = Math.min(1, absDiff / 2);
-                          const colorMap = {
-                            green: `rgba(74, 222, 128, ${0.4 + opacity * 0.6})`,
-                            red: `rgba(248, 113, 113, ${0.4 + opacity * 0.6})`,
-                            gray: `rgba(150, 150, 150, ${0.3 + opacity * 0.4})`,
-                          };
-                          return (
-                            <Text
-                              size="8px"
-                              fw={600}
-                              style={{ lineHeight: 1, color: colorMap[mc || "gray"] }}
-                            >
-                              {absDiff.toFixed(1)}
-                            </Text>
-                          );
-                        })()}
+                      <Text
+                        size="9px"
+                        c={
+                          row.predicted1dRet == null
+                            ? "dimmed"
+                            : row.predicted1dRet > 0
+                              ? "green.4"
+                              : row.predicted1dRet < 0
+                                ? "red.4"
+                                : "dimmed"
+                        }
+                        lh={1}
+                      >
+                        {row.predicted1dRet != null
+                          ? `${row.predicted1dRet > 0 ? "+" : ""}${row.predicted1dRet.toFixed(2)}`
+                          : "—"}
+                      </Text>
+                      {meta ? (
+                        <meta.Icon
+                          size={13}
+                          color={`var(--mantine-color-${meta.color}-4)`}
+                        />
+                      ) : (
+                        <Text size="11px" c="dimmed" lh={1}>
+                          ·
+                        </Text>
+                      )}
+                    </Box>
+                    <Text size="9px" c="dimmed" lh={1} mt={4}>
+                      actual:
+                    </Text>
+                    <Box
+                      style={{
+                        height: 16,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Text size="9px" c={realizedColor} lh={1}>
+                        {realized != null
+                          ? `${realized > 0 ? "+" : ""}${realized.toFixed(2)}`
+                          : "—"}
+                      </Text>
                     </Box>
                   </Stack>
                 );
               })}
             </Box>
           </Box>
+          )}
+          <Group gap="lg" mt="sm" wrap="wrap">
+            {(["dca", "skip", "catchup"] as const).map((v) => {
+              const meta = VERDICT_META[v];
+              return (
+                <Group key={v} gap={4}>
+                  <meta.Icon
+                    size={13}
+                    color={`var(--mantine-color-${meta.color}-4)`}
+                  />
+                  <Text size="xs" c="dimmed">
+                    {meta.label}
+                  </Text>
+                </Group>
+              );
+            })}
+            <Text size="xs" c="dimmed">
+              ·
+            </Text>
+            {(["right", "wrong", "neutral"] as const).map((o) => (
+              <Group key={o} gap={4}>
+                <Box
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: 2,
+                    background:
+                      o === "right"
+                        ? "rgba(74,222,128,0.45)"
+                        : o === "wrong"
+                          ? "rgba(248,113,113,0.45)"
+                          : "rgba(150,150,150,0.25)",
+                  }}
+                />
+                <Text size="xs" c="dimmed">
+                  {o}
+                </Text>
+              </Group>
+            ))}
+            <Text size="xs" c="dimmed">
+              · box: predicted Δ + verdict · actual: realized Δ
+            </Text>
+          </Group>
         </Paper>
       )}
     </Stack>
@@ -830,11 +1169,20 @@ function AccuracyPanel({
 
 // ── page ───────────────────────────────────────────────────────────────────────
 
+function nextWeekdayDate(dateStr: string): string {
+  const d = new Date(dateStr + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 1);
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6)
+    d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 export default function PredictionPage() {
   const [data, setData] = useState<PredictionPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(0);
+  const [historyOffset, setHistoryOffset] = useState(0);
 
   function load(force = false) {
     setLoading(true);
@@ -843,36 +1191,116 @@ export default function PredictionPage() {
       .then((r) => r.json())
       .then((d: PredictionPayload & { error?: string }) => {
         if (d.error) setError(d.error);
-        else { setData(d); setNow(Date.now()); }
+        else {
+          setData(d);
+          setNow(Date.now());
+          setHistoryOffset(0);
+        }
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }
 
   useEffect(() => {
-    fetch("/api/sentiment")
-      .then((r) => r.json())
-      .then((d: PredictionPayload & { error?: string }) => {
-        if (d.error) setError(d.error);
-        else { setData(d); setNow(Date.now()); }
-      })
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setLoading(false));
+    load(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const indicators = data
+    ? computeBottomIndicators(verdictInputsFromFeatures(data.features))
+    : [];
+  const hits = indicators.filter((i) => i.hit).length;
+  const liveInputs = data ? verdictInputsFromFeatures(data.features) : null;
+  const verdictInfo = data && liveInputs
+    ? computeVerdict(
+        data.predictedRet,
+        hits,
+        data.predictionDate,
+        liveInputs.qqq5dRet,
+        liveInputs.realizedVol20d,
+        liveInputs.tnxMom20d,
+      )
+    : null;
+
+  // Historical verdict for pager (offset 0 = live)
+  const maxOffset = data ? data.fullHistory.length : 0;
+  const histRow =
+    data && historyOffset > 0 ? data.fullHistory[historyOffset - 1] : null;
+  const histVerdict =
+    histRow?.predicted1dRet != null
+      ? (() => {
+          const inputs = verdictInputsFromRow(histRow);
+          const h = computeBottomIndicators(inputs).filter((i) => i.hit).length;
+          return computeVerdict(
+            histRow.predicted1dRet,
+            h,
+            nextWeekdayDate(histRow.date),
+            histRow.qqq5dRet,
+            histRow.realizedVol20d,
+            histRow.tnxMom20d,
+          );
+        })()
+      : null;
+  const histOutcome =
+    histRow?.realized1dRet != null && histVerdict
+      ? scoreVerdict(histVerdict.verdict, histRow.realized1dRet)
+      : null;
+
+  const displayVerdict = historyOffset === 0 ? verdictInfo : histVerdict;
+  const displayPredictedRet =
+    historyOffset === 0
+      ? (data?.predictedRet ?? 0)
+      : (histRow?.predicted1dRet ?? 0);
+  const displayPredictionDate =
+    historyOffset === 0
+      ? (data?.predictionDate ?? "")
+      : histRow
+        ? nextWeekdayDate(histRow.date)
+        : "";
+  const displayRealizedRet =
+    historyOffset === 0 ? null : (histRow?.realized1dRet ?? null);
+  const displayOutcome = historyOffset === 0 ? null : histOutcome;
+
+  // Sparkline for historical days: 5 rows before histRow + projected close
+  const histRecentPrices: PredictionPayload["recentPrices"] | undefined =
+    histRow && data
+      ? (() => {
+          const idx = historyOffset - 1; // index in fullHistory (newest-first)
+          // fullHistory is newest-first; rows after idx are older
+          const prev5 = data.fullHistory
+            .slice(idx, idx + 5)
+            .reverse()
+            .map((r) => ({ date: r.date, close: r.qqqClose }));
+          const projClose = histRow.predicted1dRet != null
+            ? Math.round(histRow.qqqClose * (1 + histRow.predicted1dRet / 100) * 100) / 100
+            : null;
+          return [
+            ...prev5,
+            ...(projClose != null
+              ? [{ date: nextWeekdayDate(histRow.date), close: projClose, predicted: true as const }]
+              : []),
+          ];
+        })()
+      : undefined;
+
+  const displayRecentPrices =
+    historyOffset === 0 ? data?.recentPrices : histRecentPrices;
 
   return (
     <Stack gap="lg">
       <Group justify="space-between" align="center">
-        <Text fw={700} size="xl">
-          QQQ Tomorrow
-        </Text>
+        <Stack gap={0}>
+          <Text fw={700} size="xl">
+            Buy / Pause / Bottom
+          </Text>
+        </Stack>
         <RetrainButton onRetrained={() => load(true)} />
       </Group>
 
       {loading ? (
         <>
-          <Skeleton height={240} radius={CARD_RADIUS} />
-          <Skeleton height={320} radius={CARD_RADIUS} />
+          <Skeleton height={260} radius={CARD_RADIUS} />
+          <Skeleton height={220} radius={CARD_RADIUS} />
         </>
       ) : error ? (
         <Paper
@@ -885,34 +1313,70 @@ export default function PredictionPage() {
             <Text size="sm">Failed to load: {error}</Text>
           </Group>
         </Paper>
-      ) : data ? (
+      ) : data && verdictInfo ? (
         <>
-          <DirectionHeader data={data} />
+          {data.noModel && (
+            <Paper
+              p="md"
+              radius={CARD_RADIUS}
+              style={{
+                background: "rgba(234,179,8,0.08)",
+                border: "1px solid rgba(234,179,8,0.3)",
+              }}
+            >
+              <Text size="sm" c="orange.4">
+                No model fitted yet — click Retrain to fit on historical data.
+                The bottom-indicator checklist works without a model.
+              </Text>
+            </Paper>
+          )}
+
+          {displayVerdict && (
+            <VerdictCard
+              verdict={displayVerdict.verdict}
+              reason={displayVerdict.reason}
+              predictedRet={displayPredictedRet}
+              predictionDate={displayPredictionDate}
+              recentPrices={displayRecentPrices}
+              realizedRet={displayRealizedRet}
+              outcome={displayOutcome}
+              canPrev={historyOffset < maxOffset - 1}
+              canNext={historyOffset > 0}
+              onPrev={() => setHistoryOffset((o) => o + 1)}
+              onNext={() => setHistoryOffset((o) => o - 1)}
+              onFirst={() => setHistoryOffset(0)}
+              onLast={() => setHistoryOffset(maxOffset - 1)}
+            />
+          )}
+
+          <BottomChecklist indicators={indicators} hits={hits} />
+
           <EventWarningCard events={data.upcomingEvents} />
-          <Accordion>
+
+          <Accordion variant="separated" radius={CARD_RADIUS}>
             <Accordion.Item value="features">
-              <Accordion.Control>Today&apos;s inputs</Accordion.Control>
+              <Accordion.Control>Today&apos;s model inputs</Accordion.Control>
               <Accordion.Panel>
                 <FeatureTable features={data.features} />
               </Accordion.Panel>
             </Accordion.Item>
           </Accordion>
+
           {data.accuracy && (
             <AccuracyPanel
               accuracy={data.accuracy}
               history={data.recentHistory}
+              fullHistory={data.fullHistory}
               model={{
                 fittedAt: data.modelFittedAt,
                 trainN: data.modelTrainN,
-                dirAcc: data.modelDirectionAccuracy,
-                mae: data.modelMagnitudeMae,
-                pearson: data.modelMagnitudePearson,
               }}
             />
           )}
+
           <Text size="xs" c="dimmed" ta="center">
-            Updated {Math.floor((now - data.cachedAt) / 60000)}m ago ·
-            refreshes every 20m · direction threshold ±0.25%
+            Updated {Math.floor((now - data.cachedAt) / 60000)}m ago · refreshes
+            every 20m · BOTTOM if 2+ of 3 bottom indicators trigger
           </Text>
         </>
       ) : null}

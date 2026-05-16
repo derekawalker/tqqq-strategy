@@ -109,7 +109,9 @@ export interface DailyRow {
   pctAbove200ma: number | null;
   realizedVol20d: number | null;
   tnxMom20d: number | null;
-  skewLevel: number | null;
+  volRatio: number | null;
+  rsi14: number | null;
+  daysSinceHigh: number | null;
   predictedDirection: string | null;
   predictedProbUp: number | null;
   predicted1dRet: number | null;
@@ -130,7 +132,9 @@ export async function upsertDailyFeatures(rows: RawFeatures[]): Promise<void> {
     pct_above_200ma: r.pctAbove200ma,
     realized_vol_20d: r.realizedVol20d,
     tnx_mom_20d: r.tnxMom20d,
-    skew_level: r.skewLevel,
+    vol_ratio: r.volRatio,
+    rsi_14: r.rsi14,
+    days_since_high: r.daysSinceHigh,
     updated_at: new Date().toISOString(),
   }));
   await supabase()
@@ -206,7 +210,7 @@ export async function loadTrainingRows(): Promise<DailyRow[]> {
   const { data } = await supabase()
     .from("daily_features")
     .select(
-      "date, qqq_close, qqq_1d_ret, qqq_3d_ret, qqq_5d_ret, vix_level, vix_1d_change, vix_term, pct_above_200ma, realized_vol_20d, tnx_mom_20d, skew_level, predicted_direction, predicted_prob_up, predicted_1d_ret, realized_1d_ret",
+      "date, qqq_close, qqq_1d_ret, qqq_3d_ret, qqq_5d_ret, vix_level, vix_1d_change, vix_term, pct_above_200ma, realized_vol_20d, tnx_mom_20d, vol_ratio, rsi_14, days_since_high, predicted_direction, predicted_prob_up, predicted_1d_ret, realized_1d_ret",
     )
     .not("qqq_1d_ret", "is", null)
     .not("realized_1d_ret", "is", null)
@@ -221,7 +225,7 @@ export async function loadRecentPredictions(limit = 120): Promise<DailyRow[]> {
   const { data } = await supabase()
     .from("daily_features")
     .select(
-      "date, qqq_close, qqq_1d_ret, qqq_3d_ret, qqq_5d_ret, vix_level, vix_1d_change, vix_term, pct_above_200ma, realized_vol_20d, tnx_mom_20d, skew_level, predicted_direction, predicted_prob_up, predicted_1d_ret, realized_1d_ret",
+      "date, qqq_close, qqq_1d_ret, qqq_3d_ret, qqq_5d_ret, vix_level, vix_1d_change, vix_term, pct_above_200ma, realized_vol_20d, tnx_mom_20d, vol_ratio, rsi_14, days_since_high, predicted_direction, predicted_prob_up, predicted_1d_ret, realized_1d_ret",
     )
     .not("predicted_direction", "is", null)
     .order("date", { ascending: false })
@@ -244,7 +248,9 @@ function mapRow(r: Record<string, unknown>): DailyRow {
     pctAbove200ma: r.pct_above_200ma as number | null,
     realizedVol20d: r.realized_vol_20d as number | null,
     tnxMom20d: r.tnx_mom_20d as number | null,
-    skewLevel: r.skew_level as number | null,
+    volRatio: r.vol_ratio as number | null,
+    rsi14: r.rsi_14 as number | null,
+    daysSinceHigh: r.days_since_high as number | null,
     predictedDirection: r.predicted_direction as string | null,
     predictedProbUp: r.predicted_prob_up as number | null,
     predicted1dRet: r.predicted_1d_ret as number | null,
