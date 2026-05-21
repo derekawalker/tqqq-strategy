@@ -101,6 +101,7 @@ function verdictInputsFromFeatures(features: FeatureReading[]): VerdictInputs {
     vixTerm: featureValue(features, "vixTerm"),
     realizedVol20d: featureValue(features, "realizedVol20d"),
     tnxMom20d: featureValue(features, "tnxMom20d"),
+    hyIefMom20d: featureValue(features, "hyIefMom20d"),
   };
 }
 
@@ -114,6 +115,7 @@ function verdictInputsFromRow(row: DailyRow): VerdictInputs {
     vixTerm: row.vixTerm,
     realizedVol20d: row.realizedVol20d,
     tnxMom20d: row.tnxMom20d,
+    hyIefMom20d: row.hyIefMom20d,
   };
 }
 
@@ -498,7 +500,7 @@ function BottomChecklist({
         </Badge>
       </Group>
       <Text size="xs" c="dimmed" mb="sm">
-        When 2+ trigger together, the bottom looks in — resume buying even if
+        When 3+ trigger together, the bottom looks in — resume buying even if
         the next-day prediction is still negative.
       </Text>
       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
@@ -1429,7 +1431,7 @@ export default function PredictionPage() {
 
           <Text size="xs" c="dimmed" ta="center">
             Updated {Math.floor((now - data.cachedAt) / 60000)}m ago · refreshes
-            every 20m · BOTTOM if 2+ of 3 bottom indicators trigger
+            every 20m · BOTTOM if 3+ of 6 bottom indicators trigger
           </Text>
         </>
       ) : null}

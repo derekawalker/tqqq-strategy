@@ -39,7 +39,7 @@ interface ThresholdSet {
 }
 
 const CURRENT: ThresholdSet = {
-  bottomHitsRequired: 2,
+  bottomHitsRequired: 3, // 3 of 6 indicators (was 2 of 3 before expansion)
   pauseVolMin: 25,
   pauseTnxMomMin: 0,
   pauseRecentRallyMax: 1.5,
@@ -80,6 +80,7 @@ function inputsFromRow(row: DailyRow): VerdictInputs {
     vixTerm: row.vixTerm,
     realizedVol20d: row.realizedVol20d,
     tnxMom20d: row.tnxMom20d,
+    hyIefMom20d: row.hyIefMom20d,
   };
 }
 
