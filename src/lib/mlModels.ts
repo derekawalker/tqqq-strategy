@@ -2,13 +2,15 @@ export type FeatureName =
   | "qqq1dRet" | "qqq3dRet" | "qqq5dRet"
   | "vixLevel" | "vix1dChange" | "vixTerm"
   | "pctAbove200ma" | "realizedVol20d" | "tnxMom20d"
-  | "volRatio" | "rsi14" | "daysSinceHigh";
+  | "volRatio" | "rsi14" | "daysSinceHigh"
+  | "hyIefMom20d" | "moveLevel";
 
 export const FEATURE_NAMES: FeatureName[] = [
   "qqq1dRet", "qqq3dRet", "qqq5dRet",
   "vixLevel", "vix1dChange", "vixTerm",
   "pctAbove200ma", "realizedVol20d", "tnxMom20d",
   "volRatio", "rsi14", "daysSinceHigh",
+  "hyIefMom20d", "moveLevel",
 ];
 
 export interface ModelCoefficients {

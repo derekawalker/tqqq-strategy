@@ -15,6 +15,13 @@
 //     realized_vol_20d numeric,
 //     tnx_mom_20d numeric,
 //     skew_level numeric,
+//     -- Added later: vol_ratio, rsi_14, days_since_high, hy_ief_mom_20d, move_level
+//     -- (run as a follow-up ALTER TABLE if upgrading an existing instance)
+//     vol_ratio numeric,
+//     rsi_14 numeric,
+//     days_since_high numeric,
+//     hy_ief_mom_20d numeric,
+//     move_level numeric,
 //     predicted_direction text,
 //     predicted_prob_up numeric,
 //     predicted_1d_ret numeric,
@@ -112,6 +119,8 @@ export interface DailyRow {
   volRatio: number | null;
   rsi14: number | null;
   daysSinceHigh: number | null;
+  hyIefMom20d: number | null;
+  moveLevel: number | null;
   predictedDirection: string | null;
   predictedProbUp: number | null;
   predicted1dRet: number | null;
@@ -135,6 +144,8 @@ export async function upsertDailyFeatures(rows: RawFeatures[]): Promise<void> {
     vol_ratio: r.volRatio,
     rsi_14: r.rsi14,
     days_since_high: r.daysSinceHigh,
+    hy_ief_mom_20d: r.hyIefMom20d,
+    move_level: r.moveLevel,
     updated_at: new Date().toISOString(),
   }));
   await supabase()
@@ -210,7 +221,7 @@ export async function loadTrainingRows(): Promise<DailyRow[]> {
   const { data } = await supabase()
     .from("daily_features")
     .select(
-      "date, qqq_close, qqq_1d_ret, qqq_3d_ret, qqq_5d_ret, vix_level, vix_1d_change, vix_term, pct_above_200ma, realized_vol_20d, tnx_mom_20d, vol_ratio, rsi_14, days_since_high, predicted_direction, predicted_prob_up, predicted_1d_ret, realized_1d_ret",
+      "date, qqq_close, qqq_1d_ret, qqq_3d_ret, qqq_5d_ret, vix_level, vix_1d_change, vix_term, pct_above_200ma, realized_vol_20d, tnx_mom_20d, vol_ratio, rsi_14, days_since_high, hy_ief_mom_20d, move_level, predicted_direction, predicted_prob_up, predicted_1d_ret, realized_1d_ret",
     )
     .not("qqq_1d_ret", "is", null)
     .not("realized_1d_ret", "is", null)
@@ -225,7 +236,7 @@ export async function loadRecentPredictions(limit = 120): Promise<DailyRow[]> {
   const { data } = await supabase()
     .from("daily_features")
     .select(
-      "date, qqq_close, qqq_1d_ret, qqq_3d_ret, qqq_5d_ret, vix_level, vix_1d_change, vix_term, pct_above_200ma, realized_vol_20d, tnx_mom_20d, vol_ratio, rsi_14, days_since_high, predicted_direction, predicted_prob_up, predicted_1d_ret, realized_1d_ret",
+      "date, qqq_close, qqq_1d_ret, qqq_3d_ret, qqq_5d_ret, vix_level, vix_1d_change, vix_term, pct_above_200ma, realized_vol_20d, tnx_mom_20d, vol_ratio, rsi_14, days_since_high, hy_ief_mom_20d, move_level, predicted_direction, predicted_prob_up, predicted_1d_ret, realized_1d_ret",
     )
     .not("predicted_direction", "is", null)
     .order("date", { ascending: false })
@@ -251,6 +262,8 @@ function mapRow(r: Record<string, unknown>): DailyRow {
     volRatio: r.vol_ratio as number | null,
     rsi14: r.rsi_14 as number | null,
     daysSinceHigh: r.days_since_high as number | null,
+    hyIefMom20d: r.hy_ief_mom_20d as number | null,
+    moveLevel: r.move_level as number | null,
     predictedDirection: r.predicted_direction as string | null,
     predictedProbUp: r.predicted_prob_up as number | null,
     predicted1dRet: r.predicted_1d_ret as number | null,

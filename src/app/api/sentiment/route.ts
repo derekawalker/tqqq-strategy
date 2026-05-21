@@ -88,6 +88,8 @@ const FEATURE_DISPLAY_NAMES: Record<string, string> = {
   volRatio:       "Volume vs 20d avg",
   rsi14:          "RSI(14)",
   daysSinceHigh:  "Days since 20d high",
+  hyIefMom20d:    "HY/IEF 20d Δ",
+  moveLevel:      "MOVE (bond vol)",
 };
 
 // ── cache ──────────────────────────────────────────────────────────────────────
@@ -105,6 +107,9 @@ async function backfillMissingPredictions(
   vixCloses: number[],
   vix3mCloses: number[],
   tnxCloses: number[],
+  hygCloses: number[],
+  iefCloses: number[],
+  moveCloses: number[],
   model: Awaited<ReturnType<typeof loadModelCoefficients>>,
   lastIdx: number,
   rebuild = false, // when true, regenerate ALL predictions (use after formula changes)
@@ -159,6 +164,7 @@ async function backfillMissingPredictions(
   for (const idx of targetIdxs) {
     const features = computeFeaturesAt(
       idx, qqqCloses, qqqVolumes, vixCloses, vix3mCloses, tnxCloses,
+      hygCloses, iefCloses, moveCloses,
       dates[idx],
     );
 
@@ -193,11 +199,14 @@ export async function GET(request: Request) {
     const lookbackDays = rebuild ? 1800 : 400;
     const period1 = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000);
 
-    const [qqqR, vixR, vix3mR, tnxR] = await Promise.allSettled([
+    const [qqqR, vixR, vix3mR, tnxR, hygR, iefR, moveR] = await Promise.allSettled([
       yf.chart("QQQ",    { period1, interval: "1d" }),
       yf.chart("^VIX",   { period1, interval: "1d" }),
       yf.chart("^VIX3M", { period1, interval: "1d" }),
       yf.chart("^TNX",   { period1, interval: "1d" }),
+      yf.chart("HYG",    { period1, interval: "1d" }),
+      yf.chart("IEF",    { period1, interval: "1d" }),
+      yf.chart("^MOVE",  { period1, interval: "1d" }),
     ]);
 
     const toSeries = (r: typeof vixR) =>
@@ -222,9 +231,12 @@ export async function GET(request: Request) {
     const vix  = toSeries(vixR);
     const vix3m = toSeries(vix3mR);
     const tnx  = toSeries(tnxR);
+    const hyg  = toSeries(hygR);
+    const ief  = toSeries(iefR);
+    const move = toSeries(moveR);
 
-    const { dates, qqqCloses, qqqVolumes, vixCloses, vix3mCloses, tnxCloses } =
-      alignSeries(qqq, vix, vix3m, tnx);
+    const { dates, qqqCloses, qqqVolumes, vixCloses, vix3mCloses, tnxCloses, hygCloses, iefCloses, moveCloses } =
+      alignSeries(qqq, vix, vix3m, tnx, hyg, ief, move);
 
     const lastIdx = dates.length - 1;
     const lastDate = dates[lastIdx];
@@ -235,6 +247,7 @@ export async function GET(request: Request) {
     // Compute today's feature vector
     const rawFeatures = computeFeaturesAt(
       lastIdx, qqqCloses, qqqVolumes, vixCloses, vix3mCloses, tnxCloses,
+      hygCloses, iefCloses, moveCloses,
       lastDate,
     );
 
@@ -317,7 +330,9 @@ export async function GET(request: Request) {
     // changing volAdjustedPrediction or other inference logic).
     try {
       await backfillMissingPredictions(
-        dates, qqqCloses, qqqVolumes, vixCloses, vix3mCloses, tnxCloses, model, lastIdx, rebuild,
+        dates, qqqCloses, qqqVolumes, vixCloses, vix3mCloses, tnxCloses,
+        hygCloses, iefCloses, moveCloses,
+        model, lastIdx, rebuild,
       );
     } catch (e) {
       console.warn("[prediction] backfill predictions failed:", e instanceof Error ? e.message : e);
@@ -406,6 +421,10 @@ function formatFeature(key: string, value: number | null): string {
       return value.toFixed(1);
     case "daysSinceHigh":
       return value.toFixed(0);
+    case "hyIefMom20d":
+      return pct(value);
+    case "moveLevel":
+      return value.toFixed(1);
     default:
       return value.toFixed(2);
   }

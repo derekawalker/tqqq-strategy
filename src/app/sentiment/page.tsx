@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Stack,
   Group,
@@ -67,6 +67,22 @@ function fmtPct(v: number | null, withSign = true): string {
 function fmtFraction(v: number | null): string {
   if (v == null) return "—";
   return `${(v * 100).toFixed(1)}%`;
+}
+
+// Wilson 95% interval for a binomial rate. With small n, the "right rate"
+// number alone is misleading — show the lower bound so a 65% on n=12 doesn't
+// look more convincing than a 60% on n=200.
+function wilsonInterval(
+  successes: number,
+  n: number,
+): { lo: number; hi: number } | null {
+  if (n === 0) return null;
+  const p = successes / n;
+  const z = 1.96;
+  const denom = 1 + (z * z) / n;
+  const center = p + (z * z) / (2 * n);
+  const margin = z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n));
+  return { lo: (center - margin) / denom, hi: (center + margin) / denom };
 }
 
 function featureValue(features: FeatureReading[], key: string): number | null {
@@ -634,6 +650,10 @@ const FEATURE_DESCRIPTIONS: Record<string, string> = {
   rsi14: "14-day RSI on QQQ. <30 oversold, >70 overbought.",
   daysSinceHigh:
     "Trading days since QQQ's 20-day closing high. 0 = today is the high.",
+  hyIefMom20d:
+    "20-day % change in HYG/IEF ratio. HYG = high-yield corporate bonds, IEF = Treasuries. Falling = credit spreads widening = risk-off; often leads equity selloffs.",
+  moveLevel:
+    "ICE BofA MOVE index — implied volatility of Treasury options. Often leads VIX regime shifts; elevated MOVE precedes equity vol expansion.",
 };
 
 function FeatureTable({ features }: { features: FeatureReading[] }) {
@@ -733,6 +753,7 @@ function AccuracyPanel({
 }) {
   const [range, setRange] = useState("1mo");
   const [verdictFilter, setVerdictFilter] = useState<Verdict[]>(["dca", "skip", "catchup"]);
+  const [outcomeFilter, setOutcomeFilter] = useState<VerdictOutcome[]>(["right", "wrong", "neutral"]);
   const RANGE_DAYS: Record<string, number> = {
     "1mo": 21,
     "3mo": 63,
@@ -775,11 +796,10 @@ function AccuracyPanel({
   const scored: ScoredRow[] = scoreRows(history);
 
   const realizedScored = allScored.filter((s) => s.verdict && s.outcome);
+  const rightCount = realizedScored.filter((s) => s.outcome === "right").length;
   const verdictRightRate =
-    realizedScored.length > 0
-      ? realizedScored.filter((s) => s.outcome === "right").length /
-        realizedScored.length
-      : null;
+    realizedScored.length > 0 ? rightCount / realizedScored.length : null;
+  const verdictRightCI = wilsonInterval(rightCount, realizedScored.length);
 
   const byVerdict: Record<
     Verdict,
@@ -810,7 +830,8 @@ function AccuracyPanel({
 
   const slice = scored
     .slice(0, days)
-    .filter((s) => s.verdict == null || verdictFilter.includes(s.verdict));
+    .filter((s) => s.verdict == null || verdictFilter.includes(s.verdict))
+    .filter((s) => s.outcome == null || outcomeFilter.includes(s.outcome));
 
   return (
     <Stack gap="lg">
@@ -844,12 +865,25 @@ function AccuracyPanel({
             <Group gap="xl" mb="md" wrap="wrap">
               {verdictRightRate != null && (
                 <Stack gap={2}>
-                  <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-                    Verdict right rate
-                  </Text>
+                  <Tooltip
+                    label="Wilson 95% confidence interval — with small samples, the true rate could lie anywhere in this range."
+                    multiline
+                    maw={260}
+                    withArrow
+                  >
+                    <Text size="xs" c="dimmed" tt="uppercase" fw={600} style={{ cursor: "help" }}>
+                      Verdict right rate
+                    </Text>
+                  </Tooltip>
                   <Text size="lg" fw={700}>
                     {fmtFraction(verdictRightRate)}
                   </Text>
+                  {verdictRightCI && (
+                    <Text size="xs" c="dimmed">
+                      95% CI {(verdictRightCI.lo * 100).toFixed(0)}–{(verdictRightCI.hi * 100).toFixed(0)}%
+                      {" · n="}{realizedScored.length}
+                    </Text>
+                  )}
                 </Stack>
               )}
               {accuracy.magnitudeMae != null && (
@@ -894,10 +928,10 @@ function AccuracyPanel({
                   <Table.Tbody>
                     {(["dca", "skip", "catchup"] as const).map((v) => {
                       const stats = byVerdict[v];
-                      if (stats.n === 0) return null;
                       const meta = VERDICT_META[v];
+                      const empty = stats.n === 0;
                       return (
-                        <Table.Tr key={v}>
+                        <Table.Tr key={v} style={empty ? { opacity: 0.45 } : undefined}>
                           <Table.Td>
                             <Badge
                               color={meta.color}
@@ -912,27 +946,31 @@ function AccuracyPanel({
                             <Text size="sm">{stats.n}</Text>
                           </Table.Td>
                           <Table.Td ta="right">
-                            <Text size="sm" c="green.4" fw={600}>
-                              {fmtFraction(stats.right / stats.n)}
+                            <Text size="sm" c={empty ? "dimmed" : "green.4"} fw={600}>
+                              {empty ? "—" : fmtFraction(stats.right / stats.n)}
                             </Text>
                           </Table.Td>
                           <Table.Td ta="right">
                             <Text size="sm" c="dimmed">
-                              {fmtFraction(stats.neutral / stats.n)}
+                              {empty ? "—" : fmtFraction(stats.neutral / stats.n)}
                             </Text>
                           </Table.Td>
                           <Table.Td ta="right">
-                            <Text size="sm" c="red.4" fw={600}>
-                              {fmtFraction(stats.wrong / stats.n)}
+                            <Text size="sm" c={empty ? "dimmed" : "red.4"} fw={600}>
+                              {empty ? "—" : fmtFraction(stats.wrong / stats.n)}
                             </Text>
                           </Table.Td>
                           <Table.Td ta="right">
                             <Text
                               size="sm"
                               fw={600}
-                              c={`${stats.avgRealized > 0 ? "green" : stats.avgRealized < 0 ? "red" : "gray"}.4`}
+                              c={
+                                empty
+                                  ? "dimmed"
+                                  : `${stats.avgRealized > 0 ? "green" : stats.avgRealized < 0 ? "red" : "gray"}.4`
+                              }
                             >
-                              {fmtPct(stats.avgRealized)}
+                              {empty ? "—" : fmtPct(stats.avgRealized)}
                             </Text>
                           </Table.Td>
                         </Table.Tr>
@@ -989,6 +1027,22 @@ function AccuracyPanel({
                     </Chip>
                   );
                 })}
+              </Chip.Group>
+              <Chip.Group
+                multiple
+                value={outcomeFilter}
+                onChange={(v) => setOutcomeFilter(v as VerdictOutcome[])}
+              >
+                {(["right", "wrong", "neutral"] as const).map((o) => (
+                  <Chip
+                    key={o}
+                    value={o}
+                    size="xs"
+                    color={o === "right" ? "green" : o === "wrong" ? "red" : "gray"}
+                  >
+                    {o}
+                  </Chip>
+                ))}
               </Chip.Group>
               <SegmentedControl
                 size="xs"
@@ -1206,45 +1260,44 @@ export default function PredictionPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const indicators = data
-    ? computeBottomIndicators(verdictInputsFromFeatures(data.features))
-    : [];
-  const hits = indicators.filter((i) => i.hit).length;
-  const liveInputs = data ? verdictInputsFromFeatures(data.features) : null;
-  const verdictInfo = data && liveInputs
-    ? computeVerdict(
-        data.predictedRet,
-        hits,
-        data.predictionDate,
-        liveInputs.qqq5dRet,
-        liveInputs.realizedVol20d,
-        liveInputs.tnxMom20d,
-      )
-    : null;
+  const { indicators, hits, verdictInfo } = useMemo(() => {
+    if (!data) return { indicators: [] as BottomIndicator[], hits: 0, verdictInfo: null };
+    const inputs = verdictInputsFromFeatures(data.features);
+    const ind = computeBottomIndicators(inputs);
+    const h = ind.filter((i) => i.hit).length;
+    const v = computeVerdict(
+      data.predictedRet,
+      h,
+      data.predictionDate,
+      inputs.qqq5dRet,
+      inputs.realizedVol20d,
+      inputs.tnxMom20d,
+    );
+    return { indicators: ind, hits: h, verdictInfo: v };
+  }, [data]);
 
   // Historical verdict for pager (offset 0 = live)
   const maxOffset = data ? data.fullHistory.length : 0;
   const histRow =
     data && historyOffset > 0 ? data.fullHistory[historyOffset - 1] : null;
-  const histVerdict =
-    histRow?.predicted1dRet != null
-      ? (() => {
-          const inputs = verdictInputsFromRow(histRow);
-          const h = computeBottomIndicators(inputs).filter((i) => i.hit).length;
-          return computeVerdict(
-            histRow.predicted1dRet,
-            h,
-            nextWeekdayDate(histRow.date),
-            histRow.qqq5dRet,
-            histRow.realizedVol20d,
-            histRow.tnxMom20d,
-          );
-        })()
-      : null;
-  const histOutcome =
-    histRow?.realized1dRet != null && histVerdict
-      ? scoreVerdict(histVerdict.verdict, histRow.realized1dRet)
-      : null;
+  const { histVerdict, histOutcome } = useMemo(() => {
+    if (histRow?.predicted1dRet == null) return { histVerdict: null, histOutcome: null };
+    const inputs = verdictInputsFromRow(histRow);
+    const h = computeBottomIndicators(inputs).filter((i) => i.hit).length;
+    const v = computeVerdict(
+      histRow.predicted1dRet,
+      h,
+      nextWeekdayDate(histRow.date),
+      histRow.qqq5dRet,
+      histRow.realizedVol20d,
+      histRow.tnxMom20d,
+    );
+    const o =
+      histRow.realized1dRet != null
+        ? scoreVerdict(v.verdict, histRow.realized1dRet)
+        : null;
+    return { histVerdict: v, histOutcome: o };
+  }, [histRow]);
 
   const displayVerdict = historyOffset === 0 ? verdictInfo : histVerdict;
   const displayPredictedRet =

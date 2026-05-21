@@ -52,11 +52,14 @@ export async function POST() {
     // features (vol_ratio, rsi_14, days_since_high) for the full history.
     const period1 = new Date(Date.now() - 5 * 365 * 24 * 60 * 60 * 1000);
 
-    const [qqqR, vixR, vix3mR, tnxR] = await Promise.allSettled([
+    const [qqqR, vixR, vix3mR, tnxR, hygR, iefR, moveR] = await Promise.allSettled([
       yf.chart("QQQ",    { period1, interval: "1d" }),
       yf.chart("^VIX",   { period1, interval: "1d" }),
       yf.chart("^VIX3M", { period1, interval: "1d" }),
       yf.chart("^TNX",   { period1, interval: "1d" }),
+      yf.chart("HYG",    { period1, interval: "1d" }),
+      yf.chart("IEF",    { period1, interval: "1d" }),
+      yf.chart("^MOVE",  { period1, interval: "1d" }),
     ]);
 
     const toSeries = (r: typeof vixR) =>
@@ -81,13 +84,16 @@ export async function POST() {
     const vix  = toSeries(vixR);
     const vix3m = toSeries(vix3mR);
     const tnx  = toSeries(tnxR);
+    const hyg  = toSeries(hygR);
+    const ief  = toSeries(iefR);
+    const move = toSeries(moveR);
 
     if (qqq.length < 210) {
       return Response.json({ error: "Insufficient QQQ history" }, { status: 500 });
     }
 
-    const { dates, qqqCloses, qqqVolumes, vixCloses, vix3mCloses, tnxCloses } =
-      alignSeries(qqq, vix, vix3m, tnx);
+    const { dates, qqqCloses, qqqVolumes, vixCloses, vix3mCloses, tnxCloses, hygCloses, iefCloses, moveCloses } =
+      alignSeries(qqq, vix, vix3m, tnx, hyg, ief, move);
 
     // Build QQQ close map for backfill
     const qqqByDate = new Map(qqq.map((d) => [d.date, d.close]));
@@ -97,6 +103,7 @@ export async function POST() {
     for (let i = 0; i < dates.length; i++) {
       const f = computeFeaturesAt(
         i, qqqCloses, qqqVolumes, vixCloses, vix3mCloses, tnxCloses,
+        hygCloses, iefCloses, moveCloses,
         dates[i],
       );
       if (f) featureRows.push(f);
@@ -131,7 +138,9 @@ export async function POST() {
       if (
         row.volRatio == null ||
         row.rsi14 == null ||
-        row.daysSinceHigh == null
+        row.daysSinceHigh == null ||
+        row.hyIefMom20d == null ||
+        row.moveLevel == null
       ) {
         continue; // skip rows that haven't been backfilled with new features
       }
@@ -150,6 +159,8 @@ export async function POST() {
         volRatio: row.volRatio,
         rsi14: row.rsi14,
         daysSinceHigh: row.daysSinceHigh,
+        hyIefMom20d: row.hyIefMom20d,
+        moveLevel: row.moveLevel,
       };
       Xraw.push(featuresToArray(feat));
       yDir.push(row.realized1dRet > 0.25 ? 1 : 0);
@@ -158,7 +169,7 @@ export async function POST() {
 
     if (Xraw.length === 0) {
       return Response.json(
-        { error: `No training rows have the new features (vol_ratio, rsi_14, days_since_high). Yahoo data: ${qqq.length} bars, feature rows computed: ${featureRows.length}` },
+        { error: `No training rows have the new features (vol_ratio, rsi_14, days_since_high, hy_ief_mom_20d, move_level). Yahoo data: ${qqq.length} bars, feature rows computed: ${featureRows.length}` },
         { status: 422 },
       );
     }
@@ -250,6 +261,8 @@ export async function POST() {
           volRatio: row.vol_ratio,
           rsi14: row.rsi_14,
           daysSinceHigh: row.days_since_high,
+          hyIefMom20d: row.hy_ief_mom_20d,
+          moveLevel: row.move_level,
         };
 
         if (
@@ -264,7 +277,9 @@ export async function POST() {
           feat.tnxMom20d == null ||
           feat.volRatio == null ||
           feat.rsi14 == null ||
-          feat.daysSinceHigh == null
+          feat.daysSinceHigh == null ||
+          feat.hyIefMom20d == null ||
+          feat.moveLevel == null
         ) {
           continue;
         }

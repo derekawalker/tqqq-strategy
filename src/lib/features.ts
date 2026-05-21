@@ -17,6 +17,8 @@ export type RawFeatures = {
   volRatio: number;        // today's volume / 20d avg volume
   rsi14: number;           // 14-day RSI on QQQ
   daysSinceHigh: number;   // trading days since 20d closing high (0 = today is the high)
+  hyIefMom20d: number;     // 20-day % change in HYG/IEF ratio — credit-spread proxy. Falling = risk-off.
+  moveLevel: number;       // ICE BofA MOVE index — Treasury implied vol. Often leads equity vol regime shifts.
 };
 
 function stdev(xs: number[]): number {
@@ -68,6 +70,9 @@ export function computeFeaturesAt(
   vixCloses: number[],
   vix3mCloses: number[],
   tnxCloses: number[],
+  hygCloses: number[],
+  iefCloses: number[],
+  moveCloses: number[],
   date: string,
 ): RawFeatures | null {
   // Need 200 days for MA, 20 for vol/volRatio, 14 for RSI
@@ -117,6 +122,18 @@ export function computeFeaturesAt(
 
   const dsh = daysSinceHigh(qqqCloses, i);
 
+  const hyg = hygCloses[i];
+  const ief = iefCloses[i];
+  const hygPrev = hygCloses[i - 20];
+  const iefPrev = iefCloses[i - 20];
+  if (!hyg || !ief || !hygPrev || !iefPrev) return null;
+  const ratioNow = hyg / ief;
+  const ratioPrev = hygPrev / iefPrev;
+  const hyIefMom20d = ((ratioNow - ratioPrev) / ratioPrev) * 100;
+
+  const moveLevel = moveCloses[i];
+  if (moveLevel == null) return null;
+
   return {
     date,
     qqqClose: q,
@@ -132,6 +149,8 @@ export function computeFeaturesAt(
     volRatio,
     rsi14: rsi,
     daysSinceHigh: dsh,
+    hyIefMom20d,
+    moveLevel,
   };
 }
 
@@ -150,6 +169,8 @@ export function featuresToArray(f: RawFeatures): number[] {
     f.volRatio,
     f.rsi14,
     f.daysSinceHigh,
+    f.hyIefMom20d,
+    f.moveLevel,
   ];
 }
 
@@ -159,6 +180,9 @@ export function alignSeries(
   vix: { date: string; close: number }[],
   vix3m: { date: string; close: number }[],
   tnx: { date: string; close: number }[],
+  hyg: { date: string; close: number }[],
+  ief: { date: string; close: number }[],
+  move: { date: string; close: number }[],
 ): {
   dates: string[];
   qqqCloses: number[];
@@ -166,10 +190,16 @@ export function alignSeries(
   vixCloses: number[];
   vix3mCloses: number[];
   tnxCloses: number[];
+  hygCloses: number[];
+  iefCloses: number[];
+  moveCloses: number[];
 } {
   const vixMap = new Map(vix.map((d) => [d.date, d.close]));
   const vix3mMap = new Map(vix3m.map((d) => [d.date, d.close]));
   const tnxMap = new Map(tnx.map((d) => [d.date, d.close]));
+  const hygMap = new Map(hyg.map((d) => [d.date, d.close]));
+  const iefMap = new Map(ief.map((d) => [d.date, d.close]));
+  const moveMap = new Map(move.map((d) => [d.date, d.close]));
 
   const dates: string[] = [];
   const qqqCloses: number[] = [];
@@ -177,19 +207,28 @@ export function alignSeries(
   const vixCloses: number[] = [];
   const vix3mCloses: number[] = [];
   const tnxCloses: number[] = [];
+  const hygCloses: number[] = [];
+  const iefCloses: number[] = [];
+  const moveCloses: number[] = [];
 
   for (const { date, close, volume } of qqq) {
     const v = vixMap.get(date);
     const v3 = vix3mMap.get(date);
     const t = tnxMap.get(date);
-    if (v == null || v3 == null || t == null) continue;
+    const h = hygMap.get(date);
+    const ie = iefMap.get(date);
+    const m = moveMap.get(date);
+    if (v == null || v3 == null || t == null || h == null || ie == null || m == null) continue;
     dates.push(date);
     qqqCloses.push(close);
     qqqVolumes.push(volume);
     vixCloses.push(v);
     vix3mCloses.push(v3);
     tnxCloses.push(t);
+    hygCloses.push(h);
+    iefCloses.push(ie);
+    moveCloses.push(m);
   }
 
-  return { dates, qqqCloses, qqqVolumes, vixCloses, vix3mCloses, tnxCloses };
+  return { dates, qqqCloses, qqqVolumes, vixCloses, vix3mCloses, tnxCloses, hygCloses, iefCloses, moveCloses };
 }
