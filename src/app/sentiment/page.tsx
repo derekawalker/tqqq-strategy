@@ -760,6 +760,7 @@ function AccuracyPanel({
     "3mo": 63,
     "6mo": 126,
     "1yr": 252,
+    "2yr": 504,
   };
   const days = RANGE_DAYS[range] ?? 21;
 
@@ -1052,7 +1053,7 @@ function AccuracyPanel({
                 size="xs"
                 value={range}
                 onChange={setRange}
-                data={["1mo", "3mo", "6mo", "1yr"]}
+                data={["1mo", "3mo", "6mo", "1yr", "2yr"]}
               />
             </Group>
           </Group>
