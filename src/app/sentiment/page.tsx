@@ -1063,6 +1063,45 @@ function AccuracyPanel({
             </Text>
           ) : (
           <Box style={{ overflowX: "auto" }}>
+            {/* Price chart — width matches the grid (46px per column, 23px margins center each point) */}
+            {slice.length > 0 && (() => {
+              const chartData = slice.map(({ row }) => ({ close: row.qqqClose }));
+              const w = slice.length * 46;
+              const closes = chartData.map((d) => d.close).filter(Boolean) as number[];
+              const minC = Math.min(...closes);
+              const maxC = Math.max(...closes);
+              const pad = (maxC - minC) * 0.1 || 1;
+              return (
+                <LineChart
+                  width={w}
+                  height={56}
+                  data={chartData}
+                  margin={{ top: 4, right: 23, bottom: 4, left: 23 }}
+                >
+                  <YAxis domain={[minC - pad, maxC + pad]} hide />
+                  <RechartsTooltip
+                    content={({ payload }) => {
+                      const close = payload?.[0]?.value as number | undefined;
+                      if (close == null) return null;
+                      return (
+                        <Box style={{ background: "rgba(26,27,30,0.92)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 6, padding: "2px 6px" }}>
+                          <Text size="xs" c="gray.3">${close.toFixed(2)}</Text>
+                        </Box>
+                      );
+                    }}
+                    cursor={{ stroke: "rgba(255,255,255,0.1)" }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="close"
+                    stroke="rgba(150,150,150,0.5)"
+                    strokeWidth={1.5}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              );
+            })()}
             <Box
               style={{
                 display: "inline-flex",
