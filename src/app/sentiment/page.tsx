@@ -794,8 +794,10 @@ function AccuracyPanel({
 
   // Stats use full history so small-N buckets aren't misleading.
   const allScored: ScoredRow[] = scoreRows(fullHistory);
-  // Grid uses recent 120 rows.
-  const scored: ScoredRow[] = scoreRows(history);
+  // Grid also uses full history so the 1yr range (252 days) isn't capped at 120.
+  // fullHistory is already newest-first from the API (loadRecentPredictions).
+  void history;
+  const scored: ScoredRow[] = allScored;
 
   const realizedScored = allScored.filter((s) => s.verdict && s.outcome);
   const rightCount = realizedScored.filter((s) => s.outcome === "right").length;
