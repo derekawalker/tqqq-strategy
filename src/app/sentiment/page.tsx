@@ -1196,9 +1196,11 @@ function AccuracyPanel({
                         </Text>
                       )}
                     </Box>
-                    <Text size="9px" c="dimmed" lh={1} mt={4}>
-                      actual:
-                    </Text>
+                    <Tooltip label="Next-day return — what QQQ did the day after this date" withArrow position="bottom" fz="xs">
+                      <Text size="9px" c="dimmed" lh={1} mt={4} style={{ cursor: "help" }}>
+                        next:
+                      </Text>
+                    </Tooltip>
                     <Box
                       style={{
                         height: 16,
@@ -1258,7 +1260,7 @@ function AccuracyPanel({
               </Group>
             ))}
             <Text size="xs" c="dimmed">
-              · box: predicted Δ + verdict · actual: realized Δ
+              · box: predicted Δ + verdict · next: realized Δ the following day
             </Text>
           </Group>
         </Paper>
