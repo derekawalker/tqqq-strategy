@@ -1076,7 +1076,7 @@ function AccuracyPanel({
               return (
                 <LineChart
                   width={w}
-                  height={56}
+                  height={112}
                   data={chartData}
                   margin={{ top: 4, right: 23, bottom: 4, left: 23 }}
                 >
