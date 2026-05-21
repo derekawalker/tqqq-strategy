@@ -53,15 +53,10 @@ describe("matchLevel", () => {
     expect(idx).toBe(0);
   });
 
-  it("matches within $0.01 of buy price", () => {
-    // Use 0.009 — 0.01 hits floating-point rounding at the boundary
-    const idx = matchLevel(levels, levels[5].shares, levels[5].buyPrice + 0.009);
+  it("matches even when fill price is far from the level price", () => {
+    // Price is no longer a hard filter — only shares must match. Price is a tiebreaker.
+    const idx = matchLevel(levels, levels[5].shares, levels[5].buyPrice + 5);
     expect(idx).toBe(5);
-  });
-
-  it("does not match a fill $0.02 away from any level price", () => {
-    const idx = matchLevel(levels, levels[5].shares, levels[5].buyPrice + 0.02);
-    expect(idx).toBe(-1);
   });
 
   it("returns -1 when share count matches no level", () => {
@@ -69,11 +64,15 @@ describe("matchLevel", () => {
     expect(idx).toBe(-1);
   });
 
-  it("returns -1 when price is way off even if shares match", () => {
-    // This is the regression: before the $0.01 tolerance, stale fills from
-    // old settings would spuriously match new levels if shares coincided.
-    const idx = matchLevel(levels, levels[0].shares, levels[0].buyPrice + 10);
-    expect(idx).toBe(-1);
+  it("uses price as a tiebreaker when multiple levels share the same share count", () => {
+    // Find two adjacent levels with the same rounded share count (common due to rounding)
+    const dupes = levels.filter((l) => levels.filter((x) => x.shares === l.shares).length > 1);
+    if (dupes.length < 2) return; // no duplicates in this config — skip
+    const [a, b] = dupes;
+    // Fill exactly at a's buyPrice → should resolve to a
+    expect(matchLevel(levels, a.shares, a.buyPrice)).toBe(a.n);
+    // Fill exactly at b's buyPrice → should resolve to b
+    expect(matchLevel(levels, b.shares, b.buyPrice)).toBe(b.n);
   });
 });
 

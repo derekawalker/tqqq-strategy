@@ -52,8 +52,8 @@ function mergePartialFills(orders: any[]): any[] {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const baseLeg = (base.legs ?? []).find((l: any) => l["instrument-type"] === "Equity" && l.symbol === "TQQQ");
     const baseTime = new Date(base["terminal-at"] ?? base["received-at"] ?? 0).getTime();
-    const basePrice = parseFloat(base.price ?? "0");
     const baseAction: string = baseLeg?.action ?? "";
+    const baseShares = parseFloat(base.quantity ?? "0");
 
     const group = [i];
     for (let j = i + 1; j < equity.length; j++) {
@@ -63,8 +63,9 @@ function mergePartialFills(orders: any[]): any[] {
       const oLeg = (o.legs ?? []).find((l: any) => l["instrument-type"] === "Equity" && l.symbol === "TQQQ");
       const oTime = new Date(o["terminal-at"] ?? o["received-at"] ?? 0).getTime();
       if (oTime - baseTime > PARTIAL_FILL_WINDOW_MS) break;
-      if (Math.abs(parseFloat(o.price ?? "0") - basePrice) > 0.10) continue;
       if ((oLeg?.action ?? "") !== baseAction) continue;
+      // Two fills with the same share count are likely duplicate orders, not partial fills of one order.
+      if (parseFloat(o.quantity ?? "0") === baseShares) continue;
       group.push(j);
     }
 

@@ -7,12 +7,14 @@ export interface Level {
   purchased: boolean;
 }
 
-/** Match a fill (shares + price) to the closest level index. Returns -1 if no match within $0.01. */
+/**
+ * Match a fill to the closest level index by share count. Returns -1 if no level has that
+ * share count. When multiple levels share the same count, price is used as a tiebreaker.
+ */
 export function matchLevel(levels: Level[], shares: number, price: number): number {
   const candidates = levels
     .map((l, i) => ({ i, diff: Math.min(Math.abs(l.buyPrice - price), Math.abs(l.sellPrice - price)) }))
-    .filter((_, i) => levels[i].shares === shares)
-    .filter((c) => c.diff <= 0.01);
+    .filter((_, i) => levels[i].shares === shares);
   if (candidates.length === 0) return -1;
   return candidates.reduce((best, c) => (c.diff < best.diff ? c : best)).i;
 }
