@@ -848,7 +848,9 @@ function AccuracyPanel({
 
   const slice = rangeSlice
     .filter((s) => verdictFilter === "all" || s.verdict === verdictFilter)
-    .filter((s) => outcomeFilter === "all" || s.outcome === outcomeFilter);
+    .filter((s) => outcomeFilter === "all" || s.outcome === outcomeFilter)
+    .slice()
+    .reverse();
 
   return (
     <Stack gap="lg">
@@ -1065,7 +1067,7 @@ function AccuracyPanel({
           <Box style={{ overflowX: "auto" }}>
             {/* Price chart — width matches the grid (46px per column, 23px margins center each point) */}
             {slice.length > 0 && (() => {
-              const chartData = slice.map(({ row }) => ({ close: row.qqqClose }));
+              const chartData = slice.map(({ row }) => ({ close: row.qqqClose ?? null }));
               const w = slice.length * 46;
               const closes = chartData.map((d) => d.close).filter(Boolean) as number[];
               const minC = Math.min(...closes);
