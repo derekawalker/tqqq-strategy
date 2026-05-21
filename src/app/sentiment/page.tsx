@@ -16,7 +16,6 @@ import {
   SegmentedControl,
   SimpleGrid,
   Accordion,
-  Chip,
 } from "@mantine/core";
 import {
   IconAlertTriangle,
@@ -754,8 +753,8 @@ function AccuracyPanel({
   };
 }) {
   const [range, setRange] = useState("1mo");
-  const [verdictFilter, setVerdictFilter] = useState<Verdict[]>(["dca", "skip", "catchup"]);
-  const [outcomeFilter, setOutcomeFilter] = useState<VerdictOutcome[]>(["right", "wrong", "neutral"]);
+  const [verdictFilter, setVerdictFilter] = useState<Verdict | "all">("all");
+  const [outcomeFilter, setOutcomeFilter] = useState<VerdictOutcome | "all">("all");
   const RANGE_DAYS: Record<string, number> = {
     "1mo": 21,
     "3mo": 63,
@@ -832,10 +831,23 @@ function AccuracyPanel({
     if (byVerdict[v].n > 0) byVerdict[v].avgRealized /= byVerdict[v].n;
   }
 
-  const slice = scored
-    .slice(0, days)
-    .filter((s) => s.verdict == null || verdictFilter.includes(s.verdict))
-    .filter((s) => s.outcome == null || outcomeFilter.includes(s.outcome));
+  const rangeSlice = scored.slice(0, days);
+  const verdictCounts: Record<Verdict | "all", number> = {
+    all: rangeSlice.length,
+    dca: rangeSlice.filter((s) => s.verdict === "dca").length,
+    skip: rangeSlice.filter((s) => s.verdict === "skip").length,
+    catchup: rangeSlice.filter((s) => s.verdict === "catchup").length,
+  };
+  const outcomeCounts: Record<VerdictOutcome | "all", number> = {
+    all: rangeSlice.length,
+    right: rangeSlice.filter((s) => s.outcome === "right").length,
+    wrong: rangeSlice.filter((s) => s.outcome === "wrong").length,
+    neutral: rangeSlice.filter((s) => s.outcome === "neutral").length,
+  };
+
+  const slice = rangeSlice
+    .filter((s) => verdictFilter === "all" || s.verdict === verdictFilter)
+    .filter((s) => outcomeFilter === "all" || s.outcome === outcomeFilter);
 
   return (
     <Stack gap="lg">
@@ -1011,43 +1023,31 @@ function AccuracyPanel({
             >
               Verdict history
             </Text>
-            <Group gap="xs">
-              <Chip.Group
-                multiple
+            <Group gap="xs" align="center">
+              <SegmentedControl
+                size="xs"
                 value={verdictFilter}
-                onChange={(v) => setVerdictFilter(v as Verdict[])}
-              >
-                {(["dca", "skip", "catchup"] as const).map((v) => {
-                  const meta = VERDICT_META[v];
-                  return (
-                    <Chip
-                      key={v}
-                      value={v}
-                      size="xs"
-                      color={meta.color}
-                      icon={<meta.Icon size={10} />}
-                    >
-                      {meta.label}
-                    </Chip>
-                  );
-                })}
-              </Chip.Group>
-              <Chip.Group
-                multiple
+                onChange={(v) => setVerdictFilter(v as Verdict | "all")}
+                data={[
+                  { value: "all", label: `All (${verdictCounts.all})` },
+                  ...(["dca", "skip", "catchup"] as const).map((v) => ({
+                    value: v,
+                    label: `${VERDICT_META[v].label.charAt(0) + VERDICT_META[v].label.slice(1).toLowerCase()} (${verdictCounts[v]})`,
+                  })),
+                ]}
+              />
+              <SegmentedControl
+                size="xs"
                 value={outcomeFilter}
-                onChange={(v) => setOutcomeFilter(v as VerdictOutcome[])}
-              >
-                {(["right", "wrong", "neutral"] as const).map((o) => (
-                  <Chip
-                    key={o}
-                    value={o}
-                    size="xs"
-                    color={o === "right" ? "green" : o === "wrong" ? "red" : "gray"}
-                  >
-                    {o}
-                  </Chip>
-                ))}
-              </Chip.Group>
+                onChange={(v) => setOutcomeFilter(v as VerdictOutcome | "all")}
+                data={[
+                  { value: "all", label: `All (${outcomeCounts.all})` },
+                  ...(["right", "wrong", "neutral"] as const).map((o) => ({
+                    value: o,
+                    label: `${o.charAt(0).toUpperCase() + o.slice(1)} (${outcomeCounts[o]})`,
+                  })),
+                ]}
+              />
               <SegmentedControl
                 size="xs"
                 value={range}
