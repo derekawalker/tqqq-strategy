@@ -131,10 +131,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [initialized, setInitialized] = useState(false);
   // ref-based guard so the persist effects only fire on changes AFTER init, not during the initial load
   const persistReadyRef = useRef(false);
+  // true only when Supabase returned at least one account on init — guards against overwriting real data
+  // with all-null defaults when the settings load fails (network hiccup, cold start, etc.)
+  const supabaseLoadedRef = useRef(false);
 
   // Persist accounts to Supabase whenever they change (after initial load)
   useEffect(() => {
     if (!persistReadyRef.current) return;
+    // If the initial Supabase load failed, don't persist accounts that are entirely default (all-null settings).
+    // This prevents a failed init from overwriting real saved data with empty defaults.
+    const hasRealSettings = accounts.some((a) =>
+      Object.values(a.settings).some((v) => v !== null)
+    );
+    if (!supabaseLoadedRef.current && !hasRealSettings) return;
     fetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -267,6 +276,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (accountsData.status === "fulfilled" && accountsData.value?.value) {
             remoteAccounts = (accountsData.value.value as Account[]).map(deserializeAccount);
             setAccounts(remoteAccounts);
+            supabaseLoadedRef.current = true;
           }
           if (activeNumData.status === "fulfilled" && activeNumData.value?.value) {
             savedNumber = activeNumData.value.value as string;
