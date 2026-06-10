@@ -294,7 +294,7 @@ export default function WorkingOrdersPage() {
           ...c,
         }),
       );
-      rows.sort((a, b) => a.shares - b.shares);
+      rows.sort((a, b) => a.shares - b.shares || b.levelIndex - a.levelIndex);
       return rows;
     }
 
@@ -336,7 +336,7 @@ export default function WorkingOrdersPage() {
       }
     }
 
-    rows.sort((a, b) => a.shares - b.shares);
+    rows.sort((a, b) => a.shares - b.shares || b.levelIndex - a.levelIndex);
     return rows;
   }, [workingOrders, levelsSummary, bufferSize]);
 
