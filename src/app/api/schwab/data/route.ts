@@ -66,6 +66,8 @@ function parseTransaction(t: any, accountNumber: string): Transaction | null {
 }
 
 const PARTIAL_FILL_WINDOW_MS = 5 * 60 * 1000;
+// Levels are spaced ~1% apart; partial fills of the same limit order fill at nearly identical prices.
+const PARTIAL_FILL_PRICE_TOLERANCE = 0.005;
 
 function mergePartialFills(orders: FilledOrder[]): FilledOrder[] {
   const sorted = [...orders].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
@@ -85,6 +87,8 @@ function mergePartialFills(orders: FilledOrder[]): FilledOrder[] {
       if (new Date(o.time).getTime() - baseTime > PARTIAL_FILL_WINDOW_MS) break;
       // Two fills with the same share count are likely duplicate orders, not partial fills of one order.
       if (o.shares === base.shares) continue;
+      // Fills from different levels have prices ~1% apart; partial fills of the same order fill at nearly the same price.
+      if (Math.abs(o.fillPrice - base.fillPrice) / base.fillPrice > PARTIAL_FILL_PRICE_TOLERANCE) continue;
       group.push(j);
     }
 
