@@ -138,10 +138,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Persist accounts to Supabase whenever they change (after initial load)
   useEffect(() => {
     if (!persistReadyRef.current) return;
-    // If the initial Supabase load failed, don't persist accounts that are entirely default (all-null settings).
+    // If the initial Supabase load failed, don't persist accounts that are entirely default settings.
     // This prevents a failed init from overwriting real saved data with empty defaults.
+    // Only fields that default to null indicate real user configuration — orderBuffer, orderWarnBelow,
+    // callSafetyLevels, and putSafetyLevels all have non-null defaults, so they don't count.
     const hasRealSettings = accounts.some((a) =>
-      Object.values(a.settings).some((v) => v !== null)
+      (Object.keys(DEFAULT_SETTINGS) as (keyof AccountSettings)[]).some(
+        (key) => DEFAULT_SETTINGS[key] === null && a.settings[key] !== null
+      )
     );
     if (!supabaseLoadedRef.current && !hasRealSettings) return;
     fetch("/api/settings", {
