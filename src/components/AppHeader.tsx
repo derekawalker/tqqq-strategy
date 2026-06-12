@@ -23,9 +23,36 @@ import {
   IconChartLine,
   IconRefreshDot,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useApp } from "@/lib/context/AppContext";
 import { useRouter, usePathname } from "next/navigation";
+
+// Live "updated Xs ago" indicator. Re-renders itself every 10s so the relative label stays
+// current between refreshes; reads lastRefreshed, which is set on each successful quote fetch.
+function LastUpdated() {
+  const { lastRefreshed } = useApp();
+  // `now` lives in state (not Date.now() during render) so the component stays pure; the
+  // interval advances it every 10s to keep the relative label fresh between refreshes.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 10_000);
+    return () => clearInterval(id);
+  }, []);
+  if (!lastRefreshed) return null;
+  const secs = Math.max(0, Math.floor((now - lastRefreshed.getTime()) / 1000));
+  const label =
+    secs < 10 ? "just now" :
+    secs < 60 ? `${secs}s ago` :
+    secs < 3600 ? `${Math.floor(secs / 60)}m ago` :
+    `${Math.floor(secs / 3600)}h ago`;
+  return (
+    <Tooltip label={`Last updated ${lastRefreshed.toLocaleTimeString()}`} withArrow>
+      <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
+        {label}
+      </Text>
+    </Tooltip>
+  );
+}
 
 interface AppHeaderProps {
   onRefresh: () => void;
@@ -50,6 +77,7 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
 
   const priceInfo = (
     <Group gap="xs" wrap="nowrap">
+      {isMobile && <LastUpdated />}
       {quote.loading ? (
         <>
           <Skeleton height={20} width={60} radius="sm" />
@@ -65,6 +93,7 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
           </Badge>
         </>
       )}
+      {!isMobile && <LastUpdated />}
     </Group>
   );
 
@@ -194,7 +223,7 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
           </ActionIcon>
         </Menu.Target>
         <Menu.Dropdown>
-          <Menu.Item leftSection={<IconChartLine size={14} />} onClick={tickQuoteRefresh}>
+          <Menu.Item leftSection={<IconChartLine size={14} />} onClick={() => tickQuoteRefresh()}>
             Refresh market
           </Menu.Item>
           <Menu.Item leftSection={<IconRefreshDot size={14} />} onClick={onRefresh}>
@@ -257,7 +286,7 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
     return (
       <>
         {otpModal}
-      <Group h="100%" px="md" justify="space-between" align="center" wrap="nowrap" style={{ background: headerBg }}>
+      <Group h="100%" px="md" justify="space-between" align="center" wrap="nowrap" style={{ background: headerBg, paddingTop: "env(safe-area-inset-top, 0px)", boxSizing: "border-box" }}>
         {/* Left: title + account select */}
         <Stack gap={8}>
           <Text fw={700} size="sm">TQQQ Strategy</Text>
@@ -305,7 +334,7 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
   return (
     <>
       {otpModal}
-      <Group h="100%" px="md" justify="space-between" align="center" wrap="nowrap" style={{ background: headerBg }}>
+      <Group h="100%" px="md" justify="space-between" align="center" wrap="nowrap" style={{ background: headerBg, paddingTop: "env(safe-area-inset-top, 0px)", boxSizing: "border-box" }}>
         {/* Left: App name + TQQQ price */}
         <Group gap="lg" wrap="nowrap">
           <Text fw={700} size="lg" style={{ whiteSpace: "nowrap" }}>

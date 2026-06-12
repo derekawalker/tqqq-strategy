@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, ReactNode } from "react";
+import { useState, useEffect, useRef, ReactNode } from "react";
 import { AppShell, Box } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { usePathname } from "next/navigation";
@@ -16,7 +16,7 @@ import { useCSPCollateral } from "@/lib/hooks/useCSPCollateral";
 const NAVBAR_WIDTH = 180;
 
 function AppShellInner({ children }: { children: ReactNode }) {
-  const { activeAccount, setQuote, refreshTick, quoteTick, tickRefresh, tqqqShares, setAlerts, workingOrders, optionPositions, quote, balances } = useApp();
+  const { activeAccount, setQuote, refreshTick, quoteTick, tickRefresh, tickQuoteRefresh, setLastRefreshed, tqqqShares, setAlerts, workingOrders, optionPositions, quote, balances } = useApp();
   const levelsSummary = useLevels();
   const pendingBuyCost = usePendingBuyCost();
   const cspCollateral = useCSPCollateral();
@@ -119,11 +119,13 @@ function AppShellInner({ children }: { children: ReactNode }) {
       const quotePromise = fetch("/api/quote").then((r) => r.json()).catch(() => null);
       const trendPromise = fetch("/api/trend").then((r) => r.json()).catch(() => null);
 
-      // Set price immediately when quote resolves — don't wait for trend
+      // Set price immediately when quote resolves — don't wait for trend.
+      // Keep the previous trend in place (refetched below) so silent polls don't flicker it to 0.
       const quoteData = await quotePromise;
-      if (!cancelled && quoteData?.price != null)
-        setQuote((q) => ({ ...q, price: quoteData.price, changePercent: quoteData.changePercent, trend: 0, loading: false }));
-      else if (!cancelled)
+      if (!cancelled && quoteData?.price != null) {
+        setQuote((q) => ({ ...q, price: quoteData.price, changePercent: quoteData.changePercent, marketState: quoteData.marketState, loading: false }));
+        setLastRefreshed(new Date());
+      } else if (!cancelled)
         setQuote((q) => ({ ...q, loading: false }));
 
       // Update trend when it arrives (already in-flight)
@@ -133,7 +135,37 @@ function AppShellInner({ children }: { children: ReactNode }) {
     }
     load();
     return () => { cancelled = true; };
-  }, [refreshTick, quoteTick, setQuote]);
+  }, [refreshTick, quoteTick, setQuote, setLastRefreshed]);
+
+  // Auto-refresh the quote during regular market hours so a left-open tab / PWA stays live.
+  // Silent so the header price updates in place; pauses when the tab isn't visible to avoid
+  // background polling, and stops entirely outside REGULAR hours.
+  useEffect(() => {
+    if (quote.marketState !== "REGULAR") return;
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") tickQuoteRefresh({ silent: true });
+    }, 45_000);
+    return () => clearInterval(id);
+  }, [quote.marketState, tickQuoteRefresh]);
+
+  // Refresh when the tab regains focus / the PWA returns to the foreground, so coming back to a
+  // backgrounded app doesn't show stale data. Throttled to avoid hammering on rapid focus changes.
+  const lastForegroundRefresh = useRef(0);
+  useEffect(() => {
+    const onForeground = () => {
+      if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastForegroundRefresh.current < 15_000) return;
+      lastForegroundRefresh.current = now;
+      tickRefresh({ silent: true });
+    };
+    document.addEventListener("visibilitychange", onForeground);
+    window.addEventListener("focus", onForeground);
+    return () => {
+      document.removeEventListener("visibilitychange", onForeground);
+      window.removeEventListener("focus", onForeground);
+    };
+  }, [tickRefresh]);
 
   const mainBg = !isAccountsPage && activeAccount
     ? `linear-gradient(135deg, color-mix(in srgb, var(--mantine-color-${activeAccount.color}-7) 10%, var(--mantine-color-dark-9)) 0%, var(--mantine-color-dark-8) 100%)`
@@ -141,7 +173,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
 
   return (
     <AppShell
-      header={{ height: { base: 88, sm: 56 } }}
+      header={{ height: { base: "calc(88px + env(safe-area-inset-top, 0px))", sm: "calc(56px + env(safe-area-inset-top, 0px))" } }}
       navbar={{ width: NAVBAR_WIDTH, breakpoint: "sm", collapsed: { mobile: true, desktop: isAccountsPage } }}
       padding="md"
     >

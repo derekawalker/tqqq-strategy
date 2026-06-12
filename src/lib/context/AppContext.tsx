@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useMemo, useRef, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useMemo, useRef, useCallback, ReactNode } from "react";
 import type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition } from "@/lib/schwab/parse";
 import type { Transaction, AccountBalance } from "@/app/api/schwab/data/route";
 export type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition, Transaction, AccountBalance };
@@ -52,6 +52,8 @@ export interface Quote {
   dates30: string[];
   /** Day of week (0=Sun…6=Sat) for each closes30 entry */
   daysOfWeek30: number[];
+  /** Yahoo market session: REGULAR, PRE, POST, CLOSED, etc. Drives market-hours polling. */
+  marketState?: string;
   loading: boolean;
 }
 
@@ -78,9 +80,9 @@ interface AppContextValue {
   quote: Quote;
   setQuote: React.Dispatch<React.SetStateAction<Quote>>;
   refreshTick: number;
-  tickRefresh: () => void;
+  tickRefresh: (opts?: { silent?: boolean }) => void;
   quoteTick: number;
-  tickQuoteRefresh: () => void;
+  tickQuoteRefresh: (opts?: { silent?: boolean }) => void;
   alerts: Alerts;
   setAlerts: React.Dispatch<React.SetStateAction<Alerts>>;
   schwabConnected: boolean | null; // null = loading
@@ -540,14 +542,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
 const togglePrivacy = () => setPrivacyMode((p) => !p);
-  const tickRefresh = () => {
-    setQuote((q) => ({ ...q, loading: true }));
+  // opts.silent skips the loading flash — used by background polling / focus refresh so the
+  // header price and chart update in place without flickering skeletons. Memoized for stable
+  // identity so the market-hours polling effect doesn't reset its interval on every render.
+  const tickRefresh = useCallback((opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setQuote((q) => ({ ...q, loading: true }));
     setRefreshTick((t) => t + 1);
-  };
-  const tickQuoteRefresh = () => {
-    setQuote((q) => ({ ...q, loading: true }));
+  }, []);
+  const tickQuoteRefresh = useCallback((opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setQuote((q) => ({ ...q, loading: true }));
     setQuoteTick((t) => t + 1);
-  };
+  }, []);
 
   return (
     <AppContext.Provider
