@@ -3,7 +3,9 @@
 import { createContext, useContext, useState, useEffect, useMemo, useRef, useCallback, ReactNode } from "react";
 import type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition } from "@/lib/schwab/parse";
 import type { Transaction, AccountBalance } from "@/app/api/schwab/data/route";
-export type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition, Transaction, AccountBalance };
+import { needsSnapshot, recordSnapshot, type BalanceSnapshot } from "@/lib/balanceHistory";
+import { toDateKey } from "@/lib/format";
+export type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition, Transaction, AccountBalance, BalanceSnapshot };
 
 export interface AccountSettings {
   initialCash: number | null;
@@ -105,6 +107,7 @@ interface AppContextValue {
   snapshotLoading: boolean;
   balances: AccountBalance[];
   balancesLoading: boolean;
+  balanceHistory: BalanceSnapshot[];
 }
 
 const DEFAULT_ACCOUNTS: Account[] = [];
@@ -270,13 +273,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     async function init() {
-      // 1. Load accounts + saved active account from Supabase (source of truth)
+      // 1. Load accounts + saved active account + balance history from Supabase (source of truth)
       let remoteAccounts: Account[] = [];
       let savedNumber: string | null = null;
       try {
-        const [accountsData, activeNumData] = await Promise.allSettled([
+        const [accountsData, activeNumData, historyData] = await Promise.allSettled([
           fetch("/api/settings?key=accounts").then((r) => r.json()),
           fetch("/api/settings?key=activeAccountNumber").then((r) => r.json()),
+          fetch("/api/settings?key=balanceHistory").then((r) => r.json()),
         ]);
         if (!cancelled) {
           if (accountsData.status === "fulfilled" && accountsData.value?.value) {
@@ -286,6 +290,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           if (activeNumData.status === "fulfilled" && activeNumData.value?.value) {
             savedNumber = activeNumData.value.value as string;
+          }
+          if (historyData.status === "fulfilled" && Array.isArray(historyData.value?.value)) {
+            setBalanceHistory(historyData.value.value as BalanceSnapshot[]);
           }
         }
       } catch {}
@@ -353,6 +360,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [allTqqqAvgPrice, setAllTqqqAvgPrice] = useState<Record<string, number>>({});
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [allBalances, setAllBalances] = useState<AccountBalance[]>([]);
+  const [balanceHistory, setBalanceHistory] = useState<BalanceSnapshot[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -426,6 +434,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     return () => { cancelled = true; };
   }, [refreshTick]);
+
+  // Record one balance snapshot per day, the first time balances finish loading that day. This
+  // piggybacks on the existing refresh flow — no cron/infra needed — so the portfolio-history
+  // chart fills in naturally as the app is used.
+  useEffect(() => {
+    if (snapshotLoading || allBalances.length === 0 || !persistReadyRef.current) return;
+    const today = toDateKey(new Date());
+    if (!needsSnapshot(balanceHistory, today)) return;
+
+    const values = Object.fromEntries(allBalances.map((b) => [b.accountNumber, b.totalValue]));
+    const next = recordSnapshot(balanceHistory, today, values);
+    setBalanceHistory(next);
+    fetch("/api/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "balanceHistory", value: next }),
+    }).catch(() => {});
+  }, [allBalances, snapshotLoading, balanceHistory]);
 
   const accountNumber = activeAccount?.accountNumber ?? null;
   const filledOrders = useMemo(
@@ -550,6 +576,7 @@ const togglePrivacy = () => setPrivacyMode((p) => !p);
         snapshotLoading,
         balances: allBalances,
         balancesLoading: snapshotLoading,
+        balanceHistory,
       }}
     >
       {children}
