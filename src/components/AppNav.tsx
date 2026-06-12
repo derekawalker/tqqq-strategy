@@ -35,7 +35,6 @@ import {
   IconChartLine,
   IconColumns3,
   IconDotsCircleHorizontal,
-  IconMoodSmile,
 } from "@tabler/icons-react";
 
 const ALL_PAGES = [
@@ -47,7 +46,6 @@ const ALL_PAGES = [
   { href: "/profit-tracker",      label: "Profit",       icon: IconTrendingUp },
   { href: "/interest-dividends",  label: "Interest",     icon: IconCoins },
   { href: "/chart",               label: "Chart",        icon: IconChartLine },
-  { href: "/sentiment",           label: "Sentiment",    icon: IconMoodSmile },
 ];
 
 const TAB_PAGES = ALL_PAGES.slice(0, 5);
