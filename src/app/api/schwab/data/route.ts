@@ -1,6 +1,7 @@
 import { DEMO_DATA } from "@/lib/demo-data";
 import { schwabFetch } from "@/lib/schwab/client";
 import { getAccountHashes } from "@/lib/schwab/accounts";
+import { getCached, setCached } from "@/lib/ttlCache";
 import {
   flattenOrders,
   parseFilledOrder,
@@ -276,9 +277,20 @@ async function fetchAccountData(
   return { filled, filledOptions, expiredOptions, working, tqqqShares, tqqqAvgPrice, options, balance, transactions };
 }
 
-export async function GET() {
+const CACHE_KEY = "schwab-data";
+const CACHE_TTL_MS = 30_000;
+
+export async function GET(req: Request) {
   if (process.env.DEMO_MODE === "true") {
     return Response.json(DEMO_DATA satisfies SchwabData);
+  }
+
+  // The manual "Refresh accounts" action sends ?fresh=1 to force a live pull; mount/focus refreshes
+  // reuse the cached payload within the TTL to avoid re-scanning a year of history each time.
+  const fresh = new URL(req.url).searchParams.get("fresh") === "1";
+  if (!fresh) {
+    const cached = getCached<SchwabData>(CACHE_KEY, CACHE_TTL_MS);
+    if (cached) return Response.json(cached);
   }
 
   try {
@@ -317,10 +329,12 @@ export async function GET() {
       .flatMap((r) => r.transactions)
       .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
 
-    return Response.json({
+    const data: SchwabData = {
       filledOrders, filledOptionOrders, expiredOptionOrders, workingOrders,
       tqqqShares, tqqqAvgPrice, optionPositions, balances, transactions,
-    } satisfies SchwabData);
+    };
+    setCached(CACHE_KEY, data);
+    return Response.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
     return Response.json({ error: message }, { status: 500 });

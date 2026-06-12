@@ -340,6 +340,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [quote, setQuote] = useState<Quote>({ price: 0, changePercent: 0, trend: 0, closes30: [], dates30: [], daysOfWeek30: [], loading: true });
   const [refreshTick, setRefreshTick] = useState(0);
   const [quoteTick, setQuoteTick] = useState(0);
+  // Set by a user-initiated refresh so the next snapshot fetch bypasses the server-side TTL cache.
+  // Consumed (and reset) by the snapshot effect; mount/focus refreshes leave it false to use cache.
+  const forceFreshRef = useRef(false);
   const [allFilledOrders, setAllFilledOrders] = useState<FilledOrder[]>([]);
   const [allFilledOptionOrders, setAllFilledOptionOrders] = useState<FilledOptionOrder[]>([]);
   const [allExpiredOptionOrders, setAllExpiredOptionOrders] = useState<ExpiredOptionOrder[]>([]);
@@ -375,101 +378,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
       );
     }
 
-    // Process Schwab data as soon as it arrives
-    fetch("/api/schwab/data")
-      .then((r) => r.json())
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .then((s: any) => {
-        if (cancelled) return;
+    // Each broker owns the accounts it returns. When one broker's payload arrives we replace its
+    // own accounts' slices and retain the other broker's data from the previous state. Both fetches
+    // run through this one helper so the merge rules can't drift apart between them.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const applyData = (data: any, incomingIsTasty: boolean) => {
+      if (cancelled || !Array.isArray(data?.filledOrders)) return;
+      const owns = (acct: string) => (incomingIsTasty ? tastyNums.has(acct) : !tastyNums.has(acct));
+      const keepOther = <T extends { accountNumber: string }>(arr: T[]) =>
+        arr.filter((o) => !owns(o.accountNumber));
+      // For unsorted slices, keep the Schwab partition first to preserve prior ordering.
+      const concat = <T extends { accountNumber: string }>(prev: T[], incoming: T[]) =>
+        incomingIsTasty ? [...keepOther(prev), ...incoming] : [...incoming, ...keepOther(prev)];
 
-        const sOk = Array.isArray(s?.filledOrders);
-        if (sOk) {
-          setAllFilledOrders(prev => {
-            const prevTasty = prev.filter(o => tastyNums.has(o.accountNumber));
-            return mergeByTime(s?.filledOrders ?? [], prevTasty, "time" as never);
-          });
-          setAllFilledOptionOrders(prev => {
-            const prevTasty = prev.filter(o => tastyNums.has(o.accountNumber));
-            return mergeByTime(s?.filledOptionOrders ?? [], prevTasty, "time" as never);
-          });
-          setAllExpiredOptionOrders(prev => {
-            const prevTasty = prev.filter(o => tastyNums.has(o.accountNumber));
-            return mergeByTime(s?.expiredOptionOrders ?? [], prevTasty, "time" as never);
-          });
-          setAllWorkingOrders(prev => {
-            const prevTasty = prev.filter(o => tastyNums.has(o.accountNumber));
-            return mergeByTime(s?.workingOrders ?? [], prevTasty, "enteredTime" as never);
-          });
-          setAllOptionPositions(prev => [
-            ...(s?.optionPositions ?? []),
-            ...prev.filter(p => tastyNums.has(p.accountNumber)),
-          ]);
-          setAllTqqqShares(prev => ({ ...prev, ...(s?.tqqqShares ?? {}) }));
-          setAllTqqqAvgPrice(prev => ({ ...prev, ...(s?.tqqqAvgPrice ?? {}) }));
-          setAllBalances(prev => [
-            ...(s?.balances ?? []),
-            ...prev.filter(b => tastyNums.has(b.accountNumber)),
-          ]);
-          setAllTransactions(prev => {
-            const prevTasty = prev.filter(t => tastyNums.has(t.accountNumber));
-            return mergeByTime(s?.transactions ?? [], prevTasty, "time" as never);
-          });
-        }
-      })
-      .catch(() => {
-        // ignore
-      })
+      setAllFilledOrders(prev => mergeByTime(keepOther(prev), data.filledOrders ?? [], "time" as never));
+      setAllFilledOptionOrders(prev => mergeByTime(keepOther(prev), data.filledOptionOrders ?? [], "time" as never));
+      setAllExpiredOptionOrders(prev => mergeByTime(keepOther(prev), data.expiredOptionOrders ?? [], "time" as never));
+      setAllWorkingOrders(prev => mergeByTime(keepOther(prev), data.workingOrders ?? [], "enteredTime" as never));
+      setAllOptionPositions(prev => concat(prev, data.optionPositions ?? []));
+      setAllBalances(prev => concat(prev, data.balances ?? []));
+      setAllTransactions(prev => mergeByTime(keepOther(prev), data.transactions ?? [], "time" as never));
+      setAllTqqqShares(prev => ({ ...prev, ...(data.tqqqShares ?? {}) }));
+      setAllTqqqAvgPrice(prev => ({ ...prev, ...(data.tqqqAvgPrice ?? {}) }));
+    };
+
+    // A user-initiated refresh bypasses the server cache; mount/focus reuse it. Read + reset here so
+    // the flag applies to exactly this fetch cycle.
+    const freshParam = forceFreshRef.current ? "?fresh=1" : "";
+    forceFreshRef.current = false;
+
+    // Process each broker's data as soon as it arrives — neither blocks the other.
+    fetch(`/api/schwab/data${freshParam}`)
+      .then((r) => r.json())
+      .then((s) => applyData(s, false))
+      .catch(() => { /* ignore */ })
       .finally(() => markComplete());
 
-    // Process Tastytrade data as soon as it arrives
-    fetch("/api/tastytrade/data")
+    fetch(`/api/tastytrade/data${freshParam}`)
       .then((r) => (r.ok ? r.json() : null))
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .then((t: any) => {
+      .then((t) => {
         if (cancelled) return;
-
-        if (t === null) {
-          checkTastytradeAuth();
-          return;
-        }
-
-        const tOk = Array.isArray(t?.filledOrders);
-        if (tOk) {
-          setAllFilledOrders(prev => {
-            const prevSchwab = prev.filter(o => !tastyNums.has(o.accountNumber));
-            return mergeByTime(prevSchwab, t?.filledOrders ?? [], "time" as never);
-          });
-          setAllFilledOptionOrders(prev => {
-            const prevSchwab = prev.filter(o => !tastyNums.has(o.accountNumber));
-            return mergeByTime(prevSchwab, t?.filledOptionOrders ?? [], "time" as never);
-          });
-          setAllExpiredOptionOrders(prev => {
-            const prevSchwab = prev.filter(o => !tastyNums.has(o.accountNumber));
-            return mergeByTime(prevSchwab, t?.expiredOptionOrders ?? [], "time" as never);
-          });
-          setAllWorkingOrders(prev => {
-            const prevSchwab = prev.filter(o => !tastyNums.has(o.accountNumber));
-            return mergeByTime(prevSchwab, t?.workingOrders ?? [], "enteredTime" as never);
-          });
-          setAllOptionPositions(prev => [
-            ...prev.filter(p => !tastyNums.has(p.accountNumber)),
-            ...(t?.optionPositions ?? []),
-          ]);
-          setAllTqqqShares(prev => ({ ...prev, ...(t?.tqqqShares ?? {}) }));
-          setAllTqqqAvgPrice(prev => ({ ...prev, ...(t?.tqqqAvgPrice ?? {}) }));
-          setAllBalances(prev => [
-            ...prev.filter(b => !tastyNums.has(b.accountNumber)),
-            ...(t?.balances ?? []),
-          ]);
-          setAllTransactions(prev => {
-            const prevSchwab = prev.filter(tx => !tastyNums.has(tx.accountNumber));
-            return mergeByTime(prevSchwab, t?.transactions ?? [], "time" as never);
-          });
-        }
+        if (t === null) { checkTastytradeAuth(); return; }
+        applyData(t, true);
       })
-      .catch(() => {
-        // ignore
-      })
+      .catch(() => { /* ignore */ })
       .finally(() => markComplete());
 
     return () => { cancelled = true; };
@@ -546,7 +498,10 @@ const togglePrivacy = () => setPrivacyMode((p) => !p);
   // header price and chart update in place without flickering skeletons. Memoized for stable
   // identity so the market-hours polling effect doesn't reset its interval on every render.
   const tickRefresh = useCallback((opts?: { silent?: boolean }) => {
-    if (!opts?.silent) setQuote((q) => ({ ...q, loading: true }));
+    if (!opts?.silent) {
+      setQuote((q) => ({ ...q, loading: true }));
+      forceFreshRef.current = true; // user asked for it explicitly → bypass the cache
+    }
     setRefreshTick((t) => t + 1);
   }, []);
   const tickQuoteRefresh = useCallback((opts?: { silent?: boolean }) => {

@@ -13,7 +13,11 @@ import {
   OptionPosition,
   ExpiredOptionOrder,
 } from "@/lib/tastytrade/parse";
-import type { AccountBalance, Transaction } from "@/app/api/schwab/data/route";
+import type { AccountBalance, Transaction, SchwabData } from "@/app/api/schwab/data/route";
+import { getCached, setCached } from "@/lib/ttlCache";
+
+const CACHE_KEY = "tastytrade-data";
+const CACHE_TTL_MS = 30_000;
 
 const MONEY_MARKET_SYMBOLS = ["SGOV", "BIL", "SHV"];
 
@@ -241,9 +245,16 @@ async function fetchAccountData(accountNumber: string, from365: string, to: stri
   return { filled, filledOptions, expiredOptions, working, tqqqShares, tqqqAvgPrice, options, balance, transactions };
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   if (!process.env.TASTYTRADE_USERNAME) {
     return Response.json({ error: "not_configured" }, { status: 503 });
+  }
+
+  // ?fresh=1 (manual refresh) forces a live pull; otherwise reuse the cached payload within the TTL.
+  const fresh = new URL(req.url).searchParams.get("fresh") === "1";
+  if (!fresh) {
+    const cached = getCached<SchwabData>(CACHE_KEY, CACHE_TTL_MS);
+    if (cached) return Response.json(cached);
   }
 
   try {
@@ -294,7 +305,7 @@ export async function GET() {
       .flatMap((r) => r.transactions)
       .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
 
-    return Response.json({
+    const data: SchwabData = {
       filledOrders,
       filledOptionOrders,
       expiredOptionOrders,
@@ -304,7 +315,9 @@ export async function GET() {
       optionPositions,
       balances,
       transactions,
-    });
+    };
+    setCached(CACHE_KEY, data);
+    return Response.json(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
     return Response.json({ error: message }, { status: 500 });
