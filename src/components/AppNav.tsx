@@ -117,6 +117,7 @@ export function BottomNav() {
   return (
     <>
       <Box
+        className="app-bottom-nav"
         style={{
           position: "fixed",
           bottom: 0,
@@ -126,6 +127,11 @@ export function BottomNav() {
           borderTop: "1px solid var(--mantine-color-dark-4)",
           background: "var(--mantine-color-dark-7)",
           display: "flex",
+          // Inset from the rounded screen corners and home-indicator area so the
+          // first/last tabs and bottom padding stay within the tappable region.
+          paddingLeft: "max(8px, env(safe-area-inset-left))",
+          paddingRight: "max(8px, env(safe-area-inset-right))",
+          paddingBottom: "env(safe-area-inset-bottom)",
         }}
       >
         {TAB_PAGES.map(({ href, label, icon: Icon }) => {

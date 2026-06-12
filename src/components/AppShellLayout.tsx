@@ -156,7 +156,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
         <SideNav />
       </AppShell.Navbar>
 
-      <AppShell.Main style={{ background: mainBg, minHeight: "100vh", paddingBottom: isMobile ? 70 : undefined }}>
+      <AppShell.Main className="app-main" style={{ background: mainBg, paddingBottom: isMobile ? "calc(70px + env(safe-area-inset-bottom))" : undefined }}>
         <Box maw={isAccountsPage ? "90%" : 1024} w="100%" mx="auto">
           <PageAlertBanner />
           {children}

@@ -265,6 +265,9 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
             size="xs"
             radius="sm"
             comboboxProps={{ radius: "sm" }}
+            autoComplete="off"
+            data-1p-ignore
+            data-lpignore="true"
             value={isAllAccounts ? "all" : (activeAccount?.accountNumber ?? null)}
             onChange={(val) => {
               if (val === "all") { router.push("/accounts"); return; }
