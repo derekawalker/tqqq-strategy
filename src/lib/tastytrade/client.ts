@@ -1,5 +1,6 @@
 import { readTokens, writeTokens, clearTokens, isExpired, TokenSet } from "./tokens";
 import { BASE_URL, SANDBOX, SANDBOX_URL } from "./config";
+import { singleFlight } from "@/lib/singleFlight";
 
 export { SANDBOX };
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -103,13 +104,17 @@ async function refreshSession(rememberMeToken: string): Promise<TokenSet> {
 let cachedSessionToken: string | null = null;
 let cachedSessionExpiry = 0;
 
+// Coalesce concurrent refreshes: the remember-me token rotates on use, so parallel
+// refreshes triggered by the fan-out of data fetches would race and invalidate each other.
+const refreshSessionOnce = singleFlight(refreshSession);
+
 export async function getSessionToken(): Promise<string> {
   const now = Date.now();
   if (cachedSessionToken && now < cachedSessionExpiry) return cachedSessionToken;
 
   let tokens = await readTokens();
   if (!tokens) tokens = await login();
-  else if (isExpired(tokens)) tokens = await refreshSession(tokens.rememberMeToken);
+  else if (isExpired(tokens)) tokens = await refreshSessionOnce(tokens.rememberMeToken);
 
   // Cache until 60s before the token expires
   cachedSessionToken = tokens.sessionToken;

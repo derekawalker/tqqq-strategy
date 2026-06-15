@@ -1,4 +1,5 @@
 import { readTokens, writeTokens, isExpired, TokenSet } from "./tokens";
+import { singleFlight } from "@/lib/singleFlight";
 
 const BASE_URL = "https://api.schwabapi.com";
 const TOKEN_URL = `${BASE_URL}/v1/oauth/token`;
@@ -67,13 +68,18 @@ export async function refreshAccessToken(refreshToken: string): Promise<TokenSet
   return tokens;
 }
 
+// Coalesce concurrent refreshes: the data route fans out many authenticated fetches
+// at once, and Schwab rotates the refresh token on use, so parallel refreshes would
+// race and invalidate each other.
+const refreshOnce = singleFlight(refreshAccessToken);
+
 /** Get a valid access token, refreshing if needed. Throws if not authenticated. */
 export async function getAccessToken(): Promise<string> {
   let tokens = await readTokens();
   if (!tokens) throw new Error("Not authenticated");
 
   if (isExpired(tokens)) {
-    tokens = await refreshAccessToken(tokens.refreshToken);
+    tokens = await refreshOnce(tokens.refreshToken);
   }
 
   return tokens.accessToken;
