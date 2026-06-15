@@ -46,6 +46,7 @@ function legFillTotals(leg: any): { totalValue: number; totalQty: number } {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function parseFilledOrder(order: any, accountNumber: string): FilledOrder | null {
   if (order.status !== "Filled") return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const legs: any[] = order.legs ?? [];
   const leg = legs.find((l) => l["instrument-type"] === "Equity" && l.symbol === "TQQQ");
   if (!leg) return null;
@@ -100,6 +101,7 @@ export function parseFilledOptionOrder(order: any, accountNumber: string): Fille
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function parseWorkingOrder(order: any, accountNumber: string): WorkingOrder | null {
   if (!["Live", "Pending", "Received", "Routed"].includes(order.status)) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const legs: any[] = order.legs ?? [];
   const leg = legs.find((l) => l["instrument-type"] === "Equity" && l.symbol === "TQQQ");
   if (!leg) return null;
@@ -115,8 +117,8 @@ export function parseWorkingOrder(order: any, accountNumber: string): WorkingOrd
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function parseOptionPosition(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   pos: any,
   accountNumber: string,
   openedAtMap: Map<string, string>,
@@ -155,6 +157,7 @@ export function parseOptionPosition(
 export function parseExpiredOptionOrder(tx: any, accountNumber: string): ExpiredOptionOrder | null {
   if (tx["transaction-type"] !== "Receive Deliver") return null;
   if (tx["transaction-sub-type"] !== "Expiration") return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const legs: any[] = tx.legs ?? [];
   const leg = legs.find((l) => {
     const sym: string = l.symbol ?? "";
@@ -179,7 +182,7 @@ export function parseTransaction(tx: any, accountNumber: string) {
   const effect: string = tx["net-value-effect"] ?? "Credit";
   const amount = effect === "Debit" ? -netValue : netValue;
   const category: "dividend" | "interest" = type === "Interest" ? "interest" : "dividend";
-  const legs: any[] = tx.legs ?? [];
+  const legs = tx.legs ?? [];
   const symbol: string | null = legs[0]?.symbol ?? null;
   return {
     activityId: tx.id,

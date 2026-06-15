@@ -148,7 +148,6 @@ async function fetchAccountData(
   // Fees are transferItems entries with a feeType field (COMMISSION, OPT_REG_FEE, SEC_FEE, TAF_FEE, etc.)
   // For equity orders: keyed by orderId alone (single instrument per order).
   // For option orders: keyed by "orderId_symbol" so each leg gets its own exact fees.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const feeByOrderId = new Map<number, number>();          // equity
   const feeByOrderIdSymbol = new Map<string, number>();    // options
   for (const tx of Array.isArray(tradeRaw) ? tradeRaw : []) {
@@ -161,6 +160,7 @@ async function fetchAccountData(
       }
     }
     if (txFees === 0) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const optionItem = tx.transferItems?.find((i: any) => i.instrument?.assetType === "OPTION");
     if (optionItem) {
       const symbol: string = (optionItem.instrument.symbol as string).trim();
@@ -192,6 +192,7 @@ async function fetchAccountData(
   // --- Expired options from RECEIVE_AND_DELIVER ---
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const expiredOptions: ExpiredOptionOrder[] = (Array.isArray(rxDeliverRaw) ? rxDeliverRaw as any[] : [])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .map((tx: any) => parseExpiredOptionOrder(tx, accountNumber))
     .filter((o): o is ExpiredOptionOrder => o !== null);
 
@@ -201,6 +202,7 @@ async function fetchAccountData(
   const positions: any[] = account?.positions ?? [];
 
   // Snapshot: TQQQ shares + option positions
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const tqqqPosition = positions.find((p: any) => p.instrument?.symbol === "TQQQ");
   const tqqqShares: number = tqqqPosition?.longQuantity ?? 0;
   const tqqqAvgPrice: number = tqqqPosition?.averagePrice ?? 0;
@@ -217,13 +219,14 @@ async function fetchAccountData(
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const options: OptionPosition[] = positions
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .filter((p: any) =>
       p.instrument?.assetType === "OPTION" &&
       p.instrument?.underlyingSymbol === "TQQQ" &&
       ((p.shortQuantity ?? 0) > 0 || (p.longQuantity ?? 0) > 0)
     )
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .map((p: any): OptionPosition | null => {
       const sym: string = p.instrument?.symbol ?? "";
       const occMatch = sym.match(/^.{6}(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/);
@@ -271,6 +274,7 @@ async function fetchAccountData(
 
   // Transactions: dividends + interest
   const transactions: Transaction[] = (Array.isArray(divIntRaw) ? divIntRaw : [])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .map((t: any) => parseTransaction(t, accountNumber))
     .filter((t): t is Transaction => t !== null);
 

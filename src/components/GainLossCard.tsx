@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { Paper, Text, Stack, Tooltip, Group, Skeleton } from "@mantine/core";
 import { IconInfoCircle } from "@tabler/icons-react";
 import { Outfit } from "next/font/google";
@@ -25,6 +25,7 @@ export function GainLossCard() {
   const accountColor = useAccountColor("dark");
   const { balance, loading: balanceLoading } = useBalances();
   const mask = createMask(privacyMode);
+  const [now] = useState(() => Date.now());
 
   const { totalGain, totalGainPct, annualROI } = useMemo(() => {
     const initialCash = activeAccount?.settings.initialCash ?? null;
@@ -40,12 +41,12 @@ export function GainLossCard() {
 
     let annualROI: number | null = null;
     if (totalGainPct != null && startingDate) {
-      const daysInStrategy = Math.max(1, (Date.now() - new Date(startingDate).getTime()) / 86400000);
+      const daysInStrategy = Math.max(1, (now - new Date(startingDate).getTime()) / 86400000);
       annualROI = (totalGainPct / daysInStrategy) * 365;
     }
 
     return { totalGain, totalGainPct, annualROI };
-  }, [balance, activeAccount]);
+  }, [balance, activeAccount, now]);
 
   const gainColor = (totalGain ?? 0) >= 0 ? "white" : "var(--mantine-color-red-6)";
   const bg = useCardBg(accountColor);

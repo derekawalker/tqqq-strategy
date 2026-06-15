@@ -119,7 +119,7 @@ async function dxlinkMarks(symbols: string[]): Promise<Map<string, number>> {
 
 // Module-level cache — avoids opening multiple WebSocket connections in rapid succession
 const CACHE_TTL_MS = 30_000;
-let marksCache: Map<string, number> = new Map();
+const marksCache: Map<string, number> = new Map();
 let marksCacheTime = 0;
 
 /**

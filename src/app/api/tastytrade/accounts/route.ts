@@ -13,9 +13,10 @@ export async function GET() {
     const allowList = process.env.TASTYTRADE_ACCOUNTS
       ? new Set(process.env.TASTYTRADE_ACCOUNTS.split(",").map((s) => s.trim()))
       : null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const accounts = (json.data?.items ?? [])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .filter((item: any) => !allowList || allowList.has(item.account["account-number"]))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .map((item: any) => ({
         accountNumber: item.account["account-number"],
         nickName: item.account.nickname || item.account["account-number"],

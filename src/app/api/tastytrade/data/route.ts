@@ -77,7 +77,6 @@ function mergePartialFills(orders: any[]): any[] {
       result.push(base);
     } else {
       // Merge all fills into a single synthetic order
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const combinedFills = group.flatMap((idx) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const leg = (equity[idx].legs ?? []).find((l: any) => l["instrument-type"] === "Equity" && l.symbol === "TQQQ");
@@ -264,9 +263,10 @@ export async function GET(req: Request) {
     const allowList = process.env.TASTYTRADE_ACCOUNTS
       ? new Set(process.env.TASTYTRADE_ACCOUNTS.split(",").map((s) => s.trim()))
       : null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const accounts: string[] = (json.data?.items ?? [])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .filter((item: any) => !allowList || allowList.has(item.account["account-number"]))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .map((item: any) => item.account["account-number"] as string);
 
     const now = new Date();

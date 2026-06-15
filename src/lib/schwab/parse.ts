@@ -72,6 +72,7 @@ export function parseExpiredOptionOrder(tx: any, accountNumber: string): Expired
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function flattenOrders(orders: any[]): any[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result: any[] = [];
   for (const order of orders) {
     result.push(order);
@@ -108,6 +109,7 @@ export function parseFilledOrder(order: any, accountNumber: string): FilledOrder
 export function parseFilledOptionOrder(order: any, accountNumber: string): FilledOptionOrder[] {
   if (order.status !== "FILLED") return [];
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const legs: any[] = order.orderLegCollection ?? [];
   const optionLegs = legs.filter((leg) =>
     leg.orderLegType === "OPTION" &&

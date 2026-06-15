@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   Modal,
   Stack,
@@ -56,11 +56,17 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [draft, setDraft] = useState<AccountSettings>(EMPTY_SETTINGS);
 
-  useEffect(() => {
-    if (opened && activeAccount) {
+  // Re-sync the draft from the active account whenever the modal opens (or the
+  // active account changes while open) — adjusted during render, per React docs,
+  // rather than in an effect.
+  const syncKey = opened ? activeAccount?.accountNumber ?? null : null;
+  const [lastSyncKey, setLastSyncKey] = useState<string | null>(null);
+  if (syncKey !== lastSyncKey) {
+    setLastSyncKey(syncKey);
+    if (syncKey && activeAccount) {
       setDraft({ ...EMPTY_SETTINGS, ...activeAccount.settings });
     }
-  }, [opened, activeAccount?.accountNumber]);
+  }
 
   const handleSave = () => {
     if (!activeAccount) return;

@@ -1,20 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 // Renders a vertical strip of 0-9 and slides to the target digit
 function DigitReel({ digit }: { digit: string }) {
   const target = parseInt(digit, 10);
+  const [prevDigit, setPrevDigit] = useState(digit);
   const [pos, setPos] = useState(target);
-  const isFirst = useRef(true);
 
-  useEffect(() => {
-    if (isFirst.current) {
-      isFirst.current = false;
-      return;
-    }
+  if (digit !== prevDigit) {
+    setPrevDigit(digit);
     setPos(target);
-  }, [target]);
+  }
 
   return (
     <span style={{

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState } from "react";
 import { Outfit } from "next/font/google";
 
 const outfit = Outfit({ subsets: ["latin"] });
@@ -256,6 +256,7 @@ export default function ProfitPage() {
   const { filledOrders, filledOptionOrders, expiredOptionOrders, transactions, snapshotLoading, privacyMode, activeAccount, tqqqShares, tqqqAvgPrice, quote } = useApp();
   const accountColor = useAccountColor();
   const summaryBg = useCardBg(accountColor);
+  const [now] = useState(() => Date.now());
 
   // Pair each STO with its BTC(s)/expirations FIFO, and each BTO with its STC(s) FIFO.
   const realizedOptionTrades = useMemo((): RealizedOptionTrade[] => {
@@ -368,11 +369,10 @@ export default function ProfitPage() {
     }
     return trades;
   }, [filledOptionOrders, expiredOptionOrders]);
-  const [period, setPeriod] = useState<string>("month");
-  useEffect(() => {
-    const saved = localStorage.getItem("tqqq-profit-period");
-    if (saved) setPeriod(saved);
-  }, []);
+  const [period, setPeriod] = useState<string>(() => {
+    if (typeof window === "undefined") return "month";
+    return localStorage.getItem("tqqq-profit-period") ?? "month";
+  });
 
   const handlePeriodChange = (v: string | null) => {
     const next = v ?? "month";
@@ -412,9 +412,9 @@ export default function ProfitPage() {
   const filteredRows = useMemo(() => {
     const p = PERIODS.find((p) => p.value === period);
     if (!p?.days) return rows;
-    const cutoff = Date.now() - p.days * 24 * 60 * 60 * 1000;
+    const cutoff = now - p.days * 24 * 60 * 60 * 1000;
     return rows.filter((r) => new Date(r.date).getTime() >= cutoff);
-  }, [rows, period]);
+  }, [rows, period, now]);
 
   const last7Days = useMemo<DaySummary[]>(() => {
     const days: DaySummary[] = [];

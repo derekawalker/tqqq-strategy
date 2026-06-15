@@ -46,5 +46,5 @@ export function useLevels(): LevelsSummary | null {
     const ownedLevels = levels.filter((_, i) => ownedIndices.has(i) && i <= currentLevel);
 
     return { levels, currentLevel, ownedLevels };
-  }, [levels, filledOrders]);
+  }, [levels, filledOrders, s?.levelResetDate]);
 }

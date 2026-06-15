@@ -14,7 +14,7 @@ export interface FilledOrder {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function flattenOrders(orders: any[]): any[] {
-  const result: any[] = [];
+  const result = [];
   for (const order of orders) {
     result.push(order);
     if (order.childOrderStrategies?.length) {
