@@ -80,6 +80,11 @@ create table settings (
   key text primary key,
   value jsonb not null
 );
+
+create table settings_backups (
+  date text primary key,
+  value jsonb not null
+);
 ```
 
 3. Go to **Project Settings → API** and copy two values:
@@ -189,3 +194,4 @@ Open [https://localhost:3000](https://localhost:3000). On first run, click **Con
 - **Schwab tokens**: OAuth tokens are stored in Supabase server-side and automatically refreshed on expiry. Never sent to the browser.
 - **No public API**: All `/api/*` routes require the session cookie.
 - **Demo mode**: Set `DEMO_MODE=true` to bypass all authentication and serve static fake data. Safe to deploy publicly — no real credentials are used.
+- **Settings backups**: Once per day, your account configuration is snapshotted into `settings_backups` (last 30 days kept). If `settings` is ever wiped or corrupted, find a recent good date in `settings_backups` in the Supabase table editor, then copy its `value.accounts` / `value.activeAccountNumber` / `value.balanceHistory` back into the corresponding rows of `settings`.

@@ -340,6 +340,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
         persistReadyRef.current = true;
         setInitialized(true);
       }
+
+      // 4. Once per day, snapshot settings to settings_backups for recovery from accidental overwrites
+      const today = toDateKey(new Date());
+      if (!cancelled && localStorage.getItem("settingsBackupDate") !== today) {
+        fetch("/api/settings/backup", { method: "POST" })
+          .then(() => localStorage.setItem("settingsBackupDate", today))
+          .catch(() => {});
+      }
     }
     init();
     return () => { cancelled = true; };

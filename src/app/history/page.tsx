@@ -52,7 +52,7 @@ export default function HistoryPage() {
     };
   }, [series]);
 
-  const pad = (max - min) * 0.08;
+  const pad = (max - min) * 0.08 || max * 0.05 || 10;
   const changeColor = change >= 0 ? "teal" : "red";
   const changeSign = change >= 0 ? "+" : "";
 
@@ -64,7 +64,7 @@ export default function HistoryPage() {
       </Group>
 
       <Paper p={isMobile ? "xs" : "md"}>
-        {series.length < 2 ? (
+        {series.length === 0 ? (
           <Center h={isMobile ? 280 : 360}>
             <Text size="sm" c="dimmed" ta="center">
               Not enough history yet — account value is recorded once per day,
@@ -75,11 +75,17 @@ export default function HistoryPage() {
           <Stack gap="md">
             <Group justify="space-between" align="flex-end">
               <Text size="xs" c="dimmed">
-                {fmtDateKey(series[0].date)} – {fmtDateKey(series[series.length - 1].date)}
+                {series.length === 1
+                  ? `${fmtDateKey(series[0].date)} — tracking started`
+                  : `${fmtDateKey(series[0].date)} – ${fmtDateKey(series[series.length - 1].date)}`}
               </Text>
-              <Text size="sm" fw={700} c={changeColor}>
-                {mask(`${changeSign}$${fmt(change, 0)} (${changeSign}${fmt(changePercent, 1)}%)`)}
-              </Text>
+              {series.length === 1 ? (
+                <Text size="sm" fw={700}>{mask(`$${fmt(series[0].value, 0)}`)}</Text>
+              ) : (
+                <Text size="sm" fw={700} c={changeColor}>
+                  {mask(`${changeSign}$${fmt(change, 0)} (${changeSign}${fmt(changePercent, 1)}%)`)}
+                </Text>
+              )}
             </Group>
 
             <ResponsiveContainer width="100%" height={isMobile ? 280 : 360}>
@@ -126,7 +132,7 @@ export default function HistoryPage() {
                   stroke={`var(--mantine-color-${color}-5)`}
                   strokeWidth={1.5}
                   fill="url(#historyAreaGrad)"
-                  dot={false}
+                  dot={series.length === 1 ? { r: 4, fill: `var(--mantine-color-${color}-5)`, strokeWidth: 0 } : false}
                   isAnimationActive={false}
                 />
               </AreaChart>
