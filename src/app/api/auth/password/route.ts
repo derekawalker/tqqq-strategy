@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createSessionToken } from "@/lib/session";
 
 const COOKIE_NAME = "tqqq-auth";
 const ONE_WEEK = 60 * 60 * 24 * 7;
@@ -55,8 +56,9 @@ export async function POST(request: NextRequest) {
   // Success — clear any recorded attempts for this IP
   attempts.delete(ip);
 
+  const token = await createSessionToken(process.env.APP_SESSION_SECRET, ONE_WEEK);
   const response = NextResponse.json({ ok: true });
-  response.cookies.set(COOKIE_NAME, process.env.APP_SESSION_SECRET, {
+  response.cookies.set(COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",

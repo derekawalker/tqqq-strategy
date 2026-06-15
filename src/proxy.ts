@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifySessionToken } from "@/lib/session";
 
 const COOKIE_NAME = "tqqq-auth";
 const PUBLIC_PATHS = ["/login", "/api/auth/password"];
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   if (process.env.DEMO_MODE === "true") return NextResponse.next();
 
   const { pathname } = request.nextUrl;
@@ -15,7 +16,7 @@ export function proxy(request: NextRequest) {
   const secret = process.env.APP_SESSION_SECRET;
   const cookie = request.cookies.get(COOKIE_NAME);
 
-  if (!secret || cookie?.value !== secret) {
+  if (!secret || !(await verifySessionToken(cookie?.value, secret))) {
     const loginUrl = new URL("/login", request.url);
     return NextResponse.redirect(loginUrl);
   }
