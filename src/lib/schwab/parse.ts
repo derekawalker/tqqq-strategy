@@ -52,8 +52,65 @@ export interface ExpiredOptionOrder {
   time: string;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function parseExpiredOptionOrder(tx: any, accountNumber: string): ExpiredOptionOrder | null {
+// ── Raw Schwab API shapes ────────────────────────────────────────────────────
+// Minimal structural types for the slices of the Schwab payloads we read. Only the
+// fields we touch are declared; everything is optional because the API omits fields
+// depending on order/asset type.
+
+interface RawInstrument {
+  symbol?: string;
+  underlyingSymbol?: string;
+  assetType?: string;
+  putCall?: string;
+  strikePrice?: number;
+  expirationDate?: string;
+}
+
+interface RawOrderLeg {
+  orderLegType?: string;
+  instruction?: string;
+  legId?: number;
+  instrument?: RawInstrument;
+}
+
+interface RawExecutionLeg {
+  legId: number;
+  price: number;
+  quantity: number;
+}
+
+interface RawOrderActivity {
+  executionType?: string;
+  executionLegs?: RawExecutionLeg[];
+}
+
+export interface RawSchwabOrder {
+  orderId: number;
+  status?: string;
+  closeTime: string;
+  enteredTime: string;
+  quantity?: number;
+  price?: number;
+  orderLegCollection?: RawOrderLeg[];
+  orderActivityCollection?: RawOrderActivity[];
+  childOrderStrategies?: RawSchwabOrder[];
+}
+
+interface RawTransferItem {
+  instrument?: RawInstrument;
+  amount?: number;
+  feeType?: string;
+}
+
+export interface RawSchwabTransaction {
+  type?: string;
+  description?: string;
+  activityId: number;
+  time: string;
+  transferItems?: RawTransferItem[];
+}
+
+export function parseExpiredOptionOrder(tx: RawSchwabTransaction, accountNumber: string): ExpiredOptionOrder | null {
   if (tx.type !== "RECEIVE_AND_DELIVER") return null;
   const desc: string = tx.description ?? "";
   if (!desc.toLowerCase().includes("removed due to expiration")) return null;
@@ -64,16 +121,14 @@ export function parseExpiredOptionOrder(tx: any, accountNumber: string): Expired
   return {
     activityId: tx.activityId,
     accountNumber,
-    symbol: instr.symbol,
+    symbol: instr.symbol ?? "",
     contracts: item.amount ?? 1,
     time: tx.time,
   };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function flattenOrders(orders: any[]): any[] {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result: any[] = [];
+export function flattenOrders(orders: RawSchwabOrder[]): RawSchwabOrder[] {
+  const result: RawSchwabOrder[] = [];
   for (const order of orders) {
     result.push(order);
     if (order.childOrderStrategies?.length) {
@@ -83,8 +138,7 @@ export function flattenOrders(orders: any[]): any[] {
   return result;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function parseFilledOrder(order: any, accountNumber: string): FilledOrder | null {
+export function parseFilledOrder(order: RawSchwabOrder, accountNumber: string): FilledOrder | null {
   if (order.status !== "FILLED") return null;
   const leg = order.orderLegCollection?.[0];
   if (!leg || leg.instrument?.symbol !== "TQQQ" || leg.orderLegType !== "EQUITY") return null;
@@ -105,12 +159,10 @@ export function parseFilledOrder(order: any, accountNumber: string): FilledOrder
   return { orderId: order.orderId, accountNumber, side, shares: totalShares, fillPrice, total: fillPrice * totalShares, fees: 0, time: order.closeTime };
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function parseFilledOptionOrder(order: any, accountNumber: string): FilledOptionOrder[] {
+export function parseFilledOptionOrder(order: RawSchwabOrder, accountNumber: string): FilledOptionOrder[] {
   if (order.status !== "FILLED") return [];
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const legs: any[] = order.orderLegCollection ?? [];
+  const legs: RawOrderLeg[] = order.orderLegCollection ?? [];
   const optionLegs = legs.filter((leg) =>
     leg.orderLegType === "OPTION" &&
     leg.instrument?.underlyingSymbol === "TQQQ" &&
@@ -135,7 +187,7 @@ export function parseFilledOptionOrder(order: any, accountNumber: string): Fille
   for (const leg of optionLegs) {
     const instruction = leg.instruction as FilledOptionOrder["instruction"];
     const symbol: string = leg.instrument?.symbol ?? "";
-    const fill = legFills.get(leg.legId);
+    const fill = leg.legId != null ? legFills.get(leg.legId) : undefined;
 
     let totalValue = 0;
     let totalContracts = 0;
@@ -165,9 +217,8 @@ export function parseFilledOptionOrder(order: any, accountNumber: string): Fille
   return result;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function parseWorkingOrder(order: any, accountNumber: string): WorkingOrder | null {
-  if (!["WORKING", "QUEUED", "ACCEPTED", "PENDING_ACTIVATION", "AWAITING_PARENT_ORDER"].includes(order.status)) return null;
+export function parseWorkingOrder(order: RawSchwabOrder, accountNumber: string): WorkingOrder | null {
+  if (!["WORKING", "QUEUED", "ACCEPTED", "PENDING_ACTIVATION", "AWAITING_PARENT_ORDER"].includes(order.status ?? "")) return null;
   const leg = order.orderLegCollection?.[0];
   if (!leg || leg.instrument?.symbol !== "TQQQ" || leg.orderLegType !== "EQUITY") return null;
 
@@ -176,9 +227,9 @@ export function parseWorkingOrder(order: any, accountNumber: string): WorkingOrd
     orderId: order.orderId,
     accountNumber,
     side,
-    shares: order.quantity,
+    shares: order.quantity ?? 0,
     limitPrice: order.price ?? 0,
     enteredTime: order.enteredTime,
-    status: order.status,
+    status: order.status ?? "",
   };
 }

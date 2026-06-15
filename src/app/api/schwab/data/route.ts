@@ -212,7 +212,7 @@ async function fetchAccountData(
     if (order.status !== "FILLED") continue;
     const leg = order.orderLegCollection?.[0];
     if (!leg || leg.orderLegType !== "OPTION" || leg.instruction !== "SELL_TO_OPEN") continue;
-    const sym: string = leg.instrument?.symbol;
+    const sym = leg.instrument?.symbol;
     if (!sym) continue;
     if (!optionOpenDates.has(sym) || order.closeTime < optionOpenDates.get(sym)!) {
       optionOpenDates.set(sym, order.closeTime);
