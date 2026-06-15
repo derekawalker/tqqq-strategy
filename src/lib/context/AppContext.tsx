@@ -46,7 +46,7 @@ const DEFAULT_SETTINGS: AccountSettings = {
 export interface Quote {
   price: number;
   changePercent: number;
-  /** 1 = 3 consecutive up days, -1 = 3 consecutive down days, 0 = mixed/unknown */
+  /** 1 = last 6 daily closes strictly rising, -1 = strictly falling, 0 = mixed/unknown */
   trend: number;
   /** Last ~30 trading day closing prices */
   closes30: number[];
@@ -176,7 +176,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [schwabConnected, setSchwabConnected] = useState<boolean | null>(null);
   const [tastytradeConnected, setTastytradeConnected] = useState<boolean | null>(null);
 
-  const syncAccountsFromSchwab = async (preferredAccountNumber?: string | null) => {
+  const syncAccountsFromSchwab = useCallback(async (preferredAccountNumber?: string | null) => {
     try {
       const res = await fetch("/api/schwab/accounts");
       const schwabAccounts = await res.json();
@@ -207,9 +207,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch {
       // silently ignore — accounts remain as-is
     }
-  };
+  }, []);
 
-  const syncAccountsFromTastytrade = async (): Promise<string | null> => {
+  const syncAccountsFromTastytrade = useCallback(async (): Promise<string | null> => {
     try {
       const res = await fetch("/api/tastytrade/accounts");
       if (!res.ok) {
@@ -241,9 +241,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       return e instanceof Error ? e.message : "unknown error";
     }
-  };
+  }, []);
 
-  const checkTastytradeAuth = async (): Promise<string | null> => {
+  const checkTastytradeAuth = useCallback(async (): Promise<string | null> => {
     try {
       const res = await fetch("/api/tastytrade/auth");
       const data = await res.json();
@@ -255,9 +255,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setTastytradeConnected(false);
       return null;
     }
-  };
+  }, [syncAccountsFromTastytrade]);
 
-  const checkSchwabAuth = async () => {
+  const checkSchwabAuth = useCallback(async () => {
     try {
       const res = await fetch("/api/auth/status");
       const data = await res.json();
@@ -268,7 +268,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch {
       setSchwabConnected(false);
     }
-  };
+  }, [checkTastytradeAuth, syncAccountsFromSchwab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -503,16 +503,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     idleCash: null,
   });
 
-  const updateAccountColor = (accountNumber: string, color: string) => {
+  const updateAccountColor = useCallback((accountNumber: string, color: string) => {
     setAccounts((prev) =>
       prev.map((a) => (a.accountNumber === accountNumber ? { ...a, color } : a))
     );
     setActiveAccount((prev) =>
       prev?.accountNumber === accountNumber ? { ...prev, color } : prev
     );
-  };
+  }, []);
 
-  const updateAccountSettings = (accountNumber: string, settings: Partial<AccountSettings>) => {
+  const updateAccountSettings = useCallback((accountNumber: string, settings: Partial<AccountSettings>) => {
     setAccounts((prev) =>
       prev.map((a) =>
         a.accountNumber === accountNumber
@@ -525,9 +525,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ? { ...prev, settings: { ...prev.settings, ...settings } }
         : prev
     );
-  };
+  }, []);
 
-const togglePrivacy = () => setPrivacyMode((p) => !p);
+  const togglePrivacy = useCallback(() => setPrivacyMode((p) => !p), []);
   // opts.silent skips the loading flash — used by background polling / focus refresh so the
   // header price and chart update in place without flickering skeletons. Memoized for stable
   // identity so the market-hours polling effect doesn't reset its interval on every render.
@@ -543,53 +543,89 @@ const togglePrivacy = () => setPrivacyMode((p) => !p);
     setQuoteTick((t) => t + 1);
   }, []);
 
-  return (
-    <AppContext.Provider
-      value={{
-        accounts,
-        setAccounts,
-        activeAccount,
-        setActiveAccount,
-        updateAccountColor,
-        updateAccountSettings,
-        privacyMode,
-        togglePrivacy,
-        lastRefreshed,
-        setLastRefreshed,
-        quote,
-        setQuote,
-        refreshTick,
-        tickRefresh,
-        quoteTick,
-        tickQuoteRefresh,
-        alerts,
-        setAlerts,
-        schwabConnected,
-        checkSchwabAuth,
-        tastytradeConnected,
-        checkTastytradeAuth,
-        filledOrders,
-        filledOptionOrders,
-        expiredOptionOrders,
-        workingOrders,
-        optionPositions,
-        transactions,
-        tqqqShares,
-        tqqqAvgPrice,
-        allTqqqShares,
-        allTqqqAvgPrice,
-        allFilledOrders,
-        allWorkingOrders,
-        allOptionPositions,
-        snapshotLoading,
-        balances: allBalances,
-        balancesLoading: snapshotLoading,
-        balanceHistory,
-      }}
-    >
-      {children}
-    </AppContext.Provider>
+  // Memoize the context value so a quote tick or poll doesn't hand every useApp()
+  // consumer a fresh object and force the whole subtree (heavy order tables included)
+  // to re-render. Identity only changes when one of the referenced values changes.
+  const value = useMemo<AppContextValue>(
+    () => ({
+      accounts,
+      setAccounts,
+      activeAccount,
+      setActiveAccount,
+      updateAccountColor,
+      updateAccountSettings,
+      privacyMode,
+      togglePrivacy,
+      lastRefreshed,
+      setLastRefreshed,
+      quote,
+      setQuote,
+      refreshTick,
+      tickRefresh,
+      quoteTick,
+      tickQuoteRefresh,
+      alerts,
+      setAlerts,
+      schwabConnected,
+      checkSchwabAuth,
+      tastytradeConnected,
+      checkTastytradeAuth,
+      filledOrders,
+      filledOptionOrders,
+      expiredOptionOrders,
+      workingOrders,
+      optionPositions,
+      transactions,
+      tqqqShares,
+      tqqqAvgPrice,
+      allTqqqShares,
+      allTqqqAvgPrice,
+      allFilledOrders,
+      allWorkingOrders,
+      allOptionPositions,
+      snapshotLoading,
+      balances: allBalances,
+      balancesLoading: snapshotLoading,
+      balanceHistory,
+    }),
+    [
+      accounts,
+      activeAccount,
+      updateAccountColor,
+      updateAccountSettings,
+      privacyMode,
+      togglePrivacy,
+      lastRefreshed,
+      quote,
+      refreshTick,
+      tickRefresh,
+      quoteTick,
+      tickQuoteRefresh,
+      alerts,
+      schwabConnected,
+      checkSchwabAuth,
+      tastytradeConnected,
+      checkTastytradeAuth,
+      filledOrders,
+      filledOptionOrders,
+      expiredOptionOrders,
+      workingOrders,
+      optionPositions,
+      transactions,
+      tqqqShares,
+      tqqqAvgPrice,
+      allTqqqShares,
+      allTqqqAvgPrice,
+      allFilledOrders,
+      allWorkingOrders,
+      allOptionPositions,
+      snapshotLoading,
+      allBalances,
+      balanceHistory,
+    ],
   );
+
+  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 
 export function useApp() {
