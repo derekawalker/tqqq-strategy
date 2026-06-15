@@ -13,18 +13,36 @@ export function needsSnapshot(history: BalanceSnapshot[], dateKey: string): bool
 }
 
 /**
- * Append today's balances as a new snapshot, replacing any existing same-day entry (so a later,
- * more-complete refresh on the same day corrects an earlier partial one). Keeps history sorted by
- * date and capped to the most recent MAX_SNAPSHOTS days.
+ * True if today's snapshot is absent, or present but missing a value for any of `accountNumbers`.
+ * Lets a later refresh fill in accounts (e.g. a second broker) that weren't loaded when the day's
+ * first snapshot was taken, instead of the day being considered "done" after a partial record.
+ */
+export function needsSnapshotUpdate(
+  history: BalanceSnapshot[],
+  dateKey: string,
+  accountNumbers: string[]
+): boolean {
+  const existing = history.find((s) => s.date === dateKey);
+  if (!existing) return true;
+  return accountNumbers.some((n) => existing.values[n] == null);
+}
+
+/**
+ * Record today's balances, merging into any existing same-day entry so a later, more-complete
+ * refresh adds accounts (or corrects values) without dropping accounts captured earlier in the day.
+ * Keeps history sorted by date and capped to the most recent MAX_SNAPSHOTS days.
  */
 export function recordSnapshot(
   history: BalanceSnapshot[],
   dateKey: string,
   values: Record<string, number>
 ): BalanceSnapshot[] {
-  const next = [...history.filter((s) => s.date !== dateKey), { date: dateKey, values }].sort((a, b) =>
-    a.date.localeCompare(b.date)
-  );
+  const existing = history.find((s) => s.date === dateKey);
+  const mergedValues = existing ? { ...existing.values, ...values } : values;
+  const next = [
+    ...history.filter((s) => s.date !== dateKey),
+    { date: dateKey, values: mergedValues },
+  ].sort((a, b) => a.date.localeCompare(b.date));
   return next.length > MAX_SNAPSHOTS ? next.slice(next.length - MAX_SNAPSHOTS) : next;
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { needsSnapshot, recordSnapshot, getAccountSeries, type BalanceSnapshot } from "./balanceHistory";
+import { needsSnapshot, needsSnapshotUpdate, recordSnapshot, getAccountSeries, type BalanceSnapshot } from "./balanceHistory";
 
 // ── needsSnapshot ────────────────────────────────────────────────────────────
 
@@ -19,6 +19,25 @@ describe("needsSnapshot", () => {
   });
 });
 
+// ── needsSnapshotUpdate ──────────────────────────────────────────────────────
+
+describe("needsSnapshotUpdate", () => {
+  it("is true when there is no entry for the date", () => {
+    expect(needsSnapshotUpdate([], "2026-06-12", ["A"])).toBe(true);
+  });
+
+  it("is false when today's entry already has all the accounts", () => {
+    const history: BalanceSnapshot[] = [{ date: "2026-06-12", values: { A: 100, B: 200 } }];
+    expect(needsSnapshotUpdate(history, "2026-06-12", ["A", "B"])).toBe(false);
+  });
+
+  it("is true when today's entry is missing an account that now has a balance", () => {
+    // The real-world bug: Schwab recorded first, the tastytrade account loaded later.
+    const history: BalanceSnapshot[] = [{ date: "2026-06-12", values: { A: 100, B: 200 } }];
+    expect(needsSnapshotUpdate(history, "2026-06-12", ["A", "B", "C"])).toBe(true);
+  });
+});
+
 // ── recordSnapshot ───────────────────────────────────────────────────────────
 
 describe("recordSnapshot", () => {
@@ -31,10 +50,17 @@ describe("recordSnapshot", () => {
     ]);
   });
 
-  it("replaces an existing same-day entry instead of duplicating it", () => {
+  it("updates a value for an existing same-day entry without duplicating it", () => {
     const history: BalanceSnapshot[] = [{ date: "2026-06-12", values: { A: 100 } }];
     const next = recordSnapshot(history, "2026-06-12", { A: 105 });
     expect(next).toEqual([{ date: "2026-06-12", values: { A: 105 } }]);
+  });
+
+  it("merges new accounts into a same-day entry instead of dropping existing ones", () => {
+    // Schwab account A recorded first; tastytrade account C arrives in a later refresh.
+    const history: BalanceSnapshot[] = [{ date: "2026-06-12", values: { A: 100 } }];
+    const next = recordSnapshot(history, "2026-06-12", { C: 300 });
+    expect(next).toEqual([{ date: "2026-06-12", values: { A: 100, C: 300 } }]);
   });
 
   it("keeps the result sorted by date regardless of input order", () => {

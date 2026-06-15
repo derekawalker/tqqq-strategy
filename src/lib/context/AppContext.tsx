@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useEffect, useMemo, useRef, useCallback, ReactNode } from "react";
 import type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition } from "@/lib/schwab/parse";
 import type { Transaction, AccountBalance } from "@/app/api/schwab/data/route";
-import { needsSnapshot, recordSnapshot, type BalanceSnapshot } from "@/lib/balanceHistory";
+import { needsSnapshotUpdate, recordSnapshot, type BalanceSnapshot } from "@/lib/balanceHistory";
 import { toDateKey } from "@/lib/format";
 export type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition, Transaction, AccountBalance, BalanceSnapshot };
 
@@ -449,7 +449,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (snapshotLoading || allBalances.length === 0 || !persistReadyRef.current) return;
     const today = toDateKey(new Date());
-    if (!needsSnapshot(balanceHistory, today)) return;
+    const accountNumbers = allBalances.map((b) => b.accountNumber);
+    // Record when today is missing entirely, or is missing an account we now have a balance for
+    // (e.g. the second broker finished loading after the day's first snapshot was taken).
+    if (!needsSnapshotUpdate(balanceHistory, today, accountNumbers)) return;
 
     const values = Object.fromEntries(allBalances.map((b) => [b.accountNumber, b.totalValue]));
     const next = recordSnapshot(balanceHistory, today, values);
