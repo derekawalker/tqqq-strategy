@@ -132,7 +132,9 @@ export async function POST(req: Request) {
   const bhRet = series["Buy & Hold"][bars.length - 1];
   let bhPeak = -Infinity, bhDD = 0;
   for (const b of bars) { const eq = bhShares * b.close; bhPeak = Math.max(bhPeak, eq); bhDD = Math.max(bhDD, (bhPeak - eq) / bhPeak); }
-  results.push({ name: "Buy & Hold", totalReturnPct: bhRet, maxDDPct: bhDD * 100, retDD: bhRet / Math.max(bhDD * 100, 1), roundTrips: 0, realized: 0, resets: 0 });
+  // Realize the gain as if the whole position were sold at the last close (1 buy day-1 → 1 sell last day).
+  const bhRealized = bhShares * (bars[bars.length - 1].close - bars[0].open);
+  results.push({ name: "Buy & Hold", totalReturnPct: bhRet, maxDDPct: bhDD * 100, retDD: bhRet / Math.max(bhDD * 100, 1), roundTrips: 1, realized: bhRealized, resets: 0 });
 
   // Merge curves into one downsampled chart array keyed by time label.
   const idx = sampleIndices(bars.length);
