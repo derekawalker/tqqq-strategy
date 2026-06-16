@@ -81,12 +81,12 @@ export async function GET(req: Request) {
     const baselineVol = annualizedVol(tqqqCloses, Math.min(252, tqqqCloses.length - 1));
 
     const volSpacing = scaleByVol(BASE_SPACING, realizedVol, baselineVol, SPACING_MIN, SPACING_MAX);
-    // In risk-on, a vol spike should not push rungs further apart — that causes missed buys as
-    // price surges. Cap at base spacing so vol can only tighten the grid during a rally.
-    // In risk-off, widen to at least 2% to deploy more slowly into a drawdown.
+    const volSell = scaleByVol(baseSell, realizedVol, baselineVol, baseSell * 0.5, baseSell * 2);
+    // In risk-on: tighten the grid (spacing can only shrink) and let profits run (sell can only grow).
+    // In risk-off, widen spacing to at least 2% to deploy more slowly into a drawdown.
     const spacingAfterVol = regime === "risk-on" ? Math.min(volSpacing, BASE_SPACING) : volSpacing;
     const suggestedSpacing = regime === "risk-off" ? Math.max(2, spacingAfterVol) : spacingAfterVol;
-    const suggestedSell = scaleByVol(baseSell, realizedVol, baselineVol, baseSell * 0.5, baseSell * 2);
+    const suggestedSell = regime === "risk-on" ? Math.max(volSell, baseSell) : volSell;
 
     // Chart series: align the rolling 200-DMA / 20-day vol to dates, keep the recent window.
     const smaArr = rollingSma(qqqCloses, 200);
