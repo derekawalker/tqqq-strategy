@@ -80,7 +80,10 @@ export async function GET(req: Request) {
     // Baseline = trailing ~1y vol, so "high vol" is measured against this account's own normal.
     const baselineVol = annualizedVol(tqqqCloses, Math.min(252, tqqqCloses.length - 1));
 
-    const suggestedSpacing = scaleByVol(BASE_SPACING, realizedVol, baselineVol, SPACING_MIN, SPACING_MAX);
+    const volSpacing = scaleByVol(BASE_SPACING, realizedVol, baselineVol, SPACING_MIN, SPACING_MAX);
+    // In risk-off, widen buys to at least 2% (backtests better than pausing — deploys into a
+    // drawdown half as fast, so fewer/cheaper lots at the bottom and a shallower drawdown).
+    const suggestedSpacing = regime === "risk-off" ? Math.max(2, volSpacing) : volSpacing;
     const suggestedSell = scaleByVol(baseSell, realizedVol, baselineVol, baseSell * 0.5, baseSell * 2);
 
     // Chart series: align the rolling 200-DMA / 20-day vol to dates, keep the recent window.

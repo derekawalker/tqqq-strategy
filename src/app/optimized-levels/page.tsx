@@ -19,11 +19,8 @@ import { fmt, createMask } from "@/lib/format";
 const REGIME_META: Record<RegimeData["regime"], { label: string; color: string; blurb: string }> = {
   "risk-on": { label: "Risk-on", color: "teal", blurb: "QQQ above its 200-day average — deploy the grid." },
   neutral: { label: "Neutral", color: "yellow", blurb: "QQQ near its 200-day average — proceed normally." },
-  "risk-off": { label: "Risk-off", color: "red", blurb: "QQQ below its 200-day average — slow / widen new buys." },
+  "risk-off": { label: "Risk-off", color: "red", blurb: "QQQ below its 200-day average — buy spacing widened to slow deployment." },
 };
-
-// In risk-off, flag this many of the next unfilled buy rungs as "paused" guidance.
-const PAUSE_COUNT = 2;
 
 function Stat({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
   return (
@@ -134,11 +131,6 @@ export default function OptimizedLevelsPage() {
       sellPercent: regime.suggestedSell,
     });
   }, [configured, regime, settings, staticLevels, currentLevel]);
-
-  const nextBuyIndex = useMemo(() => {
-    if (quote.loading || quote.price <= 0) return -1;
-    return levels.findIndex((l) => l.buyPrice <= quote.price);
-  }, [levels, quote.loading, quote.price]);
 
   const queueItems: QueueItem[] = queue.map((o, i) => ({
     key: `${o.side}-${o.level}`,
@@ -277,7 +269,7 @@ export default function OptimizedLevelsPage() {
             <Text size="xs" c="dimmed">
               Advisory: rungs are spaced geometrically and rescale with volatility. Read-only — this
               doesn&apos;t affect your tracked positions or the Levels page.
-              {riskOff && " The next buy rungs below are flagged to slow / widen."}
+              {riskOff && ` Risk-off — buy spacing widened to ${fmt(regime.suggestedSpacing, 2)}% to deploy into the drawdown more slowly.`}
             </Text>
           </Stack>
         ) : (
@@ -299,7 +291,6 @@ export default function OptimizedLevelsPage() {
           <Table.Tbody>
             {levels.map(({ n, buyPrice, sellPrice, shares, cost, optimized }) => {
               const inRange = !quote.loading && quote.price >= buyPrice && quote.price <= sellPrice;
-              const paused = riskOff && nextBuyIndex >= 0 && n >= nextBuyIndex && n < nextBuyIndex + PAUSE_COUNT;
               const openBuy = isTastytrade ? findOpenOrder("BUY", shares, buyPrice) : null;
               const openSell = isTastytrade ? findOpenOrder("SELL", shares, sellPrice) : null;
               return (
@@ -309,7 +300,6 @@ export default function OptimizedLevelsPage() {
                       background: inRange
                         ? `color-mix(in srgb, var(--mantine-color-${accountColor}-7) 8%, transparent)`
                         : undefined,
-                      opacity: paused ? 0.45 : 1,
                     }}
                   >
                     <Table.Td style={{ position: "relative" }}>
@@ -327,7 +317,6 @@ export default function OptimizedLevelsPage() {
                         {optimized
                           ? <Badge size="xs" color={rc} variant="light">opt</Badge>
                           : <MTooltip label="Owned — static numbers" withArrow><Badge size="xs" color="gray" variant="light">held</Badge></MTooltip>}
-                        {paused && <Badge size="xs" color="orange" variant="light">paused</Badge>}
                       </Group>
                     </Table.Td>
                     <Table.Td>
