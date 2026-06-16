@@ -135,7 +135,10 @@ export function effectiveSpacingSell(p: GridParams, s: DailyStat): { spacing: nu
   let spacing = p.spacing;
   let sell = p.sell;
   if (p.vol === "on") {
-    spacing = scaleByVol(spacing, s.vol20, s.baseline, p.spacing * 0.5, p.spacing * 3);
+    const scaledSpacing = scaleByVol(spacing, s.vol20, s.baseline, p.spacing * 0.5, p.spacing * 3);
+    // In a rising market, a vol spike should not push rungs further apart (that causes missed buys
+    // as price rips up). Cap spacing at the base value in risk-on; only allow widening when dropping.
+    spacing = s.regime === "risk-on" ? Math.min(scaledSpacing, p.spacing) : scaledSpacing;
     sell = scaleByVol(sell, s.vol20, s.baseline, p.sell * 0.5, p.sell * 2);
   }
   if (p.regime === "widen" && s.regime === "risk-off") spacing *= 2;
