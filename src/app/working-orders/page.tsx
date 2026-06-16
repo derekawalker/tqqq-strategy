@@ -20,7 +20,6 @@ import {
   CopyButton,
   Alert,
   Switch,
-  ActionIcon,
 } from "@mantine/core";
 import {
   IconCheck,
@@ -28,10 +27,8 @@ import {
   IconPlayerPlayFilled,
   IconShield,
   IconClock,
-  IconTrash,
 } from "@tabler/icons-react";
-import { MiniChartCard } from "@/components/MiniChartCard";
-import { CARD_RADIUS } from "@/lib/cardStyles";
+import { OrderQueue, type QueueItem } from "@/components/OrderQueue";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
 import { fmt, createMask } from "@/lib/format";
@@ -150,7 +147,7 @@ export default function WorkingOrdersPage() {
     shares: number;
     price: number;
   } | null>(null);
-  const [submitConfirm, setSubmitConfirm] = useState(false);
+  const [queueErrors, setQueueErrors] = useState<string[]>([]);
 
   const confirmCancel = () => {
     if (!cancelConfirm) return;
@@ -186,35 +183,34 @@ export default function WorkingOrdersPage() {
   const submitQueue = async () => {
     if (!activeAccount) return;
     setOrderLoading(true);
-    setOrderResult(null);
 
-    const results: { type: "place" | "cancel"; ok: boolean; message: string }[] = [];
+    const errors: string[] = [];
+    const cancelOks: boolean[] = [];
+    const placeOks: boolean[] = [];
 
     // Submit all cancellations first
     for (const order of queuedCancelOrders) {
+      let ok = false;
       try {
         const res = await fetch("/api/tastytrade/orders", {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            orderId: order.orderId,
-            accountNumber: order.accountNumber,
-          }),
+          body: JSON.stringify({ orderId: order.orderId, accountNumber: order.accountNumber }),
         });
-        if (res.ok) {
-          results.push({ type: "cancel", ok: true, message: `Cancelled ${order.side} ${order.shares}` });
-        } else {
+        if (res.ok) ok = true;
+        else {
           const json = await res.json();
-          const detail = json?.error?.message ?? "Cancel failed";
-          results.push({ type: "cancel", ok: false, message: detail });
+          errors.push(`Cancel ${order.side}: ${json?.error?.message ?? "failed"}`);
         }
-      } catch (err) {
-        results.push({ type: "cancel", ok: false, message: "Network error" });
+      } catch {
+        errors.push(`Cancel ${order.side}: Network error`);
       }
+      cancelOks.push(ok);
     }
 
     // Then submit all new orders
     for (const order of queuedPlaceOrders) {
+      let ok = false;
       try {
         const res = await fetch("/api/tastytrade/orders", {
           method: "POST",
@@ -227,35 +223,22 @@ export default function WorkingOrdersPage() {
           }),
         });
         const json = await res.json();
-        if (res.ok) {
-          results.push({ type: "place", ok: true, message: `Placed ${order.side} ${order.shares}` });
-        } else {
-          const raw =
-            json?.error?.errors?.[0]?.message ??
-            json?.error?.message ??
-            json?.error?.error ??
-            json?.error;
-          const detail = typeof raw === "string" ? raw : JSON.stringify(raw);
-          results.push({ type: "place", ok: false, message: detail });
+        if (res.ok) ok = true;
+        else {
+          const raw = json?.error?.errors?.[0]?.message ?? json?.error?.message ?? json?.error?.error ?? json?.error;
+          errors.push(`${order.side} ${order.shares}: ${typeof raw === "string" ? raw : JSON.stringify(raw)}`);
         }
-      } catch (err) {
-        results.push({ type: "place", ok: false, message: "Network error" });
+      } catch {
+        errors.push(`${order.side} ${order.shares}: Network error`);
       }
+      placeOks.push(ok);
     }
 
-    const successes = results.filter((r) => r.ok).length;
-    const total = results.length;
-    setOrderResult({
-      ok: successes === total,
-      message: `${successes}/${total} orders completed`,
-    });
-
-    if (successes > 0) {
-      tickRefresh();
-    }
-
-    setQueuedPlaceOrders([]);
-    setQueuedCancelOrders([]);
+    if (cancelOks.some(Boolean) || placeOks.some(Boolean)) tickRefresh();
+    // Keep any failures queued for retry; drop the ones that succeeded.
+    setQueuedCancelOrders((prev) => prev.filter((_, i) => !cancelOks[i]));
+    setQueuedPlaceOrders((prev) => prev.filter((_, i) => !placeOks[i]));
+    setQueueErrors(errors);
     setOrderLoading(false);
   };
 
@@ -264,6 +247,21 @@ export default function WorkingOrdersPage() {
   // tastytrade enforces max 1 order per level — qty warning doesn't apply
   const threshold = isTastytrade ? 0 : (warnBelow ?? 0);
   const bufferSize = buffer ?? 0;
+
+  const queueItems: QueueItem[] = [
+    ...queuedCancelOrders.map((o) => ({
+      key: `c-${o.orderId}`,
+      type: "cancel" as const,
+      side: o.side, shares: o.shares, price: o.price,
+      onRemove: () => setQueuedCancelOrders((prev) => prev.filter((x) => x.orderId !== o.orderId)),
+    })),
+    ...queuedPlaceOrders.map((o, idx) => ({
+      key: `p-${idx}-${o.side}-${o.price}-${o.shares}`,
+      type: "place" as const,
+      side: o.side, shares: o.shares, price: o.price,
+      onRemove: () => setQueuedPlaceOrders((prev) => prev.filter((_, i) => i !== idx)),
+    })),
+  ];
 
   const setWarnBelow = (v: number | string) =>
     updateAccountSettings(activeAccount!.accountNumber, {
@@ -512,36 +510,6 @@ export default function WorkingOrdersPage() {
       </Modal>
 
       <Modal
-        opened={submitConfirm}
-        onClose={() => setSubmitConfirm(false)}
-        title="Submit Queue"
-        size="sm"
-      >
-        <Stack gap="md">
-          <Text size="sm">
-            Submit {queuedCancelOrders.length} cancellation{queuedCancelOrders.length !== 1 ? "s" : ""} and {queuedPlaceOrders.length} new order{queuedPlaceOrders.length !== 1 ? "s" : ""}?
-          </Text>
-          <Group justify="flex-end">
-            <Button
-              variant="subtle"
-              color="gray"
-              onClick={() => setSubmitConfirm(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                setSubmitConfirm(false);
-                submitQueue();
-              }}
-            >
-              Submit
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
-
-      <Modal
         opened={placeOrderModal !== null}
         onClose={closePlaceOrder}
         title={
@@ -653,143 +621,6 @@ export default function WorkingOrdersPage() {
           </Group>
         </Group>
 
-        {(queuedPlaceOrders.length > 0 || queuedCancelOrders.length > 0) && isTastytrade && (
-          <Stack gap="md" p="md" style={{ border: "1px solid var(--mantine-color-blue-7)", borderRadius: 8, backgroundColor: "rgba(13, 110, 253, 0.05)" }}>
-            <Group justify="space-between" align="flex-start">
-              <Text fw={700} size="sm">
-                Queued Orders ({queuedCancelOrders.length + queuedPlaceOrders.length} total)
-              </Text>
-              <Button
-                variant="subtle"
-                color="gray"
-                size="xs"
-                onClick={() => {
-                  setQueuedPlaceOrders([]);
-                  setQueuedCancelOrders([]);
-                }}
-              >
-                Clear All
-              </Button>
-            </Group>
-
-            <ScrollArea>
-              <Table striped>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th ta="center">Type</Table.Th>
-                    <Table.Th ta="center">Side</Table.Th>
-                    <Table.Th ta="center">Shares</Table.Th>
-                    <Table.Th ta="center">Price</Table.Th>
-                    <Table.Th ta="center">Order Type</Table.Th>
-                    <Table.Th ta="center">Time in Force</Table.Th>
-                    <Table.Th ta="center">Session</Table.Th>
-                    <Table.Th ta="center">Action</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {queuedCancelOrders.map((order) => (
-                    <Table.Tr key={order.orderId}>
-                      <Table.Td ta="center">
-                        <Badge size="sm" color="red" variant="light">
-                          Cancel
-                        </Badge>
-                      </Table.Td>
-                      <Table.Td ta="center">
-                        <Text size="sm" fw={600} c={order.side === "BUY" ? "teal" : "red"}>
-                          {order.side}
-                        </Text>
-                      </Table.Td>
-                      <Table.Td ta="center">
-                        <Text size="sm">{fmt(order.shares, 0)}</Text>
-                      </Table.Td>
-                      <Table.Td ta="center">
-                        <Text size="sm">${fmt(order.price)}</Text>
-                      </Table.Td>
-                      <Table.Td ta="center">
-                        <Text size="sm">Limit</Text>
-                      </Table.Td>
-                      <Table.Td ta="center">
-                        <Text size="sm">GTC</Text>
-                      </Table.Td>
-                      <Table.Td ta="center">
-                        <Text size="sm">Extended Overnight</Text>
-                      </Table.Td>
-                      <Table.Td ta="center">
-                        <ActionIcon
-                          size="sm"
-                          color="red"
-                          variant="light"
-                          onClick={() =>
-                            setQueuedCancelOrders((prev) =>
-                              prev.filter((o) => o.orderId !== order.orderId)
-                            )
-                          }
-                        >
-                          <IconTrash size={14} />
-                        </ActionIcon>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                  {queuedPlaceOrders.map((order, idx) => (
-                    <Table.Tr key={`${order.side}-${order.shares}-${order.price}-${idx}`}>
-                      <Table.Td ta="center">
-                        <Badge size="sm" color="teal" variant="light">
-                          Place
-                        </Badge>
-                      </Table.Td>
-                      <Table.Td ta="center">
-                        <Text size="sm" fw={600} c={order.side === "BUY" ? "teal" : "red"}>
-                          {order.side}
-                        </Text>
-                      </Table.Td>
-                      <Table.Td ta="center">
-                        <Text size="sm">{fmt(order.shares, 0)}</Text>
-                      </Table.Td>
-                      <Table.Td ta="center">
-                        <Text size="sm">${fmt(order.price)}</Text>
-                      </Table.Td>
-                      <Table.Td ta="center">
-                        <Text size="sm">Limit</Text>
-                      </Table.Td>
-                      <Table.Td ta="center">
-                        <Text size="sm">GTC</Text>
-                      </Table.Td>
-                      <Table.Td ta="center">
-                        <Text size="sm">Extended Overnight</Text>
-                      </Table.Td>
-                      <Table.Td ta="center">
-                        <ActionIcon
-                          size="sm"
-                          color="teal"
-                          variant="light"
-                          onClick={() =>
-                            setQueuedPlaceOrders((prev) =>
-                              prev.filter(
-                                (o, i) =>
-                                  !(i === idx && o.side === order.side && o.shares === order.shares && o.price === order.price)
-                              )
-                            )
-                          }
-                        >
-                          <IconTrash size={14} />
-                        </ActionIcon>
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-            </ScrollArea>
-
-            <Group justify="flex-end">
-              <Button
-                size="sm"
-                onClick={() => setSubmitConfirm(true)}
-              >
-                Submit Queue
-              </Button>
-            </Group>
-          </Stack>
-        )}
 
         <ScrollArea>
           <Table>
@@ -1366,21 +1197,15 @@ export default function WorkingOrdersPage() {
         </ScrollArea>
       </Stack>
 
-      <div
-        style={{
-          marginTop: "auto",
-          position: "sticky",
-          bottom: isMobile ? 56 : 0,
-          zIndex: 10,
-          borderTop: "1px solid var(--mantine-color-dark-4)",
-          borderLeft: "1px solid var(--mantine-color-dark-4)",
-          borderRight: "1px solid var(--mantine-color-dark-4)",
-          borderRadius: `${CARD_RADIUS} ${CARD_RADIUS} 0 0`,
-          overflow: "hidden",
-        }}
-      >
-        <MiniChartCard bottomFlush height={isMobile ? 160 : 220} />
-      </div>
+      {isTastytrade && (
+        <OrderQueue
+          items={queueItems}
+          onClear={() => { setQueuedPlaceOrders([]); setQueuedCancelOrders([]); }}
+          onSubmit={submitQueue}
+          submitting={orderLoading}
+          failures={queueErrors}
+        />
+      )}
     </div>
   );
 }
