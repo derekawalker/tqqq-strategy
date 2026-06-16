@@ -35,6 +35,7 @@ import {
   IconChartLine,
   IconHistory,
   IconColumns3,
+  IconGauge,
   IconDotsCircleHorizontal,
 } from "@tabler/icons-react";
 
@@ -44,6 +45,7 @@ const ALL_PAGES = [
   { href: "/working-orders",      label: "Working",      icon: IconClockHour4 },
   { href: "/filled-orders",       label: "Filled",       icon: IconCheckbox },
   { href: "/options",             label: "Options",      icon: IconChartCandle },
+  { href: "/optimized-levels",    label: "Optimized",    icon: IconGauge },
   { href: "/profit-tracker",      label: "Profit",       icon: IconTrendingUp },
   { href: "/interest-dividends",  label: "Interest",     icon: IconCoins },
   { href: "/chart",               label: "Chart",        icon: IconChartLine },
