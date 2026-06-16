@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "backtest": "npx tsx --env-file=.env.local scripts/backtest.ts"
   },
   "dependencies": {
     "@mantine/charts": "^8.3.18",
