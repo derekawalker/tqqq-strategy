@@ -36,6 +36,7 @@ import {
   IconHistory,
   IconColumns3,
   IconDotsCircleHorizontal,
+  IconRadar2,
 } from "@tabler/icons-react";
 
 const ALL_PAGES = [
@@ -47,6 +48,7 @@ const ALL_PAGES = [
   { href: "/profit-tracker",      label: "Profit",       icon: IconTrendingUp },
   { href: "/interest-dividends",  label: "Interest",     icon: IconCoins },
   { href: "/chart",               label: "Chart",        icon: IconChartLine },
+  { href: "/anomaly",             label: "Anomaly",      icon: IconRadar2 },
   { href: "/history",             label: "History",      icon: IconHistory },
 ];
 
