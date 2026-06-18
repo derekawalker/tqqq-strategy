@@ -17,9 +17,9 @@ export interface QueueItem {
 }
 
 /**
- * Shared order-queue panel — sticky at the bottom of the page, used by both the working-orders and
- * optimized-levels pages so they stay visually and behaviorally in sync. Renders nothing when empty.
- * Owns its own submit-confirm modal; the parent supplies the items and the submit/clear handlers.
+ * Shared order-queue panel — sticky at the bottom of the page, used by the working-orders page.
+ * Renders nothing when empty. Owns its own submit-confirm modal; the parent supplies the items and
+ * the submit/clear handlers.
  */
 export function OrderQueue({
   items,
