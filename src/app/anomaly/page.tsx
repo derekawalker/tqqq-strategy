@@ -77,12 +77,25 @@ const ACTION_LABEL: Record<AdvicePoint["action"], string> = {
   "restore-risk": "Restored equity",
 };
 
-function adviceBg(a: AdvicePoint): string {
-  if (a.action === "get-out") return "var(--mantine-color-red-8)";
-  if (a.action === "get-back-in" || a.action === "restore-risk") return "var(--mantine-color-teal-8)";
-  if (a.action === "reduce-risk") return "var(--mantine-color-orange-8)";
-  if (a.stance === "out") return "var(--mantine-color-orange-9)";
-  return a.creditStress ? "var(--mantine-color-yellow-9)" : "var(--mantine-color-green-9)";
+/** Mantine color name for today's advice state. */
+function adviceColor(a: AdvicePoint): string {
+  if (a.action === "get-out") return "red";
+  if (a.action === "get-back-in" || a.action === "restore-risk") return "teal";
+  if (a.action === "reduce-risk") return "orange";
+  if (a.stance === "out" || a.creditStress) return "orange";
+  return "green";
+}
+
+/** Tinted gradient + gloss + shadow matching the site's card styling (see useCardBg). */
+function adviceCardStyle(color: string) {
+  const gloss =
+    "linear-gradient(160deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.03) 12%, rgba(255,255,255,0) 24%)";
+  const base = `linear-gradient(135deg, var(--mantine-color-${color}-7) 0%, var(--mantine-color-${color}-9) 100%)`;
+  return {
+    background: `${gloss}, ${base}`,
+    boxShadow: `0 8px 24px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.12)`,
+    border: "none",
+  };
 }
 
 /** Contiguous spans of the advice equity matching a predicate, for chart shading. */
@@ -227,7 +240,7 @@ export default function AnomalyPage() {
         <>
           {/* Headline: today's advice */}
           {today && (
-            <Paper p="lg" radius={CARD_RADIUS} withBorder bg={adviceBg(today)}>
+            <Paper p="lg" radius={CARD_RADIUS} style={adviceCardStyle(adviceColor(today))}>
               <Stack gap={6}>
                 <Text size="xs" c="rgba(255,255,255,0.75)" tt="uppercase" fw={600}>
                   Daily advice · {fmtDate(today.date)}
