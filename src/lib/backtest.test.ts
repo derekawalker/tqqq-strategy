@@ -3,7 +3,7 @@ import { maxDrawdown, performance, forwardStudy, backtest, DEFAULT_OPTIONS, stra
 import type { AnomalyPoint, SignalKind } from "./anomaly";
 
 function pt(date: string, spx: number, signal: SignalKind, shortRate = 0): AnomalyPoint {
-  return { date, spx, shortRate, yieldCurve: 0, fragility: 0, euphoria: 0, composite: 0, signal };
+  return { date, spx, shortRate, yieldCurve: 0, fragility: 0, euphoria: 0, composite: 0, creditSpreadZ: null, signal };
 }
 
 describe("maxDrawdown", () => {

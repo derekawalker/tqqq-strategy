@@ -33,6 +33,29 @@ async function fetchSeries(symbol: string, period1: Date): Promise<SeriesPoint[]
     .map((q) => ({ date: (q.date as Date).toISOString().slice(0, 10), close: q.close as number }));
 }
 
+/**
+ * Fetch a FRED series as a daily SeriesPoint[] via the public no-API-key CSV
+ * endpoint. Returns [] on any failure so the credit-regime filter simply
+ * deactivates rather than breaking the whole response.
+ */
+async function fetchFred(id: string, start: Date): Promise<SeriesPoint[]> {
+  try {
+    const cosd = start.toISOString().slice(0, 10);
+    const res = await fetch(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${id}&cosd=${cosd}`);
+    if (!res.ok) return [];
+    const text = await res.text();
+    return text
+      .trim()
+      .split("\n")
+      .slice(1)
+      .map((line) => line.split(","))
+      .filter((c) => c[1] && c[1] !== ".")
+      .map((c) => ({ date: c[0], close: parseFloat(c[1]) }));
+  } catch {
+    return [];
+  }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   // Default ~3 years so the 252-day z-score window leaves ~2 years of live signal.
@@ -42,10 +65,14 @@ export async function GET(request: Request) {
 
   try {
     const fields = Object.keys(TICKERS) as Field[];
-    const fetched = await Promise.all(fields.map((f) => fetchSeries(TICKERS[f], period1)));
+    const [fetched, baa10y] = await Promise.all([
+      Promise.all(fields.map((f) => fetchSeries(TICKERS[f], period1))),
+      fetchFred("BAA10Y", period1), // Moody's Baa - 10y Treasury credit spread (regime filter)
+    ]);
 
-    const series = {} as Record<Field, SeriesPoint[]>;
+    const series: Partial<Record<Field | "baa10y", SeriesPoint[]>> = {};
     fields.forEach((f, i) => (series[f] = fetched[i]));
+    if (baa10y.length > 0) series.baa10y = baa10y;
 
     const rows = alignSeries(series);
     const points = computeAnomaly(rows);

@@ -63,21 +63,34 @@ function fmtDate(iso: string): string {
 function adviceHeadline(a: AdvicePoint): string {
   if (a.action === "get-out") return "GET OUT OF THE MARKET";
   if (a.action === "get-back-in") return "GET BACK IN";
-  return a.stance === "in" ? "TRADE AS NORMAL" : "STAY OUT — HOLD CASH";
+  if (a.action === "reduce-risk") return "REDUCE RISK — CREDIT STRESS";
+  if (a.action === "restore-risk") return "RESTORE FULL EQUITY";
+  if (a.stance === "out") return "STAY OUT — HOLD CASH";
+  return a.creditStress ? "HOLD REDUCED EQUITY" : "TRADE AS NORMAL";
 }
+
+const ACTION_LABEL: Record<AdvicePoint["action"], string> = {
+  "normal": "—",
+  "get-out": "Got out",
+  "get-back-in": "Got back in",
+  "reduce-risk": "Reduced risk",
+  "restore-risk": "Restored equity",
+};
 
 function adviceBg(a: AdvicePoint): string {
   if (a.action === "get-out") return "var(--mantine-color-red-8)";
-  if (a.action === "get-back-in") return "var(--mantine-color-teal-8)";
-  return a.stance === "in" ? "var(--mantine-color-green-9)" : "var(--mantine-color-orange-9)";
+  if (a.action === "get-back-in" || a.action === "restore-risk") return "var(--mantine-color-teal-8)";
+  if (a.action === "reduce-risk") return "var(--mantine-color-orange-8)";
+  if (a.stance === "out") return "var(--mantine-color-orange-9)";
+  return a.creditStress ? "var(--mantine-color-yellow-9)" : "var(--mantine-color-green-9)";
 }
 
-/** Contiguous spans where the advice stance was "out", for chart shading. */
-function outSpans(equity: { date: string; stance: Stance }[]) {
+/** Contiguous spans of the advice equity matching a predicate, for chart shading. */
+function spansWhere(equity: { date: string; stance: Stance; exposure: number }[], pred: (e: { stance: Stance; exposure: number }) => boolean) {
   const spans: { x1: string; x2: string }[] = [];
   let cur: { x1: string; x2: string } | null = null;
   for (const e of equity) {
-    if (e.stance === "out") {
+    if (pred(e)) {
       if (cur) cur.x2 = e.date;
       else cur = { x1: e.date, x2: e.date };
     } else if (cur) {
@@ -227,12 +240,12 @@ export default function AnomalyPage() {
                 </Text>
                 <Group gap="lg" mt={4}>
                   <Text size="xs" c="rgba(255,255,255,0.85)">
-                    Current stance: <b>{today.stance === "in" ? "Invested" : "In cash"}</b>
+                    Recommended equity: <b>{Math.round(today.exposure * 100)}%</b>
+                    {today.creditStress && today.stance === "in" ? " (credit-stress regime)" : ""}
                   </Text>
                   {lastChange && (
                     <Text size="xs" c="rgba(255,255,255,0.85)">
-                      Last change: <b>{lastChange.action === "get-out" ? "Got out" : "Got back in"}</b> ·{" "}
-                      {fmtDate(lastChange.date)}
+                      Last change: <b>{ACTION_LABEL[lastChange.action]}</b> · {fmtDate(lastChange.date)}
                     </Text>
                   )}
                 </Group>
@@ -257,8 +270,11 @@ export default function AnomalyPage() {
                       formatter={(v, name) => [`${Number(v).toFixed(2)}×`, name]}
                       contentStyle={{ background: "var(--mantine-color-dark-7)", border: "none", borderRadius: 8 }}
                     />
-                    {outSpans(adviceBt.equity).map((s, i) => (
-                      <ReferenceArea key={i} x1={s.x1} x2={s.x2} fill="var(--mantine-color-gray-5)" fillOpacity={0.18} />
+                    {spansWhere(adviceBt.equity, (e) => e.stance === "out").map((s, i) => (
+                      <ReferenceArea key={`o${i}`} x1={s.x1} x2={s.x2} fill="var(--mantine-color-gray-5)" fillOpacity={0.2} />
+                    ))}
+                    {spansWhere(adviceBt.equity, (e) => e.stance === "in" && e.exposure < 1).map((s, i) => (
+                      <ReferenceArea key={`r${i}`} x1={s.x1} x2={s.x2} fill="var(--mantine-color-orange-5)" fillOpacity={0.18} />
                     ))}
                     <Line type="monotone" dataKey="benchmark" name="Buy & Hold" stroke="var(--mantine-color-gray-5)" dot={false} strokeWidth={1.5} />
                     <Line type="monotone" dataKey="strategy" name="Follow advice" stroke="var(--mantine-color-teal-4)" dot={false} strokeWidth={1.5} />
@@ -266,8 +282,9 @@ export default function AnomalyPage() {
                 </ResponsiveContainer>
               </Box>
               <Text size="xs" c="dimmed" mt={2}>
-                Shaded = periods the advice had you out of the market (in T-bills). {adviceBt.switches} stance changes
-                over this window; invested {(adviceBt.pctInMarket * 100).toFixed(0)}% of the time.
+                Gray = out of the market (T-bills); orange = reduced exposure from the credit-stress regime filter.{" "}
+                {adviceBt.switches} changes over this window; average equity exposure{" "}
+                {(adviceBt.pctInMarket * 100).toFixed(0)}%.
               </Text>
               <Table mt="sm" fz="xs" withRowBorders={false} verticalSpacing={4}>
                 <Table.Thead>
@@ -288,7 +305,10 @@ export default function AnomalyPage() {
               <Text size="xs" c="dimmed" mt={4}>
                 Get-out uses a trend break (price below its 200-day average) because the indicators don&apos;t reliably
                 lead tops; get-back-in uses a composite capitulation extreme, which historically led the 2018 / 2020 /
-                2025 bottoms by days. Ignores fees, slippage and taxes.
+                2025 bottoms by days. A slow credit-stress regime filter (Baa spread &gt;1σ above normal, from FRED)
+                halves equity exposure during credit blow-outs — over 2012-2026 this lifted Sharpe (0.84→0.87) and
+                Calmar (0.68→0.75) and cut max drawdown (−19%→−16%) vs. the trend-only advice. Ignores fees, slippage
+                and taxes.
               </Text>
             </Paper>
           )}

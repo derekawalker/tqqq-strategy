@@ -122,6 +122,7 @@ export interface AlignedRow {
   irx: number; // 13w T-bill yield (%)
   cper: number; // copper ETF
   gld: number; // gold ETF
+  baa10y?: number; // Moody's Baa - 10y Treasury credit spread (FRED, optional/regime use)
 }
 
 export type SignalKind = "crash" | "boom" | "neutral";
@@ -134,6 +135,7 @@ export interface AnomalyPoint {
   fragility: number | null; // composite z-score (higher = more fragile)
   euphoria: number | null; // composite z-score (higher = more euphoric)
   composite: number | null; // euphoria - fragility
+  creditSpreadZ: number | null; // Baa credit-spread z-score (regime filter; null if no FRED data)
   signal: SignalKind;
 }
 
@@ -276,17 +278,23 @@ export function blendZWeighted(zs: (number | null)[], weights: number[]): number
  * date, each other series contributes its value on that date, or the most recent
  * prior value (forward-fill) if that day is missing. Leading rows where any
  * series has no prior value are dropped so downstream features start clean.
+ *
+ * Accepts a partial map — only the keys you pass are required per row — so
+ * optional series (e.g. the FRED `baa10y` credit spread) can be omitted when
+ * unavailable without affecting the core fields.
  */
-export function alignSeries(series: Record<keyof Omit<AlignedRow, "date">, SeriesPoint[]>): AlignedRow[] {
+export function alignSeries(
+  series: Partial<Record<keyof Omit<AlignedRow, "date">, SeriesPoint[]>>,
+): AlignedRow[] {
   const keys = Object.keys(series) as (keyof Omit<AlignedRow, "date">)[];
   const maps = new Map<string, Map<string, number>>();
   for (const k of keys) {
     const m = new Map<string, number>();
-    for (const p of series[k]) if (Number.isFinite(p.close)) m.set(p.date, p.close);
+    for (const p of series[k] ?? []) if (Number.isFinite(p.close)) m.set(p.date, p.close);
     maps.set(k, m);
   }
 
-  const spxDates = series.spx.filter((p) => Number.isFinite(p.close)).map((p) => p.date);
+  const spxDates = (series.spx ?? []).filter((p) => Number.isFinite(p.close)).map((p) => p.date);
   const sortedDates = [...spxDates].sort();
 
   const last: Record<string, number> = {};
@@ -359,6 +367,8 @@ export function computeAnomaly(rows: AlignedRow[], params: AnomalyParams = DEFAU
   const n = rows.length;
   const { fragility: fFac, euphoria: eFac } = buildFactors(rows, params);
   const w = params.zWindow;
+  // Baa credit-spread level series for the regime filter (NaN where no FRED data).
+  const baaArr = rows.map((r) => r.baa10y ?? NaN);
 
   const out: AnomalyPoint[] = [];
   let state: SignalKind = "neutral";
@@ -401,6 +411,7 @@ export function computeAnomaly(rows: AlignedRow[], params: AnomalyParams = DEFAU
       fragility,
       euphoria,
       composite,
+      creditSpreadZ: rollingZ(baaArr, i, w),
       signal: fragility == null ? "neutral" : state,
     });
   }

@@ -27,6 +27,8 @@ export interface AdviceParams {
   band: number; // hysteresis band around the MA (fraction, e.g. 0.03 = ±3%)
   confirmDays: number; // consecutive days required to flip the trend stance
   capitulation: number; // composite z below which to snap back in (buy the panic)
+  creditStressZ: number; // Baa credit-spread z above which to halve exposure (regime filter)
+  reducedExposure: number; // exposure to hold while invested during a credit-stress regime
 }
 
 export const DEFAULT_ADVICE: AdviceParams = {
@@ -34,16 +36,20 @@ export const DEFAULT_ADVICE: AdviceParams = {
   band: 0.03,
   confirmDays: 3,
   capitulation: -3,
+  creditStressZ: 1,
+  reducedExposure: 0.5,
 };
 
 export type Stance = "in" | "out";
-export type AdviceAction = "normal" | "get-out" | "get-back-in";
+export type AdviceAction = "normal" | "get-out" | "get-back-in" | "reduce-risk" | "restore-risk";
 
 export interface AdvicePoint {
   date: string;
   spx: number;
   ma: number | null;
   stance: Stance;
+  creditStress: boolean; // true when the credit-spread regime filter is de-risking
+  exposure: number; // recommended equity weight: 0 (out), reducedExposure, or 1
   action: AdviceAction; // what to DO today ("normal" = no change)
   reason: string;
 }
@@ -57,6 +63,7 @@ export function dailyAdvice(points: AnomalyPoint[], p: AdviceParams = DEFAULT_AD
   const spx = points.map((pt) => pt.spx);
   const out: AdvicePoint[] = [];
   let stance: Stance = "in";
+  let creditStress = false;
   let belowN = 0;
   let aboveN = 0;
 
@@ -65,6 +72,11 @@ export function dailyAdvice(points: AnomalyPoint[], p: AdviceParams = DEFAULT_AD
     const ma = Number.isFinite(maRaw) ? maRaw : null;
     let action: AdviceAction = "normal";
     let reason = "";
+
+    // Slow credit-stress regime filter (independent of the trend stance): when
+    // the Baa spread is well above its norm, de-risk while still invested.
+    const csz = points[i].creditSpreadZ;
+    const stressNow = csz != null && csz > p.creditStressZ;
 
     if (ma != null) {
       const below = spx[i] < ma * (1 - p.band);
@@ -91,13 +103,30 @@ export function dailyAdvice(points: AnomalyPoint[], p: AdviceParams = DEFAULT_AD
           reason = `S&P back ${pctBand}%+ above its ${p.maPeriod}-day average for ${p.confirmDays} days — uptrend resumed`;
         }
       }
+
+      // Credit-stress transitions only matter while we're invested and the trend
+      // stance didn't already change today.
+      if (action === "normal" && stance === "in") {
+        if (stressNow && !creditStress) {
+          action = "reduce-risk";
+          reason = `Credit stress: Baa spread ${csz!.toFixed(1)}σ above normal — cut to ${Math.round(p.reducedExposure * 100)}% equity`;
+        } else if (!stressNow && creditStress) {
+          action = "restore-risk";
+          reason = "Credit stress easing — restore full equity weight";
+        }
+      }
     }
+
+    creditStress = stressNow;
+    const exposure = stance === "out" ? 0 : creditStress ? p.reducedExposure : 1;
 
     if (action === "normal") {
-      reason = stance === "in" ? "Uptrend intact — stay invested, trade as normal" : "Downtrend — stay out / in cash";
+      if (stance === "out") reason = "Downtrend — stay out / in cash";
+      else if (creditStress) reason = `Credit-stress regime — hold reduced (${Math.round(exposure * 100)}%) equity`;
+      else reason = "Uptrend intact — stay invested, trade as normal";
     }
 
-    out.push({ date: points[i].date, spx: spx[i], ma, stance, action, reason });
+    out.push({ date: points[i].date, spx: spx[i], ma, stance, creditStress, exposure, action, reason });
   }
   return out;
 }
@@ -107,6 +136,7 @@ export interface AdviceEquityPoint {
   strategy: number;
   benchmark: number;
   stance: Stance;
+  exposure: number;
 }
 
 export interface AdviceBacktest {
@@ -147,13 +177,13 @@ export function backtestAdvice(advice: AdvicePoint[], points: AnomalyPoint[]): A
   for (let i = start; i < points.length; i++) {
     if (advice[i].action !== "normal") switches++;
     if (i === start) {
-      equity.push({ date: points[i].date, strategy: 1, benchmark: 1, stance: advice[i].stance });
+      equity.push({ date: points[i].date, strategy: 1, benchmark: 1, stance: advice[i].stance, exposure: advice[i].exposure });
       continue;
     }
     const benchRet = points[i].spx / points[i - 1].spx - 1;
-    const invested = advice[i - 1].stance === "in";
+    const exposure = advice[i - 1].exposure; // 0, reduced, or 1 (prior-day stance)
     const dailyCash = points[i - 1].shortRate / 100 / 252;
-    const stratRet = invested ? benchRet : dailyCash;
+    const stratRet = exposure * benchRet + (1 - exposure) * dailyCash;
 
     stratEq *= 1 + stratRet;
     benchEq *= 1 + benchRet;
@@ -161,8 +191,8 @@ export function backtestAdvice(advice: AdvicePoint[], points: AnomalyPoint[]): A
     benchRets.push(benchRet);
     cashRates.push(dailyCash);
     counted++;
-    if (invested) inDays++;
-    equity.push({ date: points[i].date, strategy: stratEq, benchmark: benchEq, stance: advice[i].stance });
+    if (exposure > 0) inDays += exposure;
+    equity.push({ date: points[i].date, strategy: stratEq, benchmark: benchEq, stance: advice[i].stance, exposure: advice[i].exposure });
   }
 
   return {
