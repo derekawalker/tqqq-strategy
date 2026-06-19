@@ -50,29 +50,46 @@ describe("forwardStudy", () => {
 });
 
 describe("tradeSignals", () => {
-  it("BUYs when a crash episode ends and SELLs when a boom begins", () => {
+  // pt(date, spx, signal, shortRate); compose with composite via spread
+  const cp = (date: string, spx: number, composite: number, signal: SignalKind = "neutral") => ({
+    ...pt(date, spx, signal),
+    composite,
+  });
+
+  it("BUYs when the composite reaches the deep-fear zone, once per episode", () => {
     const points = [
-      pt("2024-01-01", 100, "neutral"),
-      pt("2024-01-02", 95, "crash"), // crash begins (no buy yet — falling knife)
-      pt("2024-01-03", 92, "crash"), // still falling
-      pt("2024-01-04", 96, "neutral"), // crash ENDS -> BUY (panic subsided, near the turn)
-      pt("2024-01-05", 110, "boom"), // boom begins -> SELL (fade greed)
-      pt("2024-01-06", 112, "boom"),
-      pt("2024-01-07", 108, "crash"), // crash begins again, hasn't ended -> no buy yet
+      cp("2024-01-01", 100, -1, "neutral"),
+      cp("2024-01-02", 95, -3, "crash"), // not deep enough yet
+      cp("2024-01-03", 90, -5, "crash"), // <= -4.5 -> BUY
+      cp("2024-01-04", 88, -6, "crash"), // already fired, still armed=false
+      cp("2024-01-05", 92, -2, "neutral"), // -2 < reset (-1): still not re-armed
+      cp("2024-01-06", 100, 0, "neutral"), // >= -1 -> re-armed
+      cp("2024-01-07", 110, 2, "boom"), // boom begins -> SELL
     ];
     expect(tradeSignals(points)).toEqual([
-      { date: "2024-01-04", spx: 96, action: "buy" },
-      { date: "2024-01-05", spx: 110, action: "sell" },
+      { date: "2024-01-03", spx: 90, action: "buy" },
+      { date: "2024-01-07", spx: 110, action: "sell" },
     ]);
   });
 
-  it("does not BUY while still inside an unfinished crash episode", () => {
-    const points = [pt("a", 100, "neutral"), pt("b", 90, "crash"), pt("c", 85, "crash")];
-    expect(tradeSignals(points)).toEqual([]);
+  it("fires a second BUY only after the composite resets above the re-arm level", () => {
+    const points = [
+      cp("d1", 100, -5), // BUY
+      cp("d2", 95, -6), // no (armed=false)
+      cp("d3", 110, 0), // re-arm
+      cp("d4", 90, -5), // BUY again
+    ];
+    expect(tradeSignals(points).filter((s) => s.action === "buy").map((s) => s.date)).toEqual(["d1", "d4"]);
   });
 
-  it("returns nothing when the signal never leaves neutral", () => {
-    expect(tradeSignals([pt("2024-01-01", 100, "neutral"), pt("2024-01-02", 101, "neutral")])).toEqual([]);
+  it("respects a custom deep-buy threshold", () => {
+    const points = [cp("a", 100, -4)];
+    expect(tradeSignals(points, -4.5)).toEqual([]); // -4 not deep enough
+    expect(tradeSignals(points, -3.5).filter((s) => s.action === "buy")).toHaveLength(1);
+  });
+
+  it("returns nothing when the composite never reaches the zone", () => {
+    expect(tradeSignals([cp("a", 100, -1), cp("b", 101, -2)])).toEqual([]);
   });
 });
 

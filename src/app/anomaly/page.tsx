@@ -39,7 +39,7 @@ import {
   type AnomalyPoint,
   type SignalKind,
 } from "@/lib/anomaly";
-import { backtest, strategyOptionsFor, tradeSignals, type StrategyMode } from "@/lib/backtest";
+import { backtest, strategyOptionsFor, tradeSignals, DEEP_BUY_Z, type StrategyMode } from "@/lib/backtest";
 import { dailyAdvice, backtestAdvice, type AdvicePoint, type Stance } from "@/lib/advice";
 
 interface AnomalyResponse {
@@ -358,7 +358,7 @@ export default function AnomalyPage() {
                 <Group gap={4}>
                   <Box style={{ width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderBottom: "8px solid var(--mantine-color-teal-4)" }} />
                   <Text size="xs" c="dimmed">
-                    Buy (panic subsides)
+                    Buy (composite ≤ {DEEP_BUY_Z})
                   </Text>
                 </Group>
                 <Group gap={4}>
@@ -440,7 +440,7 @@ export default function AnomalyPage() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" />
                   <XAxis dataKey="date" tickFormatter={tickFormatter} minTickGap={40} fontSize={11} />
-                  <YAxis domain={[-4, 4]} fontSize={11} width={48} />
+                  <YAxis domain={[-6, 4]} fontSize={11} width={48} />
                   <Tooltip
                     labelFormatter={(l) => fmtDate(String(l))}
                     formatter={(v, name) => [Number(v).toFixed(2), name]}
@@ -459,6 +459,12 @@ export default function AnomalyPage() {
                     strokeDasharray="4 4"
                     label={{ value: "crash", fontSize: 10, fill: "var(--mantine-color-red-4)", position: "insideBottomRight" }}
                   />
+                  <ReferenceLine
+                    y={DEEP_BUY_Z}
+                    stroke="var(--mantine-color-teal-4)"
+                    strokeDasharray="4 4"
+                    label={{ value: "buy zone", fontSize: 10, fill: "var(--mantine-color-teal-4)", position: "insideBottomRight" }}
+                  />
                   <Area type="monotone" dataKey="composite" name="Composite" stroke="var(--mantine-color-gray-3)" strokeWidth={1.5} fill="url(#compGrad)" />
                   <Line type="monotone" dataKey="fragility" name="Fragility" stroke="var(--mantine-color-red-5)" dot={false} strokeWidth={1} />
                   <Line type="monotone" dataKey="euphoria" name="Euphoria" stroke="var(--mantine-color-teal-5)" dot={false} strokeWidth={1} />
@@ -467,7 +473,8 @@ export default function AnomalyPage() {
             </Box>
             <Text size="xs" c="dimmed" mt={4}>
               Crash arms at fragility ≥ {CRASH_ENTER} (stands down below {CRASH_EXIT}); boom arms at euphoria ≥{" "}
-              {BOOM_EUPHORIA_ENTER}. Both require {2}-day confirmation.
+              {BOOM_EUPHORIA_ENTER}. Both require {2}-day confirmation. Green BUY markers fire when the composite hits
+              the deep-fear buy zone (≤ {DEEP_BUY_Z}).
             </Text>
           </Paper>
 

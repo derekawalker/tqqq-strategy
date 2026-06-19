@@ -100,24 +100,40 @@ export interface TradeSignal {
   action: "buy" | "sell";
 }
 
+/** Composite z at/below which to flag a deep-fear BUY, and the level it must
+ *  climb back to before another BUY can fire (one signal per episode). */
+export const DEEP_BUY_Z = -4.5;
+export const DEEP_BUY_RESET = -1;
+
 /**
- * Collapse the crash/boom/neutral state stream into a single discrete BUY/SELL
- * signal — the combined actionable read. Because the indicator is contrarian:
+ * Collapse the signal/composite stream into discrete BUY/SELL markers:
  *   - SELL the moment a boom (greed) episode begins — fade the euphoria.
- *   - BUY when a crash (fear) episode ENDS, not when it begins. Fragility spikes
- *     mid-decline, so buying at onset catches the falling knife; waiting for the
- *     panic to subside puts the buy near the actual turn. Validated to roughly
- *     halve the further drawdown after the buy (and cut the worst case from
- *     ~-28% to ~-7%) vs. marking crash onset.
+ *   - BUY when the composite reaches the deep-fear zone (≤ DEEP_BUY_Z, e.g. -4.5)
+ *     — a "scale into panic" signal. One BUY per episode: it re-arms only after
+ *     the composite climbs back to DEEP_BUY_RESET.
+ *
+ * Note: a deep-level BUY fires while the market is often still falling (the
+ * composite reaches -4.5 on the way down), so expect some further drawdown
+ * before the recovery — it's a deep-value entry, not a bottom-timer.
  * One event per episode, for drawing entry/exit markers on the price chart.
  */
-export function tradeSignals(points: AnomalyPoint[]): TradeSignal[] {
+export function tradeSignals(points: AnomalyPoint[], deepBuyZ: number = DEEP_BUY_Z): TradeSignal[] {
   const out: TradeSignal[] = [];
   let prev: SignalKind = "neutral";
+  let armed = true;
   for (const p of points) {
     if (p.signal === "boom" && prev !== "boom") out.push({ date: p.date, spx: p.spx, action: "sell" });
-    if (prev === "crash" && p.signal !== "crash") out.push({ date: p.date, spx: p.spx, action: "buy" });
     prev = p.signal;
+
+    const c = p.composite;
+    if (c != null) {
+      if (armed && c <= deepBuyZ) {
+        out.push({ date: p.date, spx: p.spx, action: "buy" });
+        armed = false;
+      } else if (!armed && c >= DEEP_BUY_RESET) {
+        armed = true;
+      }
+    }
   }
   return out;
 }
