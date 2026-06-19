@@ -77,6 +77,56 @@ function zoneColor(score: number): string {
   return "green";
 }
 
+function fmtUsd(x: number): string {
+  return "$" + Math.round(x).toLocaleString("en-US");
+}
+
+/** Asset label for a position given its base exposure (0 / reduced / 1) and the leverage. */
+function holdingLabel(base: number, leverage: number): string {
+  if (base === 0) return "Cash / T-bills";
+  const eff = base * leverage;
+  const m = Number.isInteger(eff) ? `${eff}` : eff.toFixed(1);
+  return `S&P 500 · ${m}×`;
+}
+
+interface LedgerRow {
+  holding: string;
+  isCash: boolean;
+  from: string;
+  to: string;
+  startBal: number;
+  endBal: number;
+}
+
+/** Walk a starting balance through each contiguous holding period of the advice equity. */
+function buildLedger(
+  equity: { date: string; strategy: number; exposure: number }[],
+  leverage: number,
+  start = 100000,
+): LedgerRow[] {
+  const rows: LedgerRow[] = [];
+  if (equity.length === 0) return rows;
+  let from = 0;
+  for (let i = 1; i <= equity.length; i++) {
+    if (i === equity.length || equity[i].exposure !== equity[from].exposure) {
+      const to = i - 1;
+      const base = equity[from].exposure;
+      // Start balance = portfolio value when this position was entered (the prior
+      // close), so each row's start chains exactly to the previous row's end.
+      rows.push({
+        holding: holdingLabel(base, leverage),
+        isCash: base === 0,
+        from: equity[from].date,
+        to: equity[to].date,
+        startBal: start * equity[Math.max(0, from - 1)].strategy,
+        endBal: start * equity[to].strategy,
+      });
+      from = i;
+    }
+  }
+  return rows;
+}
+
 function adviceHeadline(a: AdvicePoint): string {
   if (a.action === "get-out") return "GET OUT OF THE MARKET";
   if (a.action === "get-back-in") return "GET BACK IN";
@@ -232,6 +282,11 @@ export default function AnomalyPage() {
   );
   const today = advice.at(-1) ?? null;
   const lastChange = useMemo(() => [...advice].reverse().find((a) => a.action !== "normal") ?? null, [advice]);
+
+  const ledger = useMemo(
+    () => (adviceBt ? buildLedger(adviceBt.equity, Number(followLev)) : []),
+    [adviceBt, followLev],
+  );
 
   const points = useMemo(() => (data?.points ?? []).filter((p) => p.composite != null), [data]);
   const spans = useMemo(() => signalSpans(points), [points]);
@@ -390,8 +445,59 @@ export default function AnomalyPage() {
             </Paper>
           )}
 
-          {/* ---- Details (collapsed) ---- */}
-          <Accordion variant="separated" radius={CARD_RADIUS} multiple>
+          {/* ---- Details ---- */}
+          <Accordion variant="separated" radius={CARD_RADIUS} multiple defaultValue={["ledger"]}>
+            <Accordion.Item value="ledger">
+              <Accordion.Control>
+                <Text size="sm" fw={600}>
+                  Position ledger — $100k example ({ledger.length} positions)
+                </Text>
+              </Accordion.Control>
+              <Accordion.Panel>
+                <Box style={{ maxHeight: 400, overflowY: "auto" }}>
+                  <Table fz="xs" stickyHeader verticalSpacing={4} highlightOnHover>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Holding</Table.Th>
+                        <Table.Th>From</Table.Th>
+                        <Table.Th>To</Table.Th>
+                        <Table.Th ta="right">Start</Table.Th>
+                        <Table.Th ta="right">End</Table.Th>
+                        <Table.Th ta="right">Change</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {[...ledger].reverse().map((r, i) => {
+                        const chg = r.startBal > 0 ? r.endBal / r.startBal - 1 : 0;
+                        return (
+                          <Table.Tr key={i}>
+                            <Table.Td>
+                              <Text size="xs" fw={600} c={r.isCash ? "gray.4" : "teal.4"}>
+                                {r.holding}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td>{fmtDate(r.from)}</Table.Td>
+                            <Table.Td>{fmtDate(r.to)}</Table.Td>
+                            <Table.Td ta="right">{fmtUsd(r.startBal)}</Table.Td>
+                            <Table.Td ta="right">{fmtUsd(r.endBal)}</Table.Td>
+                            <Table.Td ta="right" c={chg >= 0 ? "teal.4" : "red.4"}>
+                              {fmtPct(chg)}
+                            </Table.Td>
+                          </Table.Tr>
+                        );
+                      })}
+                    </Table.Tbody>
+                  </Table>
+                </Box>
+                <Text size="xs" c="dimmed" mt="xs">
+                  Each row is a period the strategy held one asset, starting from $100,000 (most recent first). Equity
+                  legs are at the selected {followLev}× leverage (S&amp;P 500 exposure: 1× = SPY, 2× = SSO, 3× =
+                  UPRO/TQQQ-style); cash legs earn the 13-week T-bill yield. Balances are cumulative; ignores fees and
+                  taxes.
+                </Text>
+              </Accordion.Panel>
+            </Accordion.Item>
+
             <Accordion.Item value="signals">
               <Accordion.Control>
                 <Text size="sm" fw={600}>
