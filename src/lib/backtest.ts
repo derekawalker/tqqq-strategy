@@ -94,6 +94,32 @@ export interface BacktestResult {
   signalDays: Record<SignalKind, number>;
 }
 
+export interface TradeSignal {
+  date: string;
+  spx: number;
+  action: "buy" | "sell";
+}
+
+/**
+ * Collapse the crash/boom/neutral state stream into a single discrete BUY/SELL
+ * signal — the combined actionable read. Because the indicator is contrarian, a
+ * crash-state onset (fear) is a BUY and a boom-state onset (greed) is a SELL.
+ * One event per state transition (the entry day), so it can be drawn as entry/
+ * exit markers on the price chart.
+ */
+export function tradeSignals(points: AnomalyPoint[]): TradeSignal[] {
+  const out: TradeSignal[] = [];
+  let prev: SignalKind = "neutral";
+  for (const p of points) {
+    if (p.signal !== prev) {
+      if (p.signal === "crash") out.push({ date: p.date, spx: p.spx, action: "buy" });
+      else if (p.signal === "boom") out.push({ date: p.date, spx: p.spx, action: "sell" });
+      prev = p.signal;
+    }
+  }
+  return out;
+}
+
 function exposureFor(signal: SignalKind, opts: StrategyOptions): number {
   if (signal === "crash") return opts.crashLeverage;
   if (signal === "boom") return opts.boomLeverage;

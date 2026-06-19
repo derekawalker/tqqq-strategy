@@ -28,6 +28,7 @@ import {
   Tooltip,
   ReferenceLine,
   ReferenceArea,
+  ReferenceDot,
 } from "recharts";
 import { CARD_RADIUS } from "@/lib/cardStyles";
 import {
@@ -38,7 +39,7 @@ import {
   type AnomalyPoint,
   type SignalKind,
 } from "@/lib/anomaly";
-import { backtest, strategyOptionsFor, type StrategyMode } from "@/lib/backtest";
+import { backtest, strategyOptionsFor, tradeSignals, type StrategyMode } from "@/lib/backtest";
 
 interface AnomalyResponse {
   points: AnomalyPoint[];
@@ -112,6 +113,8 @@ export default function AnomalyPage() {
   // Only plot the warm-up-complete portion (where z-scores exist).
   const points = useMemo(() => (data?.points ?? []).filter((p) => p.composite != null), [data]);
   const spans = useMemo(() => signalSpans(points), [points]);
+  const markers = useMemo(() => tradeSignals(points), [points]);
+  const lastTrade = markers.at(-1) ?? null;
   const latest = points.at(-1) ?? null;
   const meta = SIGNAL_META[latest?.signal ?? "neutral"];
 
@@ -178,9 +181,11 @@ export default function AnomalyPage() {
                 <Badge color={meta.color} size="lg" variant="filled">
                   {meta.label}
                 </Badge>
-                <Text size="xs" c="dimmed">
-                  {meta.action}
-                </Text>
+                {lastTrade && (
+                  <Text size="xs" c={lastTrade.action === "buy" ? "teal.4" : "red.4"} fw={600}>
+                    Last signal: {lastTrade.action.toUpperCase()} · {fmtDate(lastTrade.date)}
+                  </Text>
+                )}
               </Stack>
               <Stat label="Composite" value={latest.composite} color={latest.composite! >= 0 ? "teal" : "red"} />
               <Stat label="Fragility" value={latest.fragility} color="red" />
@@ -190,9 +195,25 @@ export default function AnomalyPage() {
 
           {/* Price chart with signal shading */}
           <Paper p="md" radius={CARD_RADIUS} withBorder>
-            <Text size="sm" fw={600} mb="xs">
-              S&amp;P 500 with signal regimes
-            </Text>
+            <Group justify="space-between" align="center" mb="xs">
+              <Text size="sm" fw={600}>
+                S&amp;P 500 with BUY / SELL signals
+              </Text>
+              <Group gap="md">
+                <Group gap={4}>
+                  <Box style={{ width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderBottom: "8px solid var(--mantine-color-teal-4)" }} />
+                  <Text size="xs" c="dimmed">
+                    Buy (fear)
+                  </Text>
+                </Group>
+                <Group gap={4}>
+                  <Box style={{ width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: "8px solid var(--mantine-color-red-4)" }} />
+                  <Text size="xs" c="dimmed">
+                    Sell (greed)
+                  </Text>
+                </Group>
+              </Group>
+            </Group>
             <Box h={isMobile ? 220 : 280}>
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
@@ -220,6 +241,28 @@ export default function AnomalyPage() {
                     />
                   ))}
                   <Area type="monotone" dataKey="spx" stroke="var(--mantine-color-blue-4)" strokeWidth={1.5} fill="url(#spxGrad)" />
+                  {markers.map((mk, i) => (
+                    <ReferenceDot
+                      key={i}
+                      x={mk.date}
+                      y={mk.spx}
+                      r={0}
+                      ifOverflow="extendDomain"
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      shape={(props: any) => {
+                        const { cx, cy } = props;
+                        if (cx == null || cy == null) return <g />;
+                        const buy = mk.action === "buy";
+                        const color = buy
+                          ? "var(--mantine-color-teal-4)"
+                          : "var(--mantine-color-red-4)";
+                        const d = buy
+                          ? `M ${cx} ${cy + 4} L ${cx - 5} ${cy + 12} L ${cx + 5} ${cy + 12} Z`
+                          : `M ${cx} ${cy - 4} L ${cx - 5} ${cy - 12} L ${cx + 5} ${cy - 12} Z`;
+                        return <path d={d} fill={color} stroke="var(--mantine-color-dark-7)" strokeWidth={0.5} />;
+                      }}
+                    />
+                  ))}
                 </ComposedChart>
               </ResponsiveContainer>
             </Box>
