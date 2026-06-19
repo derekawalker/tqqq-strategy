@@ -52,6 +52,25 @@ function fmtDate(iso: string): string {
   return `${m}/${d}/${y.slice(2)}`;
 }
 
+const RANGE_MONTHS: Record<string, number | null> = {
+  "3m": 3,
+  "6m": 6,
+  "1y": 12,
+  "2y": 24,
+  "5y": 60,
+  "10y": 120,
+  "max": null,
+};
+
+/** ISO cutoff date for a display range, or null for "max" (all data). */
+function cutoffISO(range: string): string | null {
+  const m = RANGE_MONTHS[range];
+  if (m == null) return null;
+  const d = new Date();
+  d.setMonth(d.getMonth() - m);
+  return d.toISOString().slice(0, 10);
+}
+
 function fmtPct(v: number | null): string {
   return v == null ? "—" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
 }
@@ -263,51 +282,62 @@ function signalSpans(points: AnomalyPoint[]) {
 
 export default function AnomalyPage() {
   const isMobile = useMediaQuery("(max-width: 768px)") ?? false;
-  const [years, setYears] = useState("5");
+  const [range, setRange] = useState("5y"); // display window (the indicators always use full history)
   const [mode, setMode] = useState<StrategyMode>("contrarian");
   const [lev, setLev] = useState("1");
   const [followLev, setFollowLev] = useState("2"); // leverage applied to the signal-following backtest
-  const [result, setResult] = useState<{ years: string; data: AnomalyResponse | null; error: string | null } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{ data: AnomalyResponse | null; error: string | null } | null>(null);
 
+  // Always fetch the full history so the z-scores / 200-day MA have warm-up; the
+  // range toggle only filters what's displayed and backtested.
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/anomaly?years=${years}`)
+    fetch(`/api/anomaly?years=14`)
       .then((r) => r.json())
       .then((d) => {
         if (cancelled) return;
-        if (d.error) setResult({ years, data: null, error: d.error });
-        else setResult({ years, data: d, error: null });
+        setResult(d.error ? { data: null, error: d.error } : { data: d, error: null });
       })
-      .catch((e) => !cancelled && setResult({ years, data: null, error: String(e) }));
+      .catch((e) => !cancelled && setResult({ data: null, error: String(e) }));
     return () => {
       cancelled = true;
     };
-  }, [years]);
+  }, []);
 
-  const data = result?.years === years ? result.data : null;
-  const error = result?.years === years ? result.error : null;
-  const loading = !result || result.years !== years;
+  const data = result?.data ?? null;
+  const error = result?.error ?? null;
+  const loading = !result;
+  const cutoff = cutoffISO(range);
 
+  // Advice + indicators computed over the FULL history (need the warm-up).
   const fullPoints = useMemo(() => data?.points ?? [], [data]);
   const advice = useMemo(() => (fullPoints.length ? dailyAdvice(fullPoints) : []), [fullPoints]);
-  const adviceBt = useMemo(
-    () => (advice.length ? backtestAdvice(advice, fullPoints, Number(followLev)) : null),
-    [advice, fullPoints, followLev],
-  );
   const today = advice.at(-1) ?? null;
   const lastChange = useMemo(() => [...advice].reverse().find((a) => a.action !== "normal") ?? null, [advice]);
+  const pointsAll = useMemo(() => fullPoints.filter((p) => p.composite != null), [fullPoints]);
+  const latest = pointsAll.at(-1) ?? null; // gauge / today always reflect the latest reading
+
+  // Backtest + ledger over the selected display window (advice & points sliced
+  // together so they stay aligned; equity rebases to $1 at the window start).
+  const adviceBt = useMemo(() => {
+    const aw = cutoff ? advice.filter((a) => a.date >= cutoff) : advice;
+    const pw = cutoff ? fullPoints.filter((p) => p.date >= cutoff) : fullPoints;
+    return aw.length > 1 ? backtestAdvice(aw, pw, Number(followLev)) : null;
+  }, [advice, fullPoints, cutoff, followLev]);
 
   const ledger = useMemo(
     () => (adviceBt ? buildLedger(adviceBt.equity, Number(followLev)) : []),
     [adviceBt, followLev],
   );
 
-  const points = useMemo(() => (data?.points ?? []).filter((p) => p.composite != null), [data]);
+  // Charts (price + oscillator) over the window; markers computed on full history
+  // (stateful) then filtered into the window.
+  const points = useMemo(() => (cutoff ? pointsAll.filter((p) => p.date >= cutoff) : pointsAll), [pointsAll, cutoff]);
   const spans = useMemo(() => signalSpans(points), [points]);
-  const markers = useMemo(() => tradeSignals(points), [points]);
-  const latest = points.at(-1) ?? null;
+  const markers = useMemo(() => {
+    const all = tradeSignals(pointsAll);
+    return cutoff ? all.filter((m) => m.date >= cutoff) : all;
+  }, [pointsAll, cutoff]);
 
   const bt = useMemo(
     () => (points.length > 1 ? backtest(points, strategyOptionsFor(mode, Number(lev))) : null),
@@ -336,13 +366,16 @@ export default function AnomalyPage() {
         </Text>
         <SegmentedControl
           size="xs"
-          value={years}
-          onChange={setYears}
+          value={range}
+          onChange={setRange}
           data={[
-            { label: "3Y", value: "3" },
-            { label: "5Y", value: "5" },
-            { label: "10Y", value: "10" },
-            { label: "Max", value: "14" },
+            { label: "3M", value: "3m" },
+            { label: "6M", value: "6m" },
+            { label: "1Y", value: "1y" },
+            { label: "2Y", value: "2y" },
+            { label: "5Y", value: "5y" },
+            { label: "10Y", value: "10y" },
+            { label: "Max", value: "max" },
           ]}
         />
       </Group>
