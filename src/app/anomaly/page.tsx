@@ -40,6 +40,7 @@ import {
   type SignalKind,
 } from "@/lib/anomaly";
 import { backtest, strategyOptionsFor, tradeSignals, type StrategyMode } from "@/lib/backtest";
+import { dailyAdvice, backtestAdvice, type AdvicePoint, type Stance } from "@/lib/advice";
 
 interface AnomalyResponse {
   points: AnomalyPoint[];
@@ -56,6 +57,36 @@ const SIGNAL_META: Record<SignalKind, { label: string; color: string; action: st
 function fmtDate(iso: string): string {
   const [y, m, d] = iso.split("-");
   return `${m}/${d}/${y.slice(2)}`;
+}
+
+/** Headline message + card color for today's advice. */
+function adviceHeadline(a: AdvicePoint): string {
+  if (a.action === "get-out") return "GET OUT OF THE MARKET";
+  if (a.action === "get-back-in") return "GET BACK IN";
+  return a.stance === "in" ? "TRADE AS NORMAL" : "STAY OUT — HOLD CASH";
+}
+
+function adviceBg(a: AdvicePoint): string {
+  if (a.action === "get-out") return "var(--mantine-color-red-8)";
+  if (a.action === "get-back-in") return "var(--mantine-color-teal-8)";
+  return a.stance === "in" ? "var(--mantine-color-green-9)" : "var(--mantine-color-orange-9)";
+}
+
+/** Contiguous spans where the advice stance was "out", for chart shading. */
+function outSpans(equity: { date: string; stance: Stance }[]) {
+  const spans: { x1: string; x2: string }[] = [];
+  let cur: { x1: string; x2: string } | null = null;
+  for (const e of equity) {
+    if (e.stance === "out") {
+      if (cur) cur.x2 = e.date;
+      else cur = { x1: e.date, x2: e.date };
+    } else if (cur) {
+      spans.push(cur);
+      cur = null;
+    }
+  }
+  if (cur) spans.push(cur);
+  return spans;
 }
 
 /** Group consecutive non-neutral days into shaded spans for the price chart. */
@@ -109,6 +140,16 @@ export default function AnomalyPage() {
   const data = result?.years === years ? result.data : null;
   const error = result?.years === years ? result.error : null;
   const loading = !result || result.years !== years;
+
+  // Full series (incl. warm-up) for the moving-average-based advice engine.
+  const fullPoints = useMemo(() => data?.points ?? [], [data]);
+  const advice = useMemo(() => (fullPoints.length ? dailyAdvice(fullPoints) : []), [fullPoints]);
+  const adviceBt = useMemo(
+    () => (advice.length ? backtestAdvice(advice, fullPoints) : null),
+    [advice, fullPoints],
+  );
+  const today = advice.at(-1) ?? null;
+  const lastChange = useMemo(() => [...advice].reverse().find((a) => a.action !== "normal") ?? null, [advice]);
 
   // Only plot the warm-up-complete portion (where z-scores exist).
   const points = useMemo(() => (data?.points ?? []).filter((p) => p.composite != null), [data]);
@@ -171,6 +212,87 @@ export default function AnomalyPage() {
         <Skeleton height={460} radius={CARD_RADIUS} />
       ) : latest ? (
         <>
+          {/* Headline: today's advice */}
+          {today && (
+            <Paper p="lg" radius={CARD_RADIUS} withBorder bg={adviceBg(today)}>
+              <Stack gap={6}>
+                <Text size="xs" c="rgba(255,255,255,0.75)" tt="uppercase" fw={600}>
+                  Daily advice · {fmtDate(today.date)}
+                </Text>
+                <Text size={isMobile ? "28px" : "34px"} fw={800} c="white" lh={1.1}>
+                  {adviceHeadline(today)}
+                </Text>
+                <Text size="sm" c="rgba(255,255,255,0.9)">
+                  {today.reason}
+                </Text>
+                <Group gap="lg" mt={4}>
+                  <Text size="xs" c="rgba(255,255,255,0.85)">
+                    Current stance: <b>{today.stance === "in" ? "Invested" : "In cash"}</b>
+                  </Text>
+                  {lastChange && (
+                    <Text size="xs" c="rgba(255,255,255,0.85)">
+                      Last change: <b>{lastChange.action === "get-out" ? "Got out" : "Got back in"}</b> ·{" "}
+                      {fmtDate(lastChange.date)}
+                    </Text>
+                  )}
+                </Group>
+              </Stack>
+            </Paper>
+          )}
+
+          {/* Daily-advice validation: equity vs buy & hold, out-periods shaded */}
+          {adviceBt && adviceBt.equity.length > 1 && (
+            <Paper p="md" radius={CARD_RADIUS} withBorder>
+              <Text size="sm" fw={600} mb="xs">
+                Following this advice vs. buy &amp; hold
+              </Text>
+              <Box h={isMobile ? 200 : 250}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={adviceBt.equity} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" />
+                    <XAxis dataKey="date" tickFormatter={tickFormatter} minTickGap={40} fontSize={11} />
+                    <YAxis tickFormatter={(v) => `${v.toFixed(1)}×`} fontSize={11} width={40} />
+                    <Tooltip
+                      labelFormatter={(l) => fmtDate(String(l))}
+                      formatter={(v, name) => [`${Number(v).toFixed(2)}×`, name]}
+                      contentStyle={{ background: "var(--mantine-color-dark-7)", border: "none", borderRadius: 8 }}
+                    />
+                    {outSpans(adviceBt.equity).map((s, i) => (
+                      <ReferenceArea key={i} x1={s.x1} x2={s.x2} fill="var(--mantine-color-gray-5)" fillOpacity={0.18} />
+                    ))}
+                    <Line type="monotone" dataKey="benchmark" name="Buy & Hold" stroke="var(--mantine-color-gray-5)" dot={false} strokeWidth={1.5} />
+                    <Line type="monotone" dataKey="strategy" name="Follow advice" stroke="var(--mantine-color-teal-4)" dot={false} strokeWidth={1.5} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </Box>
+              <Text size="xs" c="dimmed" mt={2}>
+                Shaded = periods the advice had you out of the market (in T-bills). {adviceBt.switches} stance changes
+                over this window; invested {(adviceBt.pctInMarket * 100).toFixed(0)}% of the time.
+              </Text>
+              <Table mt="sm" fz="xs" withRowBorders={false} verticalSpacing={4}>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Metric</Table.Th>
+                    <Table.Th ta="right">Follow advice</Table.Th>
+                    <Table.Th ta="right">Buy &amp; Hold</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  <MetricRow label="CAGR" a={adviceBt.strategy.cagr} b={adviceBt.benchmark.cagr} pct />
+                  <MetricRow label="Max drawdown" a={adviceBt.strategy.maxDrawdown} b={adviceBt.benchmark.maxDrawdown} pct higherBetter />
+                  <MetricRow label="Sharpe" a={adviceBt.strategy.sharpe} b={adviceBt.benchmark.sharpe} />
+                  <MetricRow label="Sortino" a={adviceBt.strategy.sortino} b={adviceBt.benchmark.sortino} />
+                  <MetricRow label="Calmar" a={adviceBt.strategy.calmar} b={adviceBt.benchmark.calmar} />
+                </Table.Tbody>
+              </Table>
+              <Text size="xs" c="dimmed" mt={4}>
+                Get-out uses a trend break (price below its 200-day average) because the indicators don&apos;t reliably
+                lead tops; get-back-in uses a composite capitulation extreme, which historically led the 2018 / 2020 /
+                2025 bottoms by days. Ignores fees, slippage and taxes.
+              </Text>
+            </Paper>
+          )}
+
           {/* Status banner */}
           <Paper p="lg" radius={CARD_RADIUS} withBorder>
             <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="lg">
