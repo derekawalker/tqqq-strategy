@@ -50,22 +50,25 @@ describe("forwardStudy", () => {
 });
 
 describe("tradeSignals", () => {
-  it("emits BUY on crash onset and SELL on boom onset, once per transition", () => {
+  it("BUYs when a crash episode ends and SELLs when a boom begins", () => {
     const points = [
       pt("2024-01-01", 100, "neutral"),
-      pt("2024-01-02", 95, "crash"), // BUY (fear)
-      pt("2024-01-03", 96, "crash"), // still crash, no new event
-      pt("2024-01-04", 100, "neutral"),
-      pt("2024-01-05", 110, "boom"), // SELL (greed)
+      pt("2024-01-02", 95, "crash"), // crash begins (no buy yet — falling knife)
+      pt("2024-01-03", 92, "crash"), // still falling
+      pt("2024-01-04", 96, "neutral"), // crash ENDS -> BUY (panic subsided, near the turn)
+      pt("2024-01-05", 110, "boom"), // boom begins -> SELL (fade greed)
       pt("2024-01-06", 112, "boom"),
-      pt("2024-01-07", 108, "crash"), // BUY again
+      pt("2024-01-07", 108, "crash"), // crash begins again, hasn't ended -> no buy yet
     ];
-    const sigs = tradeSignals(points);
-    expect(sigs).toEqual([
-      { date: "2024-01-02", spx: 95, action: "buy" },
+    expect(tradeSignals(points)).toEqual([
+      { date: "2024-01-04", spx: 96, action: "buy" },
       { date: "2024-01-05", spx: 110, action: "sell" },
-      { date: "2024-01-07", spx: 108, action: "buy" },
     ]);
+  });
+
+  it("does not BUY while still inside an unfinished crash episode", () => {
+    const points = [pt("a", 100, "neutral"), pt("b", 90, "crash"), pt("c", 85, "crash")];
+    expect(tradeSignals(points)).toEqual([]);
   });
 
   it("returns nothing when the signal never leaves neutral", () => {

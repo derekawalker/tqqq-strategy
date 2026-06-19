@@ -358,7 +358,7 @@ export default function AnomalyPage() {
                 <Group gap={4}>
                   <Box style={{ width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderBottom: "8px solid var(--mantine-color-teal-4)" }} />
                   <Text size="xs" c="dimmed">
-                    Buy (fear)
+                    Buy (panic subsides)
                   </Text>
                 </Group>
                 <Group gap={4}>
