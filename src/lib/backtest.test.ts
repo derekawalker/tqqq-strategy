@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { maxDrawdown, performance, forwardStudy, backtest, DEFAULT_OPTIONS } from "./backtest";
+import { maxDrawdown, performance, forwardStudy, backtest, DEFAULT_OPTIONS, strategyOptionsFor } from "./backtest";
 import type { AnomalyPoint, SignalKind } from "./anomaly";
 
 function pt(date: string, spx: number, signal: SignalKind, shortRate = 0): AnomalyPoint {
@@ -73,6 +73,25 @@ describe("backtest", () => {
     const res = backtest(points, { boomLeverage: 3, neutralLeverage: 1, crashLeverage: 0 });
     expect(res.equity[1].benchmark).toBeCloseTo(1.1, 10);
     expect(res.equity[1].strategy).toBeCloseTo(1.3, 10); // 3 × 10%
+  });
+
+  it("strategyOptionsFor maps mode + leverage to per-state exposure", () => {
+    expect(strategyOptionsFor("trend", 3)).toEqual({ crashLeverage: 0, neutralLeverage: 1, boomLeverage: 3 });
+    // contrarian: lever into crashes, sit in cash during booms
+    expect(strategyOptionsFor("contrarian", 2)).toEqual({ crashLeverage: 2, neutralLeverage: 1, boomLeverage: 0 });
+    // contrarian at 1x = the "trim froth" play: stay invested except sell on boom
+    expect(strategyOptionsFor("contrarian", 1)).toEqual({ crashLeverage: 1, neutralLeverage: 1, boomLeverage: 0 });
+  });
+
+  it("contrarian de-risks on the prior-day boom signal", () => {
+    const points = [
+      pt("2024-01-01", 100, "boom", 0),
+      pt("2024-01-02", 90, "neutral", 0), // -10% day; contrarian was in cash, trend was 2x
+    ];
+    const contra = backtest(points, strategyOptionsFor("contrarian", 2));
+    const trend = backtest(points, strategyOptionsFor("trend", 2));
+    expect(contra.equity[1].strategy).toBeCloseTo(1, 10); // sidestepped the drop
+    expect(trend.equity[1].strategy).toBeCloseTo(1 + 2 * -0.1, 10); // 2x the -10%
   });
 
   it("cash position earns the short rate when fully de-risked", () => {

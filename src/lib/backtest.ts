@@ -37,6 +37,26 @@ export const DEFAULT_OPTIONS: StrategyOptions = {
   crashLeverage: 0,
 };
 
+/**
+ * Two ways to act on the signal:
+ *  - "trend": take the signal at face value — risk-on in booms, cash in crashes.
+ *  - "contrarian": fade it — because the signal is empirically a mean-reversion
+ *    indicator (high fragility marks bottoms, euphoria precedes weakness), this
+ *    stays invested through crashes and steps aside (to cash) during euphoria.
+ */
+export type StrategyMode = "trend" | "contrarian";
+
+/**
+ * Map a mode + leverage knob to per-state exposures. In contrarian mode the
+ * leverage applies to the crash state (buy the dip); in trend mode it applies
+ * to the boom state (ride the melt-up). Neutral is always the benchmark.
+ */
+export function strategyOptionsFor(mode: StrategyMode, leverage: number): StrategyOptions {
+  return mode === "contrarian"
+    ? { crashLeverage: leverage, neutralLeverage: 1, boomLeverage: 0 }
+    : { crashLeverage: 0, neutralLeverage: 1, boomLeverage: leverage };
+}
+
 export interface EquityPoint {
   date: string;
   strategy: number; // growth of $1

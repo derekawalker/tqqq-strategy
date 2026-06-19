@@ -38,7 +38,7 @@ import {
   type AnomalyPoint,
   type SignalKind,
 } from "@/lib/anomaly";
-import { backtest } from "@/lib/backtest";
+import { backtest, strategyOptionsFor, type StrategyMode } from "@/lib/backtest";
 
 interface AnomalyResponse {
   points: AnomalyPoint[];
@@ -82,7 +82,8 @@ function signalSpans(points: AnomalyPoint[]) {
 export default function AnomalyPage() {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [years, setYears] = useState("5");
-  const [boomLev, setBoomLev] = useState("3"); // boom-state leverage for the backtest
+  const [mode, setMode] = useState<StrategyMode>("contrarian"); // how to act on the signal
+  const [lev, setLev] = useState("1"); // leverage knob (applies to crash in contrarian, boom in trend)
   // Result is tagged with the `years` it was fetched for, so loading/error are
   // derived (no synchronous setState in the effect body).
   const [result, setResult] = useState<{ years: string; data: AnomalyResponse | null; error: string | null } | null>(
@@ -115,11 +116,8 @@ export default function AnomalyPage() {
   const meta = SIGNAL_META[latest?.signal ?? "neutral"];
 
   const bt = useMemo(
-    () =>
-      points.length > 1
-        ? backtest(points, { boomLeverage: Number(boomLev), neutralLeverage: 1, crashLeverage: 0 })
-        : null,
-    [points, boomLev],
+    () => (points.length > 1 ? backtest(points, strategyOptionsFor(mode, Number(lev))) : null),
+    [points, mode, lev],
   );
 
   const spxDomain = useMemo((): [number, number] => {
@@ -278,24 +276,40 @@ export default function AnomalyPage() {
           {/* Backtest: strategy P&L + leading-indicator event study */}
           {bt && (
             <Paper p="md" radius={CARD_RADIUS} withBorder>
-              <Group justify="space-between" align="center" mb="xs">
+              <Group justify="space-between" align="center" mb="xs" wrap="wrap">
                 <Text size="sm" fw={600}>
                   Backtest &amp; validation
                 </Text>
-                <Group gap="xs" align="center">
-                  <Text size="xs" c="dimmed">
-                    Boom leverage
-                  </Text>
-                  <SegmentedControl
-                    size="xs"
-                    value={boomLev}
-                    onChange={setBoomLev}
-                    data={[
-                      { label: "1×", value: "1" },
-                      { label: "2×", value: "2" },
-                      { label: "3×", value: "3" },
-                    ]}
-                  />
+                <Group gap="md" align="center">
+                  <Group gap={6} align="center">
+                    <Text size="xs" c="dimmed">
+                      Strategy
+                    </Text>
+                    <SegmentedControl
+                      size="xs"
+                      value={mode}
+                      onChange={(v) => setMode(v as StrategyMode)}
+                      data={[
+                        { label: "Contrarian", value: "contrarian" },
+                        { label: "Trend", value: "trend" },
+                      ]}
+                    />
+                  </Group>
+                  <Group gap={6} align="center">
+                    <Text size="xs" c="dimmed">
+                      Leverage
+                    </Text>
+                    <SegmentedControl
+                      size="xs"
+                      value={lev}
+                      onChange={setLev}
+                      data={[
+                        { label: "1×", value: "1" },
+                        { label: "2×", value: "2" },
+                        { label: "3×", value: "3" },
+                      ]}
+                    />
+                  </Group>
                 </Group>
               </Group>
 
@@ -337,7 +351,18 @@ export default function AnomalyPage() {
                 </Table.Tbody>
               </Table>
               <Text size="xs" c="dimmed" mt={4}>
-                Strategy: crash → cash (earns the 13-week T-bill yield), boom → {boomLev}× equity, neutral → benchmark.
+                {mode === "contrarian" ? (
+                  <>
+                    <b>Contrarian</b> (fades the signal): crash → {lev}× equity (buy the dip), boom → cash (earns the
+                    13-week T-bill yield), neutral → benchmark. At 1× this is the &quot;trim froth&quot; play — stay
+                    invested except step aside during euphoria.
+                  </>
+                ) : (
+                  <>
+                    <b>Trend</b> (takes the signal at face value): crash → cash (earns the 13-week T-bill yield), boom →{" "}
+                    {lev}× equity, neutral → benchmark.
+                  </>
+                )}{" "}
                 Positions use the prior day&apos;s signal (1-day execution lag), ignoring fees, slippage and leveraged-ETF
                 decay.
               </Text>
