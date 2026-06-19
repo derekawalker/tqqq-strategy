@@ -145,14 +145,20 @@ export interface AdviceBacktest {
   benchmark: PerfMetrics;
   switches: number; // number of get-out / get-back-in changes
   pctInMarket: number;
+  avgExposure: number; // average effective equity exposure (leverage-weighted)
 }
 
 /**
- * Backtest following the advice: invested (1×) when stance is "in", in cash
- * earning the T-bill rate when "out". Position uses the prior day's stance
- * (1-day execution lag). Begins once the moving average is available.
+ * Backtest following the advice. Effective equity exposure = the advice's base
+ * exposure (0 out / reduced / 1 in) × `leverage`; the rest sits in cash at the
+ * T-bill rate (a negative cash weight when leveraged models financing cost).
+ * Position uses the prior day's stance (1-day execution lag).
+ *
+ * Leverage > 1 is what lets this BEAT buy & hold: the get-out / credit-stress
+ * de-risking keeps drawdowns controlled, so leverage can compound through the
+ * uptrends instead of blowing up in the declines (as leveraged buy & hold does).
  */
-export function backtestAdvice(advice: AdvicePoint[], points: AnomalyPoint[]): AdviceBacktest {
+export function backtestAdvice(advice: AdvicePoint[], points: AnomalyPoint[], leverage = 1): AdviceBacktest {
   const start = advice.findIndex((a) => a.ma != null);
   const equity: AdviceEquityPoint[] = [];
   const stratRets: number[] = [];
@@ -163,6 +169,7 @@ export function backtestAdvice(advice: AdvicePoint[], points: AnomalyPoint[]): A
   let switches = 0;
   let inDays = 0;
   let counted = 0;
+  let sumExposure = 0;
 
   if (start < 0) {
     return {
@@ -171,6 +178,7 @@ export function backtestAdvice(advice: AdvicePoint[], points: AnomalyPoint[]): A
       benchmark: performance([], [], []),
       switches: 0,
       pctInMarket: 0,
+      avgExposure: 0,
     };
   }
 
@@ -181,7 +189,8 @@ export function backtestAdvice(advice: AdvicePoint[], points: AnomalyPoint[]): A
       continue;
     }
     const benchRet = points[i].spx / points[i - 1].spx - 1;
-    const exposure = advice[i - 1].exposure; // 0, reduced, or 1 (prior-day stance)
+    const baseExposure = advice[i - 1].exposure; // 0, reduced, or 1 (prior-day stance)
+    const exposure = baseExposure * leverage; // effective equity weight
     const dailyCash = points[i - 1].shortRate / 100 / 252;
     const stratRet = exposure * benchRet + (1 - exposure) * dailyCash;
 
@@ -191,7 +200,8 @@ export function backtestAdvice(advice: AdvicePoint[], points: AnomalyPoint[]): A
     benchRets.push(benchRet);
     cashRates.push(dailyCash);
     counted++;
-    if (exposure > 0) inDays += exposure;
+    if (baseExposure > 0) inDays += baseExposure;
+    sumExposure += exposure;
     equity.push({ date: points[i].date, strategy: stratEq, benchmark: benchEq, stance: advice[i].stance, exposure: advice[i].exposure });
   }
 
@@ -201,5 +211,6 @@ export function backtestAdvice(advice: AdvicePoint[], points: AnomalyPoint[]): A
     benchmark: performance(benchRets, equity.map((e) => e.benchmark), cashRates),
     switches,
     pctInMarket: counted > 0 ? inDays / counted : 0,
+    avgExposure: counted > 0 ? sumExposure / counted : 0,
   };
 }

@@ -200,6 +200,7 @@ export default function AnomalyPage() {
   const [years, setYears] = useState("5");
   const [mode, setMode] = useState<StrategyMode>("contrarian");
   const [lev, setLev] = useState("1");
+  const [followLev, setFollowLev] = useState("2"); // leverage applied to the signal-following backtest
   const [result, setResult] = useState<{ years: string; data: AnomalyResponse | null; error: string | null } | null>(
     null,
   );
@@ -225,7 +226,10 @@ export default function AnomalyPage() {
 
   const fullPoints = useMemo(() => data?.points ?? [], [data]);
   const advice = useMemo(() => (fullPoints.length ? dailyAdvice(fullPoints) : []), [fullPoints]);
-  const adviceBt = useMemo(() => (advice.length ? backtestAdvice(advice, fullPoints) : null), [advice, fullPoints]);
+  const adviceBt = useMemo(
+    () => (advice.length ? backtestAdvice(advice, fullPoints, Number(followLev)) : null),
+    [advice, fullPoints, followLev],
+  );
   const today = advice.at(-1) ?? null;
   const lastChange = useMemo(() => [...advice].reverse().find((a) => a.action !== "normal") ?? null, [advice]);
 
@@ -325,12 +329,30 @@ export default function AnomalyPage() {
           {/* ---- Backtest: following the signals ---- */}
           {adviceBt && adviceBt.equity.length > 1 && (
             <Paper p="md" radius={CARD_RADIUS} withBorder>
-              <Text size="sm" fw={600} mb={2}>
-                If you&apos;d followed the signals
-              </Text>
+              <Group justify="space-between" align="center" mb={2} wrap="wrap">
+                <Text size="sm" fw={600}>
+                  If you&apos;d followed the signals
+                </Text>
+                <Group gap={6} align="center">
+                  <Text size="xs" c="dimmed">
+                    Leverage when invested
+                  </Text>
+                  <SegmentedControl
+                    size="xs"
+                    value={followLev}
+                    onChange={setFollowLev}
+                    data={[
+                      { label: "1×", value: "1" },
+                      { label: "1.5×", value: "1.5" },
+                      { label: "2×", value: "2" },
+                      { label: "3×", value: "3" },
+                    ]}
+                  />
+                </Group>
+              </Group>
               <Text size="xs" c="dimmed" mb="sm">
-                $1 invested when the advice says &quot;in&quot;, in T-bills when &quot;out&quot;, half-weight during a
-                credit-stress regime — vs. buy &amp; hold.
+                {followLev}× equity while the advice says &quot;in&quot; (halved during a credit-stress regime), T-bills
+                when &quot;out&quot; — vs. 1× buy &amp; hold. The de-risking lets leverage compound safely.
               </Text>
               <Box h={isMobile ? 200 : 260}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -361,8 +383,9 @@ export default function AnomalyPage() {
                 <SummaryStat label="Sharpe" follow={adviceBt.strategy.sharpe} hold={adviceBt.benchmark.sharpe} higherBetter />
               </SimpleGrid>
               <Text size="xs" c="dimmed" mt="sm">
-                Gray = out of market; orange = reduced (credit stress). {adviceBt.switches} changes; avg equity exposure{" "}
-                {(adviceBt.pctInMarket * 100).toFixed(0)}%. Ignores fees, slippage and taxes.
+                Gray = out of market; orange = reduced (credit stress). {adviceBt.switches} changes; average equity
+                exposure {(adviceBt.avgExposure * 100).toFixed(0)}%. Leverage adds risk; figures ignore leveraged-ETF
+                fees/decay, slippage and taxes.
               </Text>
             </Paper>
           )}
