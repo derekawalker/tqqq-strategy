@@ -35,7 +35,7 @@ export const DEFAULT_ADVICE: AdviceParams = {
   maPeriod: 200,
   band: 0.03,
   confirmDays: 3,
-  capitulation: -3,
+  capitulation: -4,
   creditStressZ: 1,
   reducedExposure: 0.5,
 };
