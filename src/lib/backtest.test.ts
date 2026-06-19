@@ -56,40 +56,51 @@ describe("tradeSignals", () => {
     composite,
   });
 
-  it("BUYs when the composite reaches the deep-fear zone, once per episode", () => {
+  // Use a 2-day MA so short fixtures can exercise the price-turn confirmation.
+  const ts = (points: AnomalyPoint[], thr = -5) => tradeSignals(points, thr, 2);
+
+  it("BUYs only after composite hits the zone AND price turns up", () => {
     const points = [
-      cp("2024-01-01", 100, -1, "neutral"),
-      cp("2024-01-02", 95, -3, "crash"), // not deep enough yet
-      cp("2024-01-03", 90, -5, "crash"), // <= -4.5 -> BUY
-      cp("2024-01-04", 88, -6, "crash"), // already fired, still armed=false
-      cp("2024-01-05", 92, -2, "neutral"), // -2 < reset (-1): still not re-armed
-      cp("2024-01-06", 100, 0, "neutral"), // >= -1 -> re-armed
-      cp("2024-01-07", 110, 2, "boom"), // boom begins -> SELL
+      cp("d0", 100, -1, "neutral"),
+      cp("d1", 96, -3, "crash"), // not deep enough
+      cp("d2", 92, -6, "crash"), // <= -5 -> awaiting the turn (no buy: still falling)
+      cp("d3", 88, -7, "crash"), // sma2[92,88]=90, 88<90 -> no buy
+      cp("d4", 98, -4, "crash"), // sma2[88,98]=93, 98>93 -> BUY (turn confirmed)
+      cp("d5", 108, 0, "neutral"), // composite >= -1 -> re-armed
+      cp("d6", 120, 2, "boom"), // boom begins -> SELL
     ];
-    expect(tradeSignals(points)).toEqual([
-      { date: "2024-01-03", spx: 90, action: "buy" },
-      { date: "2024-01-07", spx: 110, action: "sell" },
+    expect(ts(points)).toEqual([
+      { date: "d4", spx: 98, action: "buy" },
+      { date: "d6", spx: 120, action: "sell" },
     ]);
+  });
+
+  it("does not BUY while still falling inside the deep zone", () => {
+    const points = [cp("a", 100, -1), cp("b", 95, -6), cp("c", 90, -7), cp("d", 85, -8)];
+    expect(ts(points)).toEqual([]); // reached -5 but price never turned up
   });
 
   it("fires a second BUY only after the composite resets above the re-arm level", () => {
     const points = [
-      cp("d1", 100, -5), // BUY
-      cp("d2", 95, -6), // no (armed=false)
-      cp("d3", 110, 0), // re-arm
-      cp("d4", 90, -5), // BUY again
+      cp("d0", 100, -1),
+      cp("d1", 90, -6), // deep
+      cp("d2", 96, -5), // sma2[90,96]=93, 96>93 -> BUY #1
+      cp("d3", 92, -4), // cooldown (composite still < -1)
+      cp("d4", 110, 0), // composite >= -1 -> re-armed
+      cp("d5", 95, -6), // deep again
+      cp("d6", 100, -4), // sma2[95,100]=97.5, 100>97.5 -> BUY #2
     ];
-    expect(tradeSignals(points).filter((s) => s.action === "buy").map((s) => s.date)).toEqual(["d1", "d4"]);
+    expect(ts(points).filter((s) => s.action === "buy").map((s) => s.date)).toEqual(["d2", "d6"]);
   });
 
   it("respects a custom deep-buy threshold", () => {
-    const points = [cp("a", 100, -4)];
-    expect(tradeSignals(points, -4.5)).toEqual([]); // -4 not deep enough
-    expect(tradeSignals(points, -3.5).filter((s) => s.action === "buy")).toHaveLength(1);
+    const shallow = [cp("a", 100, -1), cp("b", 96, -4), cp("c", 102, -3)];
+    expect(ts(shallow, -5).filter((s) => s.action === "buy")).toHaveLength(0); // -4 not deep enough for -5
+    expect(ts(shallow, -3.5).filter((s) => s.action === "buy")).toHaveLength(1); // -4 qualifies, then turns up
   });
 
   it("returns nothing when the composite never reaches the zone", () => {
-    expect(tradeSignals([cp("a", 100, -1), cp("b", 101, -2)])).toEqual([]);
+    expect(ts([cp("a", 100, -1), cp("b", 101, -2)])).toEqual([]);
   });
 });
 

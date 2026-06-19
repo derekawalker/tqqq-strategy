@@ -358,7 +358,7 @@ export default function AnomalyPage() {
                 <Group gap={4}>
                   <Box style={{ width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderBottom: "8px solid var(--mantine-color-teal-4)" }} />
                   <Text size="xs" c="dimmed">
-                    Buy (composite ≤ {DEEP_BUY_Z})
+                    Buy (composite ≤ {DEEP_BUY_Z}, turning up)
                   </Text>
                 </Group>
                 <Group gap={4}>
@@ -474,7 +474,7 @@ export default function AnomalyPage() {
             <Text size="xs" c="dimmed" mt={4}>
               Crash arms at fragility ≥ {CRASH_ENTER} (stands down below {CRASH_EXIT}); boom arms at euphoria ≥{" "}
               {BOOM_EUPHORIA_ENTER}. Both require {2}-day confirmation. Green BUY markers fire when the composite hits
-              the deep-fear buy zone (≤ {DEEP_BUY_Z}).
+              the deep-fear buy zone (≤ {DEEP_BUY_Z}) and price then turns back up (reclaims its 10-day average).
             </Text>
           </Paper>
 
