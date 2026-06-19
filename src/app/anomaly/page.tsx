@@ -81,6 +81,20 @@ function fmtUsd(x: number): string {
   return "$" + Math.round(x).toLocaleString("en-US");
 }
 
+/** Calendar days between two ISO dates, inclusive. */
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1;
+}
+
+function fmtDuration(days: number): string {
+  if (days < 31) return `${days}d`;
+  const months = Math.round(days / 30.44);
+  if (months < 12) return `${months}mo`;
+  const years = Math.floor(days / 365.25);
+  const remMonths = Math.round((days - years * 365.25) / 30.44);
+  return remMonths > 0 ? `${years}y ${remMonths}mo` : `${years}y`;
+}
+
 /** Asset label for a position given its base exposure (0 / reduced / 1) and the leverage. */
 function holdingLabel(base: number, leverage: number): string {
   if (base === 0) return "Cash / T-bills";
@@ -94,6 +108,7 @@ interface LedgerRow {
   isCash: boolean;
   from: string;
   to: string;
+  days: number;
   startBal: number;
   endBal: number;
 }
@@ -118,6 +133,7 @@ function buildLedger(
         isCash: base === 0,
         from: equity[from].date,
         to: equity[to].date,
+        days: daysBetween(equity[from].date, equity[to].date),
         startBal: start * equity[Math.max(0, from - 1)].strategy,
         endBal: start * equity[to].strategy,
       });
@@ -461,6 +477,7 @@ export default function AnomalyPage() {
                         <Table.Th>Holding</Table.Th>
                         <Table.Th>From</Table.Th>
                         <Table.Th>To</Table.Th>
+                        <Table.Th ta="right">Duration</Table.Th>
                         <Table.Th ta="right">Start</Table.Th>
                         <Table.Th ta="right">End</Table.Th>
                         <Table.Th ta="right">Change</Table.Th>
@@ -478,6 +495,9 @@ export default function AnomalyPage() {
                             </Table.Td>
                             <Table.Td>{fmtDate(r.from)}</Table.Td>
                             <Table.Td>{fmtDate(r.to)}</Table.Td>
+                            <Table.Td ta="right" c="dimmed">
+                              {fmtDuration(r.days)}
+                            </Table.Td>
                             <Table.Td ta="right">{fmtUsd(r.startBal)}</Table.Td>
                             <Table.Td ta="right">{fmtUsd(r.endBal)}</Table.Td>
                             <Table.Td ta="right" c={chg >= 0 ? "teal.4" : "red.4"}>
