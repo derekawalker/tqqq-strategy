@@ -10,7 +10,6 @@ import {
   Box,
   Skeleton,
   SegmentedControl,
-  Badge,
   Center,
   SimpleGrid,
   Accordion,
@@ -48,18 +47,36 @@ interface AnomalyResponse {
   components: Record<string, string>;
 }
 
-const SIGNAL_META: Record<SignalKind, { label: string; color: string; action: string }> = {
-  crash: { label: "Crash Risk", color: "red", action: "De-risk → rotate to T-bills / cash" },
-  boom: { label: "Boom / Risk-On", color: "teal", action: "Add risk → leveraged equity exposure" },
-  neutral: { label: "Neutral", color: "gray", action: "Hold benchmark allocation" },
-};
-
 function fmtDate(iso: string): string {
   const [y, m, d] = iso.split("-");
   return `${m}/${d}/${y.slice(2)}`;
 }
 
-/** Headline message + card color for today's advice. */
+function fmtPct(v: number | null): string {
+  return v == null ? "—" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
+}
+
+// --- Fear & Greed scale -----------------------------------------------------
+// Map the composite (euphoria − fragility, ~[-5,+5]) onto a 0–100 meter:
+// 0 = extreme fear (deep capitulation, a buy zone), 100 = extreme greed.
+function greedScore(composite: number): number {
+  return Math.max(0, Math.min(100, Math.round(50 + composite * 10)));
+}
+function greedLabel(score: number): string {
+  if (score < 20) return "Extreme Fear";
+  if (score < 40) return "Fear";
+  if (score < 60) return "Neutral";
+  if (score < 80) return "Greed";
+  return "Extreme Greed";
+}
+function zoneColor(score: number): string {
+  if (score < 20) return "red";
+  if (score < 40) return "orange";
+  if (score < 60) return "yellow";
+  if (score < 80) return "lime";
+  return "green";
+}
+
 function adviceHeadline(a: AdvicePoint): string {
   if (a.action === "get-out") return "GET OUT OF THE MARKET";
   if (a.action === "get-back-in") return "GET BACK IN";
@@ -86,20 +103,61 @@ function adviceColor(a: AdvicePoint): string {
   return "green";
 }
 
-/** Tinted gradient + gloss + shadow matching the site's card styling (see useCardBg). */
-function adviceCardStyle(color: string) {
-  const gloss =
-    "linear-gradient(160deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.03) 12%, rgba(255,255,255,0) 24%)";
-  const base = `linear-gradient(135deg, var(--mantine-color-${color}-7) 0%, var(--mantine-color-${color}-9) 100%)`;
+/** Dark card tinted by the advice color, with gloss + shadow (matches useCardBg). */
+function heroCardStyle(color: string) {
+  const gloss = "linear-gradient(160deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 14%, rgba(255,255,255,0) 26%)";
+  const base = `linear-gradient(135deg, color-mix(in srgb, var(--mantine-color-${color}-8) 35%, var(--mantine-color-dark-8)) 0%, var(--mantine-color-dark-8) 100%)`;
   return {
     background: `${gloss}, ${base}`,
-    boxShadow: `0 8px 24px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.12)`,
+    boxShadow: "0 8px 24px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.10)",
     border: "none",
   };
 }
 
+/** Semicircular fear/greed gauge with a needle. score 0..100. */
+function FearGreedGauge({ score, isMobile }: { score: number; isMobile: boolean }) {
+  const w = isMobile ? 220 : 250;
+  const cx = w / 2;
+  const cy = w / 2;
+  const r = w / 2 - 18;
+  const band = 16;
+  const polar = (deg: number, rad: number): [number, number] => {
+    const a = ((deg - 90) * Math.PI) / 180;
+    return [cx + rad * Math.cos(a), cy + rad * Math.sin(a)];
+  };
+  const arc = (a0: number, a1: number, rad: number): string => {
+    const [x0, y0] = polar(a0, rad);
+    const [x1, y1] = polar(a1, rad);
+    return `M ${x0} ${y0} A ${rad} ${rad} 0 ${a1 - a0 <= 180 ? 0 : 1} 1 ${x1} ${y1}`;
+  };
+  const zones = ["red-6", "orange-6", "yellow-6", "lime-6", "green-6"];
+  // score 0 -> 270° (left), 50 -> 360° (top), 100 -> 450°/90° (right)
+  const needle = 270 + (score / 100) * 180;
+  const [nx, ny] = polar(needle, r - band - 2);
+  const height = cy + 30;
+  const label = greedLabel(score);
+  return (
+    <svg width={w} height={height} viewBox={`0 0 ${w} ${height}`} role="img" aria-label={`Fear & Greed ${score}, ${label}`}>
+      {zones.map((z, i) => (
+        <path key={i} d={arc(270 + i * 36, 270 + (i + 1) * 36, r)} fill="none" stroke={`var(--mantine-color-${z})`} strokeWidth={band} />
+      ))}
+      <line x1={cx} y1={cy} x2={nx} y2={ny} stroke="var(--mantine-color-gray-1)" strokeWidth={3} strokeLinecap="round" />
+      <circle cx={cx} cy={cy} r={6} fill="var(--mantine-color-gray-1)" />
+      <text x={cx} y={cy - 4} textAnchor="middle" fontSize={isMobile ? 32 : 40} fontWeight={800} fill="#fff">
+        {score}
+      </text>
+      <text x={cx} y={cy + 18} textAnchor="middle" fontSize={13} fontWeight={700} fill={`var(--mantine-color-${zoneColor(score)}-4)`}>
+        {label}
+      </text>
+    </svg>
+  );
+}
+
 /** Contiguous spans of the advice equity matching a predicate, for chart shading. */
-function spansWhere(equity: { date: string; stance: Stance; exposure: number }[], pred: (e: { stance: Stance; exposure: number }) => boolean) {
+function spansWhere(
+  equity: { date: string; stance: Stance; exposure: number }[],
+  pred: (e: { stance: Stance; exposure: number }) => boolean,
+) {
   const spans: { x1: string; x2: string }[] = [];
   let cur: { x1: string; x2: string } | null = null;
   for (const e of equity) {
@@ -138,12 +196,10 @@ function signalSpans(points: AnomalyPoint[]) {
 }
 
 export default function AnomalyPage() {
-  const isMobile = useMediaQuery("(max-width: 768px)");
+  const isMobile = useMediaQuery("(max-width: 768px)") ?? false;
   const [years, setYears] = useState("5");
-  const [mode, setMode] = useState<StrategyMode>("contrarian"); // how to act on the signal
-  const [lev, setLev] = useState("1"); // leverage knob (applies to crash in contrarian, boom in trend)
-  // Result is tagged with the `years` it was fetched for, so loading/error are
-  // derived (no synchronous setState in the effect body).
+  const [mode, setMode] = useState<StrategyMode>("contrarian");
+  const [lev, setLev] = useState("1");
   const [result, setResult] = useState<{ years: string; data: AnomalyResponse | null; error: string | null } | null>(
     null,
   );
@@ -167,23 +223,16 @@ export default function AnomalyPage() {
   const error = result?.years === years ? result.error : null;
   const loading = !result || result.years !== years;
 
-  // Full series (incl. warm-up) for the moving-average-based advice engine.
   const fullPoints = useMemo(() => data?.points ?? [], [data]);
   const advice = useMemo(() => (fullPoints.length ? dailyAdvice(fullPoints) : []), [fullPoints]);
-  const adviceBt = useMemo(
-    () => (advice.length ? backtestAdvice(advice, fullPoints) : null),
-    [advice, fullPoints],
-  );
+  const adviceBt = useMemo(() => (advice.length ? backtestAdvice(advice, fullPoints) : null), [advice, fullPoints]);
   const today = advice.at(-1) ?? null;
   const lastChange = useMemo(() => [...advice].reverse().find((a) => a.action !== "normal") ?? null, [advice]);
 
-  // Only plot the warm-up-complete portion (where z-scores exist).
   const points = useMemo(() => (data?.points ?? []).filter((p) => p.composite != null), [data]);
   const spans = useMemo(() => signalSpans(points), [points]);
   const markers = useMemo(() => tradeSignals(points), [points]);
-  const lastTrade = markers.at(-1) ?? null;
   const latest = points.at(-1) ?? null;
-  const meta = SIGNAL_META[latest?.signal ?? "neutral"];
 
   const bt = useMemo(
     () => (points.length > 1 ? backtest(points, strategyOptionsFor(mode, Number(lev))) : null),
@@ -199,10 +248,10 @@ export default function AnomalyPage() {
     return [min - pad, max + pad];
   }, [points]);
 
-  const tickFormatter = (iso: string) => {
-    const d = new Date(iso);
-    return d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-  };
+  const tickFormatter = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+
+  const score = latest?.composite != null ? greedScore(latest.composite) : 50;
+  const advColor = today ? adviceColor(today) : "gray";
 
   return (
     <Stack gap="md">
@@ -223,11 +272,6 @@ export default function AnomalyPage() {
         />
       </Group>
 
-      <Text size="sm" c="dimmed">
-        Systemic Fragility &amp; Euphoria Composite (SFEC) — a causal, multi-factor z-score blend of
-        volatility term structure, credit, bond vol, breadth, trend and cross-asset momentum.
-      </Text>
-
       {error && (
         <Paper p="md" radius={CARD_RADIUS} bg="red.9">
           <Text c="white">Failed to load data: {error}</Text>
@@ -235,44 +279,60 @@ export default function AnomalyPage() {
       )}
 
       {loading ? (
-        <Skeleton height={460} radius={CARD_RADIUS} />
-      ) : latest ? (
+        <Skeleton height={420} radius={CARD_RADIUS} />
+      ) : latest && today ? (
         <>
-          {/* Headline: today's advice */}
-          {today && (
-            <Paper p="lg" radius={CARD_RADIUS} style={adviceCardStyle(adviceColor(today))}>
+          {/* ---- Hero: Fear & Greed meter + today's advice ---- */}
+          <Paper p="lg" radius={CARD_RADIUS} style={heroCardStyle(advColor)}>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="lg" style={{ alignItems: "center" }}>
+              <Center>
+                <Stack gap={2} align="center">
+                  <Text size="xs" tt="uppercase" fw={600} c="gray.5" style={{ letterSpacing: "0.12em" }}>
+                    Fear &amp; Greed
+                  </Text>
+                  <FearGreedGauge score={score} isMobile={isMobile} />
+                </Stack>
+              </Center>
+
               <Stack gap={6}>
-                <Text size="xs" c="rgba(255,255,255,0.75)" tt="uppercase" fw={600}>
-                  Daily advice · {fmtDate(today.date)}
+                <Text size="xs" c="gray.5" tt="uppercase" fw={600} style={{ letterSpacing: "0.1em" }}>
+                  Today&apos;s advice · {fmtDate(today.date)}
                 </Text>
-                <Text size={isMobile ? "28px" : "34px"} fw={800} c="white" lh={1.1}>
+                <Text size={isMobile ? "26px" : "32px"} fw={800} c={`${advColor}.4`} lh={1.1}>
                   {adviceHeadline(today)}
                 </Text>
-                <Text size="sm" c="rgba(255,255,255,0.9)">
+                <Text size="sm" c="gray.3">
                   {today.reason}
                 </Text>
                 <Group gap="lg" mt={4}>
-                  <Text size="xs" c="rgba(255,255,255,0.85)">
+                  <Text size="xs" c="gray.4">
                     Recommended equity: <b>{Math.round(today.exposure * 100)}%</b>
-                    {today.creditStress && today.stance === "in" ? " (credit-stress regime)" : ""}
                   </Text>
                   {lastChange && (
-                    <Text size="xs" c="rgba(255,255,255,0.85)">
+                    <Text size="xs" c="gray.4">
                       Last change: <b>{ACTION_LABEL[lastChange.action]}</b> · {fmtDate(lastChange.date)}
                     </Text>
                   )}
                 </Group>
+                <Text size="xs" c="gray.6" mt={2}>
+                  composite {latest.composite!.toFixed(1)} · fragility {latest.fragility?.toFixed(1)} · euphoria{" "}
+                  {latest.euphoria?.toFixed(1)}
+                </Text>
               </Stack>
-            </Paper>
-          )}
+            </SimpleGrid>
+          </Paper>
 
-          {/* Daily-advice validation: equity vs buy & hold, out-periods shaded */}
+          {/* ---- Backtest: following the signals ---- */}
           {adviceBt && adviceBt.equity.length > 1 && (
             <Paper p="md" radius={CARD_RADIUS} withBorder>
-              <Text size="sm" fw={600} mb="xs">
-                Following this advice vs. buy &amp; hold
+              <Text size="sm" fw={600} mb={2}>
+                If you&apos;d followed the signals
               </Text>
-              <Box h={isMobile ? 200 : 250}>
+              <Text size="xs" c="dimmed" mb="sm">
+                $1 invested when the advice says &quot;in&quot;, in T-bills when &quot;out&quot;, half-weight during a
+                credit-stress regime — vs. buy &amp; hold.
+              </Text>
+              <Box h={isMobile ? 200 : 260}>
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={adviceBt.equity} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" />
@@ -290,354 +350,268 @@ export default function AnomalyPage() {
                       <ReferenceArea key={`r${i}`} x1={s.x1} x2={s.x2} fill="var(--mantine-color-orange-5)" fillOpacity={0.18} />
                     ))}
                     <Line type="monotone" dataKey="benchmark" name="Buy & Hold" stroke="var(--mantine-color-gray-5)" dot={false} strokeWidth={1.5} />
-                    <Line type="monotone" dataKey="strategy" name="Follow advice" stroke="var(--mantine-color-teal-4)" dot={false} strokeWidth={1.5} />
+                    <Line type="monotone" dataKey="strategy" name="Follow signals" stroke="var(--mantine-color-teal-4)" dot={false} strokeWidth={1.5} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </Box>
-              <Text size="xs" c="dimmed" mt={2}>
-                Gray = out of the market (T-bills); orange = reduced exposure from the credit-stress regime filter.{" "}
-                {adviceBt.switches} changes over this window; average equity exposure{" "}
-                {(adviceBt.pctInMarket * 100).toFixed(0)}%.
-              </Text>
-              <Table mt="sm" fz="xs" withRowBorders={false} verticalSpacing={4}>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Metric</Table.Th>
-                    <Table.Th ta="right">Follow advice</Table.Th>
-                    <Table.Th ta="right">Buy &amp; Hold</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  <MetricRow label="CAGR" a={adviceBt.strategy.cagr} b={adviceBt.benchmark.cagr} pct />
-                  <MetricRow label="Max drawdown" a={adviceBt.strategy.maxDrawdown} b={adviceBt.benchmark.maxDrawdown} pct higherBetter />
-                  <MetricRow label="Sharpe" a={adviceBt.strategy.sharpe} b={adviceBt.benchmark.sharpe} />
-                  <MetricRow label="Sortino" a={adviceBt.strategy.sortino} b={adviceBt.benchmark.sortino} />
-                  <MetricRow label="Calmar" a={adviceBt.strategy.calmar} b={adviceBt.benchmark.calmar} />
-                </Table.Tbody>
-              </Table>
-              <Text size="xs" c="dimmed" mt={4}>
-                Get-out uses a trend break (price below its 200-day average) because the indicators don&apos;t reliably
-                lead tops; get-back-in uses a composite capitulation extreme, which historically led the 2018 / 2020 /
-                2025 bottoms by days. A slow credit-stress regime filter (Baa spread &gt;1σ above normal, from FRED)
-                halves equity exposure during credit blow-outs — over 2012-2026 this lifted Sharpe (0.84→0.87) and
-                Calmar (0.68→0.75) and cut max drawdown (−19%→−16%) vs. the trend-only advice. Ignores fees, slippage
-                and taxes.
+              <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="xs" mt="sm">
+                <SummaryStat label="Total return" follow={adviceBt.strategy.totalReturn} hold={adviceBt.benchmark.totalReturn} pct higherBetter />
+                <SummaryStat label="CAGR" follow={adviceBt.strategy.cagr} hold={adviceBt.benchmark.cagr} pct higherBetter />
+                <SummaryStat label="Max drawdown" follow={adviceBt.strategy.maxDrawdown} hold={adviceBt.benchmark.maxDrawdown} pct higherBetter />
+                <SummaryStat label="Sharpe" follow={adviceBt.strategy.sharpe} hold={adviceBt.benchmark.sharpe} higherBetter />
+              </SimpleGrid>
+              <Text size="xs" c="dimmed" mt="sm">
+                Gray = out of market; orange = reduced (credit stress). {adviceBt.switches} changes; avg equity exposure{" "}
+                {(adviceBt.pctInMarket * 100).toFixed(0)}%. Ignores fees, slippage and taxes.
               </Text>
             </Paper>
           )}
 
-          {/* Status banner */}
-          <Paper p="lg" radius={CARD_RADIUS} withBorder>
-            <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="lg">
-              <Stack gap={2}>
-                <Text size="xs" c="dimmed" tt="uppercase">
-                  Signal · {latest.date && fmtDate(latest.date)}
-                </Text>
-                <Badge color={meta.color} size="lg" variant="filled">
-                  {meta.label}
-                </Badge>
-                {lastTrade && (
-                  <Text size="xs" c={lastTrade.action === "buy" ? "teal.4" : "red.4"} fw={600}>
-                    Last signal: {lastTrade.action.toUpperCase()} · {fmtDate(lastTrade.date)}
-                  </Text>
-                )}
-              </Stack>
-              <Stat label="Composite" value={latest.composite} color={latest.composite! >= 0 ? "teal" : "red"} />
-              <Stat label="Fragility" value={latest.fragility} color="red" />
-              <Stat label="Euphoria" value={latest.euphoria} color="teal" />
-            </SimpleGrid>
-          </Paper>
-
-          {/* Price chart with signal shading */}
-          <Paper p="md" radius={CARD_RADIUS} withBorder>
-            <Group justify="space-between" align="center" mb="xs">
-              <Text size="sm" fw={600}>
-                S&amp;P 500 with BUY / SELL signals
-              </Text>
-              <Group gap="md">
-                <Group gap={4}>
-                  <Box style={{ width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderBottom: "8px solid var(--mantine-color-teal-4)" }} />
-                  <Text size="xs" c="dimmed">
-                    Buy (composite ≤ {DEEP_BUY_Z}, turning up)
-                  </Text>
-                </Group>
-                <Group gap={4}>
-                  <Box style={{ width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: "8px solid var(--mantine-color-red-4)" }} />
-                  <Text size="xs" c="dimmed">
-                    Sell (greed)
-                  </Text>
-                </Group>
-              </Group>
-            </Group>
-            <Box h={isMobile ? 220 : 280}>
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                  <defs>
-                    <linearGradient id="spxGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--mantine-color-blue-4)" stopOpacity={0.5} />
-                      <stop offset="100%" stopColor="var(--mantine-color-blue-4)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" />
-                  <XAxis dataKey="date" tickFormatter={tickFormatter} minTickGap={40} fontSize={11} />
-                  <YAxis domain={spxDomain} tickFormatter={(v) => Math.round(v).toString()} fontSize={11} width={48} />
-                  <Tooltip
-                    labelFormatter={(l) => fmtDate(String(l))}
-                    formatter={(v) => [Math.round(Number(v)).toLocaleString(), "S&P 500"]}
-                    contentStyle={{ background: "var(--mantine-color-dark-7)", border: "none", borderRadius: 8 }}
-                  />
-                  {spans.map((s, i) => (
-                    <ReferenceArea
-                      key={i}
-                      x1={s.x1}
-                      x2={s.x2}
-                      fill={s.kind === "crash" ? "var(--mantine-color-red-6)" : "var(--mantine-color-teal-6)"}
-                      fillOpacity={0.15}
-                    />
-                  ))}
-                  <Area type="monotone" dataKey="spx" stroke="var(--mantine-color-blue-4)" strokeWidth={1.5} fill="url(#spxGrad)" />
-                  {markers.map((mk, i) => (
-                    <ReferenceDot
-                      key={i}
-                      x={mk.date}
-                      y={mk.spx}
-                      r={0}
-                      ifOverflow="extendDomain"
-                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      shape={(props: any) => {
-                        const { cx, cy } = props;
-                        if (cx == null || cy == null) return <g />;
-                        const buy = mk.action === "buy";
-                        const color = buy
-                          ? "var(--mantine-color-teal-4)"
-                          : "var(--mantine-color-red-4)";
-                        const d = buy
-                          ? `M ${cx} ${cy + 4} L ${cx - 5} ${cy + 12} L ${cx + 5} ${cy + 12} Z`
-                          : `M ${cx} ${cy - 4} L ${cx - 5} ${cy - 12} L ${cx + 5} ${cy - 12} Z`;
-                        return <path d={d} fill={color} stroke="var(--mantine-color-dark-7)" strokeWidth={0.5} />;
-                      }}
-                    />
-                  ))}
-                </ComposedChart>
-              </ResponsiveContainer>
-            </Box>
-          </Paper>
-
-          {/* Oscillator chart */}
-          <Paper p="md" radius={CARD_RADIUS} withBorder>
-            <Text size="sm" fw={600} mb="xs">
-              Composite oscillator (z-units)
-            </Text>
-            <Box h={isMobile ? 220 : 280}>
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                  <defs>
-                    <linearGradient id="compGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--mantine-color-teal-5)" stopOpacity={0.6} />
-                      <stop offset="50%" stopColor="var(--mantine-color-teal-5)" stopOpacity={0.05} />
-                      <stop offset="100%" stopColor="var(--mantine-color-red-5)" stopOpacity={0.6} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" />
-                  <XAxis dataKey="date" tickFormatter={tickFormatter} minTickGap={40} fontSize={11} />
-                  <YAxis domain={[-6, 4]} fontSize={11} width={48} />
-                  <Tooltip
-                    labelFormatter={(l) => fmtDate(String(l))}
-                    formatter={(v, name) => [Number(v).toFixed(2), name]}
-                    contentStyle={{ background: "var(--mantine-color-dark-7)", border: "none", borderRadius: 8 }}
-                  />
-                  <ReferenceLine y={0} stroke="var(--mantine-color-gray-6)" />
-                  <ReferenceLine
-                    y={BOOM_EUPHORIA_ENTER}
-                    stroke="var(--mantine-color-teal-5)"
-                    strokeDasharray="4 4"
-                    label={{ value: "boom", fontSize: 10, fill: "var(--mantine-color-teal-4)", position: "insideTopRight" }}
-                  />
-                  <ReferenceLine
-                    y={-CRASH_ENTER}
-                    stroke="var(--mantine-color-red-5)"
-                    strokeDasharray="4 4"
-                    label={{ value: "crash", fontSize: 10, fill: "var(--mantine-color-red-4)", position: "insideBottomRight" }}
-                  />
-                  <ReferenceLine
-                    y={DEEP_BUY_Z}
-                    stroke="var(--mantine-color-teal-4)"
-                    strokeDasharray="4 4"
-                    label={{ value: "buy zone", fontSize: 10, fill: "var(--mantine-color-teal-4)", position: "insideBottomRight" }}
-                  />
-                  <Area type="monotone" dataKey="composite" name="Composite" stroke="var(--mantine-color-gray-3)" strokeWidth={1.5} fill="url(#compGrad)" />
-                  <Line type="monotone" dataKey="fragility" name="Fragility" stroke="var(--mantine-color-red-5)" dot={false} strokeWidth={1} />
-                  <Line type="monotone" dataKey="euphoria" name="Euphoria" stroke="var(--mantine-color-teal-5)" dot={false} strokeWidth={1} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </Box>
-            <Text size="xs" c="dimmed" mt={4}>
-              Crash arms at fragility ≥ {CRASH_ENTER} (stands down below {CRASH_EXIT}); boom arms at euphoria ≥{" "}
-              {BOOM_EUPHORIA_ENTER}. Both require {2}-day confirmation. Green BUY markers fire when the composite hits
-              the deep-fear buy zone (≤ {DEEP_BUY_Z}) and price then turns back up (reclaims its 10-day average).
-            </Text>
-          </Paper>
-
-          {/* Backtest: strategy P&L + leading-indicator event study */}
-          {bt && (
-            <Paper p="md" radius={CARD_RADIUS} withBorder>
-              <Group justify="space-between" align="center" mb="xs" wrap="wrap">
+          {/* ---- Details (collapsed) ---- */}
+          <Accordion variant="separated" radius={CARD_RADIUS} multiple>
+            <Accordion.Item value="signals">
+              <Accordion.Control>
                 <Text size="sm" fw={600}>
-                  Backtest &amp; validation
+                  S&amp;P 500 with buy / sell signals
                 </Text>
-                <Group gap="md" align="center">
-                  <Group gap={6} align="center">
+              </Accordion.Control>
+              <Accordion.Panel>
+                <Group gap="md" mb="xs">
+                  <Group gap={4}>
+                    <Box style={{ width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderBottom: "8px solid var(--mantine-color-teal-4)" }} />
                     <Text size="xs" c="dimmed">
-                      Strategy
+                      Buy (composite ≤ {DEEP_BUY_Z}, turning up)
                     </Text>
-                    <SegmentedControl
-                      size="xs"
-                      value={mode}
-                      onChange={(v) => setMode(v as StrategyMode)}
-                      data={[
-                        { label: "Contrarian", value: "contrarian" },
-                        { label: "Trend", value: "trend" },
-                      ]}
-                    />
                   </Group>
-                  <Group gap={6} align="center">
+                  <Group gap={4}>
+                    <Box style={{ width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: "8px solid var(--mantine-color-red-4)" }} />
                     <Text size="xs" c="dimmed">
-                      Leverage
+                      Sell (greed)
                     </Text>
-                    <SegmentedControl
-                      size="xs"
-                      value={lev}
-                      onChange={setLev}
-                      data={[
-                        { label: "1×", value: "1" },
-                        { label: "2×", value: "2" },
-                        { label: "3×", value: "3" },
-                      ]}
-                    />
                   </Group>
                 </Group>
-              </Group>
+                <Box h={isMobile ? 220 : 280}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                      <defs>
+                        <linearGradient id="spxGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="var(--mantine-color-blue-4)" stopOpacity={0.5} />
+                          <stop offset="100%" stopColor="var(--mantine-color-blue-4)" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" />
+                      <XAxis dataKey="date" tickFormatter={tickFormatter} minTickGap={40} fontSize={11} />
+                      <YAxis domain={spxDomain} tickFormatter={(v) => Math.round(v).toString()} fontSize={11} width={48} />
+                      <Tooltip
+                        labelFormatter={(l) => fmtDate(String(l))}
+                        formatter={(v) => [Math.round(Number(v)).toLocaleString(), "S&P 500"]}
+                        contentStyle={{ background: "var(--mantine-color-dark-7)", border: "none", borderRadius: 8 }}
+                      />
+                      {spans.map((s, i) => (
+                        <ReferenceArea
+                          key={i}
+                          x1={s.x1}
+                          x2={s.x2}
+                          fill={s.kind === "crash" ? "var(--mantine-color-red-6)" : "var(--mantine-color-teal-6)"}
+                          fillOpacity={0.15}
+                        />
+                      ))}
+                      <Area type="monotone" dataKey="spx" stroke="var(--mantine-color-blue-4)" strokeWidth={1.5} fill="url(#spxGrad)" />
+                      {markers.map((mk, i) => (
+                        <ReferenceDot
+                          key={i}
+                          x={mk.date}
+                          y={mk.spx}
+                          r={0}
+                          ifOverflow="extendDomain"
+                          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                          shape={(props: any) => {
+                            const { cx, cy } = props;
+                            if (cx == null || cy == null) return <g />;
+                            const buy = mk.action === "buy";
+                            const color = buy ? "var(--mantine-color-teal-4)" : "var(--mantine-color-red-4)";
+                            const d = buy
+                              ? `M ${cx} ${cy + 4} L ${cx - 5} ${cy + 12} L ${cx + 5} ${cy + 12} Z`
+                              : `M ${cx} ${cy - 4} L ${cx - 5} ${cy - 12} L ${cx + 5} ${cy - 12} Z`;
+                            return <path d={d} fill={color} stroke="var(--mantine-color-dark-7)" strokeWidth={0.5} />;
+                          }}
+                        />
+                      ))}
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </Box>
+              </Accordion.Panel>
+            </Accordion.Item>
 
-              {/* Equity curve: strategy vs buy & hold (growth of $1) */}
-              <Box h={isMobile ? 200 : 260}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={bt.equity} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" />
-                    <XAxis dataKey="date" tickFormatter={tickFormatter} minTickGap={40} fontSize={11} />
-                    <YAxis tickFormatter={(v) => `${v.toFixed(1)}×`} fontSize={11} width={40} />
-                    <Tooltip
-                      labelFormatter={(l) => fmtDate(String(l))}
-                      formatter={(v, name) => [`${Number(v).toFixed(2)}×`, name]}
-                      contentStyle={{ background: "var(--mantine-color-dark-7)", border: "none", borderRadius: 8 }}
-                    />
-                    <Line type="monotone" dataKey="benchmark" name="Buy & Hold" stroke="var(--mantine-color-gray-5)" dot={false} strokeWidth={1.5} />
-                    <Line type="monotone" dataKey="strategy" name="Signal Strategy" stroke="var(--mantine-color-violet-4)" dot={false} strokeWidth={1.5} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </Box>
+            <Accordion.Item value="oscillator">
+              <Accordion.Control>
+                <Text size="sm" fw={600}>
+                  Composite oscillator (z-units)
+                </Text>
+              </Accordion.Control>
+              <Accordion.Panel>
+                <Box h={isMobile ? 220 : 280}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                      <defs>
+                        <linearGradient id="compGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="var(--mantine-color-teal-5)" stopOpacity={0.6} />
+                          <stop offset="50%" stopColor="var(--mantine-color-teal-5)" stopOpacity={0.05} />
+                          <stop offset="100%" stopColor="var(--mantine-color-red-5)" stopOpacity={0.6} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" />
+                      <XAxis dataKey="date" tickFormatter={tickFormatter} minTickGap={40} fontSize={11} />
+                      <YAxis domain={[-6, 4]} fontSize={11} width={48} />
+                      <Tooltip
+                        labelFormatter={(l) => fmtDate(String(l))}
+                        formatter={(v, name) => [Number(v).toFixed(2), name]}
+                        contentStyle={{ background: "var(--mantine-color-dark-7)", border: "none", borderRadius: 8 }}
+                      />
+                      <ReferenceLine y={0} stroke="var(--mantine-color-gray-6)" />
+                      <ReferenceLine y={BOOM_EUPHORIA_ENTER} stroke="var(--mantine-color-teal-5)" strokeDasharray="4 4" label={{ value: "boom", fontSize: 10, fill: "var(--mantine-color-teal-4)", position: "insideTopRight" }} />
+                      <ReferenceLine y={-CRASH_ENTER} stroke="var(--mantine-color-red-5)" strokeDasharray="4 4" label={{ value: "crash", fontSize: 10, fill: "var(--mantine-color-red-4)", position: "insideBottomRight" }} />
+                      <ReferenceLine y={DEEP_BUY_Z} stroke="var(--mantine-color-teal-4)" strokeDasharray="4 4" label={{ value: "buy zone", fontSize: 10, fill: "var(--mantine-color-teal-4)", position: "insideBottomRight" }} />
+                      <Area type="monotone" dataKey="composite" name="Composite" stroke="var(--mantine-color-gray-3)" strokeWidth={1.5} fill="url(#compGrad)" />
+                      <Line type="monotone" dataKey="fragility" name="Fragility" stroke="var(--mantine-color-red-5)" dot={false} strokeWidth={1} />
+                      <Line type="monotone" dataKey="euphoria" name="Euphoria" stroke="var(--mantine-color-teal-5)" dot={false} strokeWidth={1} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </Box>
+                <Text size="xs" c="dimmed" mt={4}>
+                  Crash arms at fragility ≥ {CRASH_ENTER} (stands down below {CRASH_EXIT}); boom arms at euphoria ≥{" "}
+                  {BOOM_EUPHORIA_ENTER}. Green BUY markers fire when the composite hits the buy zone (≤ {DEEP_BUY_Z}) and
+                  price then turns back up.
+                </Text>
+              </Accordion.Panel>
+            </Accordion.Item>
 
-              {/* Risk-adjusted metrics */}
-              <Table mt="md" fz="xs" withRowBorders={false} verticalSpacing={4}>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Metric</Table.Th>
-                    <Table.Th ta="right">Signal Strategy</Table.Th>
-                    <Table.Th ta="right">Buy &amp; Hold</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  <MetricRow label="Total return" a={bt.strategy.totalReturn} b={bt.benchmark.totalReturn} pct />
-                  <MetricRow label="CAGR" a={bt.strategy.cagr} b={bt.benchmark.cagr} pct />
-                  <MetricRow label="Annual volatility" a={bt.strategy.annVol} b={bt.benchmark.annVol} pct lowerBetter />
-                  <MetricRow label="Max drawdown" a={bt.strategy.maxDrawdown} b={bt.benchmark.maxDrawdown} pct higherBetter />
-                  <MetricRow label="Sharpe" a={bt.strategy.sharpe} b={bt.benchmark.sharpe} />
-                  <MetricRow label="Sortino" a={bt.strategy.sortino} b={bt.benchmark.sortino} />
-                  <MetricRow label="Calmar" a={bt.strategy.calmar} b={bt.benchmark.calmar} />
-                </Table.Tbody>
-              </Table>
-              <Text size="xs" c="dimmed" mt={4}>
-                {mode === "contrarian" ? (
-                  <>
-                    <b>Contrarian</b> (fades the signal): crash → {lev}× equity (buy the dip), boom → cash (earns the
-                    13-week T-bill yield), neutral → benchmark. At 1× this is the &quot;trim froth&quot; play — stay
-                    invested except step aside during euphoria.
-                  </>
-                ) : (
-                  <>
-                    <b>Trend</b> (takes the signal at face value): crash → cash (earns the 13-week T-bill yield), boom →{" "}
-                    {lev}× equity, neutral → benchmark.
-                  </>
-                )}{" "}
-                Positions use the prior day&apos;s signal (1-day execution lag), ignoring fees, slippage and leveraged-ETF
-                decay.
-              </Text>
+            {bt && (
+              <Accordion.Item value="strategy">
+                <Accordion.Control>
+                  <Text size="sm" fw={600}>
+                    Strategy explorer &amp; leading-indicator test
+                  </Text>
+                </Accordion.Control>
+                <Accordion.Panel>
+                  <Group gap="md" align="center" mb="xs" wrap="wrap">
+                    <Group gap={6} align="center">
+                      <Text size="xs" c="dimmed">
+                        Strategy
+                      </Text>
+                      <SegmentedControl
+                        size="xs"
+                        value={mode}
+                        onChange={(v) => setMode(v as StrategyMode)}
+                        data={[
+                          { label: "Contrarian", value: "contrarian" },
+                          { label: "Trend", value: "trend" },
+                        ]}
+                      />
+                    </Group>
+                    <Group gap={6} align="center">
+                      <Text size="xs" c="dimmed">
+                        Leverage
+                      </Text>
+                      <SegmentedControl
+                        size="xs"
+                        value={lev}
+                        onChange={setLev}
+                        data={[
+                          { label: "1×", value: "1" },
+                          { label: "2×", value: "2" },
+                          { label: "3×", value: "3" },
+                        ]}
+                      />
+                    </Group>
+                  </Group>
+                  <Box h={isMobile ? 200 : 240}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={bt.equity} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" />
+                        <XAxis dataKey="date" tickFormatter={tickFormatter} minTickGap={40} fontSize={11} />
+                        <YAxis tickFormatter={(v) => `${v.toFixed(1)}×`} fontSize={11} width={40} />
+                        <Tooltip
+                          labelFormatter={(l) => fmtDate(String(l))}
+                          formatter={(v, name) => [`${Number(v).toFixed(2)}×`, name]}
+                          contentStyle={{ background: "var(--mantine-color-dark-7)", border: "none", borderRadius: 8 }}
+                        />
+                        <Line type="monotone" dataKey="benchmark" name="Buy & Hold" stroke="var(--mantine-color-gray-5)" dot={false} strokeWidth={1.5} />
+                        <Line type="monotone" dataKey="strategy" name="Strategy" stroke="var(--mantine-color-violet-4)" dot={false} strokeWidth={1.5} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </Box>
+                  <Table mt="md" fz="xs" withRowBorders={false} verticalSpacing={4}>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Metric</Table.Th>
+                        <Table.Th ta="right">Strategy</Table.Th>
+                        <Table.Th ta="right">Buy &amp; Hold</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      <MetricRow label="Total return" a={bt.strategy.totalReturn} b={bt.benchmark.totalReturn} pct />
+                      <MetricRow label="CAGR" a={bt.strategy.cagr} b={bt.benchmark.cagr} pct />
+                      <MetricRow label="Annual volatility" a={bt.strategy.annVol} b={bt.benchmark.annVol} pct lowerBetter />
+                      <MetricRow label="Max drawdown" a={bt.strategy.maxDrawdown} b={bt.benchmark.maxDrawdown} pct higherBetter />
+                      <MetricRow label="Sharpe" a={bt.strategy.sharpe} b={bt.benchmark.sharpe} />
+                      <MetricRow label="Sortino" a={bt.strategy.sortino} b={bt.benchmark.sortino} />
+                      <MetricRow label="Calmar" a={bt.strategy.calmar} b={bt.benchmark.calmar} />
+                    </Table.Tbody>
+                  </Table>
+                  <Text size="sm" fw={600} mt="lg" mb={4}>
+                    Forward S&amp;P 500 returns by signal
+                  </Text>
+                  <Table fz="xs" withTableBorder verticalSpacing={4}>
+                    <Table.Thead>
+                      <Table.Tr>
+                        <Table.Th>Horizon</Table.Th>
+                        <Table.Th ta="right" c="red.4">
+                          After crash
+                        </Table.Th>
+                        <Table.Th ta="right" c="teal.4">
+                          After boom
+                        </Table.Th>
+                        <Table.Th ta="right">All days</Table.Th>
+                      </Table.Tr>
+                    </Table.Thead>
+                    <Table.Tbody>
+                      {bt.forward.map((f) => (
+                        <Table.Tr key={f.horizon}>
+                          <Table.Td>{f.horizon === 5 ? "1 week" : f.horizon === 21 ? "1 month" : "3 months"}</Table.Td>
+                          <Table.Td ta="right">
+                            {fmtPct(f.crash)}
+                            {f.crashHitRate != null && (
+                              <Text span c="dimmed" size="10px">
+                                {" "}
+                                ({Math.round(f.crashHitRate * 100)}% ↓)
+                              </Text>
+                            )}
+                          </Table.Td>
+                          <Table.Td ta="right">
+                            {fmtPct(f.boom)}
+                            {f.boomHitRate != null && (
+                              <Text span c="dimmed" size="10px">
+                                {" "}
+                                ({Math.round(f.boomHitRate * 100)}% ↑)
+                              </Text>
+                            )}
+                          </Table.Td>
+                          <Table.Td ta="right" c="dimmed">
+                            {fmtPct(f.all)}
+                          </Table.Td>
+                        </Table.Tr>
+                      ))}
+                    </Table.Tbody>
+                  </Table>
+                  <Text size="xs" c="dimmed" mt={4}>
+                    The composite is contrarian: &quot;after crash&quot; returns are positive and above the all-day
+                    baseline (it fires near capitulation lows), and euphoria precedes below-average returns.
+                  </Text>
+                </Accordion.Panel>
+              </Accordion.Item>
+            )}
 
-              {/* Leading-indicator event study */}
-              <Text size="sm" fw={600} mt="lg" mb={4}>
-                Is it a leading indicator? — forward S&amp;P 500 returns by signal
-              </Text>
-              <Table fz="xs" withTableBorder verticalSpacing={4}>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Horizon</Table.Th>
-                    <Table.Th ta="right" c="red.4">
-                      After crash
-                    </Table.Th>
-                    <Table.Th ta="right" c="teal.4">
-                      After boom
-                    </Table.Th>
-                    <Table.Th ta="right">Neutral</Table.Th>
-                    <Table.Th ta="right">All days</Table.Th>
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {bt.forward.map((f) => (
-                    <Table.Tr key={f.horizon}>
-                      <Table.Td>{f.horizon === 5 ? "1 week" : f.horizon === 21 ? "1 month" : f.horizon === 63 ? "3 months" : `${f.horizon}d`}</Table.Td>
-                      <Table.Td ta="right">
-                        {fmtPct(f.crash)}
-                        {f.crashHitRate != null && (
-                          <Text span c="dimmed" size="10px">
-                            {" "}
-                            ({Math.round(f.crashHitRate * 100)}% ↓)
-                          </Text>
-                        )}
-                      </Table.Td>
-                      <Table.Td ta="right">
-                        {fmtPct(f.boom)}
-                        {f.boomHitRate != null && (
-                          <Text span c="dimmed" size="10px">
-                            {" "}
-                            ({Math.round(f.boomHitRate * 100)}% ↑)
-                          </Text>
-                        )}
-                      </Table.Td>
-                      <Table.Td ta="right" c="dimmed">
-                        {fmtPct(f.neutral)}
-                      </Table.Td>
-                      <Table.Td ta="right" c="dimmed">
-                        {fmtPct(f.all)}
-                      </Table.Td>
-                    </Table.Tr>
-                  ))}
-                </Table.Tbody>
-              </Table>
-              <Text size="xs" c="dimmed" mt={4}>
-                Mean forward return of the S&amp;P 500 starting on days in each signal state ({bt.signalDays.crash} crash /{" "}
-                {bt.signalDays.boom} boom / {bt.signalDays.neutral} neutral days). The “↓”/“↑” figures are the share of
-                crash/boom days actually followed by a decline/gain. A genuine crash lead-indicator would show
-                <Text span c="red.4">
-                  {" "}
-                  negative
-                </Text>{" "}
-                returns after crash signals; if “after crash” is positive and above the baseline, the signal is
-                coincident/contrarian (firing near capitulation lows) rather than leading.
-              </Text>
-            </Paper>
-          )}
-
-          {/* Methodology */}
-          <Accordion variant="separated" radius={CARD_RADIUS}>
             <Accordion.Item value="method">
               <Accordion.Control>
                 <Text size="sm" fw={600}>
@@ -646,50 +620,35 @@ export default function AnomalyPage() {
               </Accordion.Control>
               <Accordion.Panel>
                 <Stack gap="sm">
+                  <Text size="sm" c="dimmed">
+                    Systemic Fragility &amp; Euphoria Composite (SFEC): a causal, multi-factor z-score blend. The Fear
+                    &amp; Greed meter maps the composite onto 0–100 (0 = extreme fear / deep capitulation, 100 = extreme
+                    greed).
+                  </Text>
                   <Text size="sm" fw={600} c="red.4">
-                    Fragility (crash) factors
+                    Fragility (fear) factors
                   </Text>
                   <List size="sm" spacing={4}>
-                    <List.Item>VIX term structure — ^VIX / ^VIX3M (backwardation = near-term panic)</List.Item>
-                    <List.Item>Credit stress — falling HYG / LQD ratio</List.Item>
-                    <List.Item>
-                      Bond volatility — ^MOVE level{" "}
-                      <Text span c="dimmed" size="xs">
-                        (pruned — no out-of-sample edge)
-                      </Text>
-                    </List.Item>
+                    <List.Item>VIX term structure — ^VIX / ^VIX3M</List.Item>
+                    <List.Item>Credit stress — HYG / LQD momentum</List.Item>
                     <List.Item>Equity realized volatility — 20-day ^GSPC</List.Item>
                     <List.Item>Drawdown from the trailing 1-year high</List.Item>
                   </List>
                   <Text size="sm" fw={600} c="teal.4">
-                    Euphoria (boom) factors
+                    Euphoria (greed) factors
                   </Text>
                   <List size="sm" spacing={4}>
                     <List.Item>Extension above the 200-day moving average</List.Item>
                     <List.Item>Trend quality — 60-day return ÷ volatility</List.Item>
-                    <List.Item>
-                      Copper / Gold momentum (CPER / GLD){" "}
-                      <Text span c="dimmed" size="xs">
-                        (pruned — no out-of-sample edge)
-                      </Text>
-                    </List.Item>
                     <List.Item>Stocks-vs-bonds momentum (^GSPC / TLT)</List.Item>
                     <List.Item>RSI(14) distance from neutral</List.Item>
                   </List>
                   <Text size="sm" c="dimmed">
-                    Each raw factor is converted to a trailing {DEFAULT_PARAMS.zWindow}-day z-score (no
-                    look-ahead), then blended into the two sub-indices using weights proportional to each
-                    factor&apos;s cross-validated predictive power (Spearman IC vs 21-day forward returns);
-                    two factors with no out-of-sample edge are pruned to zero. Composite = euphoria −
-                    fragility. A confirmation + hysteresis state machine turns the scores into crash / boom /
-                    neutral regimes. All inputs come from free Yahoo Finance daily data.
-                  </Text>
-                  <Text size="sm" c="dimmed">
-                    Validation note: this is a <b>contrarian / mean-reversion</b> indicator, not a leading
-                    crash predictor. High fragility has historically marked capitulation lows rather than
-                    preceding declines; weighting was tuned on a 2011-2022 train block and improved holdout
-                    (2022-2026) predictive IC, but the underlying factors are coincident, so the contrarian
-                    behavior is structural.
+                    Each factor → trailing {DEFAULT_PARAMS.zWindow}-day z-score (no look-ahead), IC-weighted into the two
+                    sub-indices. Advice: get out on a trend break (200-day average), get back in on a composite
+                    capitulation extreme, and halve exposure during a Baa credit-spread stress regime (FRED). All data
+                    is free (Yahoo Finance + FRED). This is a contrarian / mean-reversion tool, not a leading crash
+                    predictor; it ignores fees and taxes.
                   </Text>
                 </Stack>
               </Accordion.Panel>
@@ -705,24 +664,38 @@ export default function AnomalyPage() {
   );
 }
 
-function Stat({ label, value, color }: { label: string; value: number | null; color: string }) {
+/** Compact follow-vs-hold stat for the backtest summary grid. */
+function SummaryStat({
+  label,
+  follow,
+  hold,
+  pct,
+  higherBetter = true,
+}: {
+  label: string;
+  follow: number;
+  hold: number;
+  pct?: boolean;
+  higherBetter?: boolean;
+}) {
+  const fmt = (x: number) => (pct ? `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}%` : x.toFixed(2));
+  const win = higherBetter ? follow > hold : follow < hold;
   return (
-    <Stack gap={2}>
-      <Text size="xs" c="dimmed" tt="uppercase">
+    <Stack gap={0}>
+      <Text size="10px" c="dimmed" tt="uppercase" style={{ letterSpacing: "0.08em" }}>
         {label}
       </Text>
-      <Text size="xl" fw={700} c={`${color}.4`}>
-        {value == null ? "—" : value.toFixed(2)}
+      <Text size="lg" fw={700} c={win ? "teal.4" : undefined}>
+        {fmt(follow)}
+      </Text>
+      <Text size="10px" c="dimmed">
+        hold {fmt(hold)}
       </Text>
     </Stack>
   );
 }
 
-function fmtPct(v: number | null): string {
-  return v == null ? "—" : `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
-}
-
-/** One row of the strategy-vs-benchmark metrics table; winner is highlighted. */
+/** One row of the strategy-vs-benchmark metrics table; winner highlighted. */
 function MetricRow({
   label,
   a,
