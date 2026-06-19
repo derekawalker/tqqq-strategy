@@ -10,8 +10,13 @@ import {
   rsiSeries,
   drawdown,
   blendZ,
+  blendZWeighted,
+  buildFactors,
   alignSeries,
   computeAnomaly,
+  DEFAULT_PARAMS,
+  FRAGILITY_FACTORS,
+  EUPHORIA_FACTORS,
   Z_WINDOW,
   type AlignedRow,
   type SeriesPoint,
@@ -78,6 +83,50 @@ describe("numeric helpers", () => {
   it("blendZ averages finite z-scores and ignores nulls", () => {
     expect(blendZ([1, null, 3, NaN])).toBe(2);
     expect(blendZ([null, NaN])).toBeNull();
+  });
+
+  it("blendZWeighted weights and renormalizes around missing factors", () => {
+    // weighted mean of 2 (w1) and 4 (w3): (2*1 + 4*3)/(1+3) = 3.5
+    expect(blendZWeighted([2, 4], [1, 3])).toBeCloseTo(3.5, 10);
+    // a null factor drops out and remaining weights renormalize: only 4 (w3) left
+    expect(blendZWeighted([null, 4], [1, 3])).toBe(4);
+    // zero-weight factors are pruned entirely
+    expect(blendZWeighted([99, 4], [0, 1])).toBe(4);
+    expect(blendZWeighted([null, NaN], [1, 1])).toBeNull();
+  });
+});
+
+function makeRows(n: number): AlignedRow[] {
+  return Array.from({ length: n }, (_, i) => ({
+    date: new Date(Date.UTC(2020, 0, 1) + i * 86400000).toISOString().slice(0, 10),
+    spx: 300 + i * 0.5,
+    vix: 16 + (i % 5),
+    vix3m: 20,
+    move: 80 + (i % 7),
+    hyg: 80 - (i % 3) * 0.1,
+    lqd: 108,
+    tlt: 90 + (i % 4) * 0.1,
+    tnx: 4.4,
+    irx: 3.6,
+    cper: 38 + (i % 6) * 0.1,
+    gld: 380,
+  }));
+}
+
+describe("buildFactors", () => {
+  it("returns one series per named factor, each the length of the input", () => {
+    const rows = makeRows(300);
+    const { fragility, euphoria } = buildFactors(rows, DEFAULT_PARAMS);
+    expect(fragility).toHaveLength(FRAGILITY_FACTORS.length);
+    expect(euphoria).toHaveLength(EUPHORIA_FACTORS.length);
+    for (const s of [...fragility, ...euphoria]) expect(s).toHaveLength(rows.length);
+  });
+
+  it("vixTS factor equals vix/vix3m", () => {
+    const rows = makeRows(10);
+    const { fragility } = buildFactors(rows, DEFAULT_PARAMS);
+    const vixTS = fragility[0]; // FRAGILITY_FACTORS[0]
+    expect(vixTS[5]).toBeCloseTo(rows[5].vix / rows[5].vix3m, 10);
   });
 });
 

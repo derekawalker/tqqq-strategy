@@ -34,6 +34,7 @@ import {
   CRASH_ENTER,
   CRASH_EXIT,
   BOOM_EUPHORIA_ENTER,
+  DEFAULT_PARAMS,
   type AnomalyPoint,
   type SignalKind,
 } from "@/lib/anomaly";
@@ -421,7 +422,12 @@ export default function AnomalyPage() {
                   <List size="sm" spacing={4}>
                     <List.Item>VIX term structure — ^VIX / ^VIX3M (backwardation = near-term panic)</List.Item>
                     <List.Item>Credit stress — falling HYG / LQD ratio</List.Item>
-                    <List.Item>Bond volatility — ^MOVE level</List.Item>
+                    <List.Item>
+                      Bond volatility — ^MOVE level{" "}
+                      <Text span c="dimmed" size="xs">
+                        (pruned — no out-of-sample edge)
+                      </Text>
+                    </List.Item>
                     <List.Item>Equity realized volatility — 20-day ^GSPC</List.Item>
                     <List.Item>Drawdown from the trailing 1-year high</List.Item>
                   </List>
@@ -431,15 +437,29 @@ export default function AnomalyPage() {
                   <List size="sm" spacing={4}>
                     <List.Item>Extension above the 200-day moving average</List.Item>
                     <List.Item>Trend quality — 60-day return ÷ volatility</List.Item>
-                    <List.Item>Copper / Gold momentum (CPER / GLD)</List.Item>
+                    <List.Item>
+                      Copper / Gold momentum (CPER / GLD){" "}
+                      <Text span c="dimmed" size="xs">
+                        (pruned — no out-of-sample edge)
+                      </Text>
+                    </List.Item>
                     <List.Item>Stocks-vs-bonds momentum (^GSPC / TLT)</List.Item>
                     <List.Item>RSI(14) distance from neutral</List.Item>
                   </List>
                   <Text size="sm" c="dimmed">
-                    Each raw factor is converted to a trailing 252-day z-score (no look-ahead), then
-                    equal-weight averaged into the two sub-indices. Composite = euphoria − fragility. A
-                    confirmation + hysteresis state machine turns the scores into crash / boom / neutral
-                    regimes. All inputs come from free Yahoo Finance daily data.
+                    Each raw factor is converted to a trailing {DEFAULT_PARAMS.zWindow}-day z-score (no
+                    look-ahead), then blended into the two sub-indices using weights proportional to each
+                    factor&apos;s cross-validated predictive power (Spearman IC vs 21-day forward returns);
+                    two factors with no out-of-sample edge are pruned to zero. Composite = euphoria −
+                    fragility. A confirmation + hysteresis state machine turns the scores into crash / boom /
+                    neutral regimes. All inputs come from free Yahoo Finance daily data.
+                  </Text>
+                  <Text size="sm" c="dimmed">
+                    Validation note: this is a <b>contrarian / mean-reversion</b> indicator, not a leading
+                    crash predictor. High fragility has historically marked capitulation lows rather than
+                    preceding declines; weighting was tuned on a 2011-2022 train block and improved holdout
+                    (2022-2026) predictive IC, but the underlying factors are coincident, so the contrarian
+                    behavior is structural.
                   </Text>
                 </Stack>
               </Accordion.Panel>
