@@ -1,7 +1,11 @@
 import YahooFinance from "yahoo-finance2";
 import { alignSeries, computeAnomaly, type AnomalyPoint, type SeriesPoint } from "@/lib/anomaly";
+import { circuitBreaker } from "@/lib/circuitBreaker";
+import { dailyAdvice } from "@/lib/advice";
+import { getCached, setCached } from "@/lib/ttlCache";
 
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
+const CACHE_TTL = 30 * 60 * 1000; // 30 min — the underlying data is daily
 
 // Raw Yahoo tickers backing each aligned field. All are free daily series.
 const TICKERS = {
@@ -83,27 +87,45 @@ export async function GET(request: Request) {
   const years = Math.min(Math.max(Number(searchParams.get("years")) || 3, 2), 14);
   const period1 = new Date(Date.now() - years * 365 * 24 * 60 * 60 * 1000);
 
+  const statusOnly = searchParams.get("status") === "1";
+
   try {
-    const fields = Object.keys(TICKERS) as Field[];
-    const [fetched, baa10y, tqqq] = await Promise.all([
-      Promise.all(fields.map((f) => fetchSeries(TICKERS[f], period1))),
-      fetchFred("BAA10Y", period1), // Moody's Baa - 10y Treasury credit spread (regime filter)
-      fetchOHLC("TQQQ", period1), // OHLC for the ladder simulation
-    ]);
+    const cacheKey = `anomaly:${years}`;
+    let payload = getCached<AnomalyResponse>(cacheKey, CACHE_TTL);
 
-    const series: Partial<Record<Field | "baa10y", SeriesPoint[]>> = {};
-    fields.forEach((f, i) => (series[f] = fetched[i]));
-    if (baa10y.length > 0) series.baa10y = baa10y;
+    if (!payload) {
+      const fields = Object.keys(TICKERS) as Field[];
+      const [fetched, baa10y, tqqq] = await Promise.all([
+        Promise.all(fields.map((f) => fetchSeries(TICKERS[f], period1))),
+        fetchFred("BAA10Y", period1), // Moody's Baa - 10y Treasury credit spread (regime filter)
+        fetchOHLC("TQQQ", period1), // OHLC for the ladder simulation
+      ]);
 
-    const rows = alignSeries(series);
-    const points = computeAnomaly(rows);
+      const series: Partial<Record<Field | "baa10y", SeriesPoint[]>> = {};
+      fields.forEach((f, i) => (series[f] = fetched[i]));
+      if (baa10y.length > 0) series.baa10y = baa10y;
 
-    return Response.json({
-      points,
-      tqqq,
-      asOf: points.at(-1)?.date ?? null,
-      components: TICKERS,
-    } satisfies AnomalyResponse);
+      const points = computeAnomaly(alignSeries(series));
+      payload = { points, tqqq, asOf: points.at(-1)?.date ?? null, components: TICKERS };
+      setCached(cacheKey, payload);
+    }
+
+    // Lightweight status for app-wide alerts (breaker / advice for today).
+    if (statusOnly) {
+      const breaker = circuitBreaker(payload.points);
+      const today = dailyAdvice(payload.points).at(-1) ?? null;
+      const last = payload.points.at(-1) ?? null;
+      return Response.json({
+        date: payload.asOf,
+        breaker: breaker.at(-1) ?? false,
+        fragility: last?.fragility ?? null,
+        action: today?.action ?? "normal",
+        stance: today?.stance ?? "in",
+        exposure: today?.exposure ?? 1,
+      });
+    }
+
+    return Response.json(payload);
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
     return Response.json({ error: message }, { status: 500 });

@@ -6,6 +6,7 @@ import { useMediaQuery } from "@mantine/hooks";
 import { usePathname } from "next/navigation";
 import AppHeader from "@/components/AppHeader";
 import { PageAlertBanner } from "@/components/PageAlertBanner";
+import { LadderBreakerBanner } from "@/components/LadderBreakerBanner";
 import SettingsModal from "@/components/SettingsModal";
 import { SideNav, BottomNav } from "@/components/AppNav";
 import { useApp } from "@/lib/context/AppContext";
@@ -190,6 +191,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
 
       <AppShell.Main className="app-main" style={{ background: mainBg, paddingBottom: isMobile ? "calc(70px + env(safe-area-inset-bottom))" : undefined }}>
         <Box maw={isAccountsPage ? "90%" : 1024} w="100%" mx="auto">
+          <LadderBreakerBanner />
           <PageAlertBanner />
           {children}
         </Box>

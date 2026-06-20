@@ -298,7 +298,7 @@ export default function AnomalyPage() {
   const [followLev, setFollowLev] = useState("2"); // leverage applied to the signal-following backtest
   const [breakerMode, setBreakerMode] = useState("normal"); // circuit-breaker sensitivity
   const [sellPctSel, setSellPctSel] = useState(""); // ladder sell% override ("" = from account/default)
-  const { activeAccount } = useApp();
+  const { activeAccount, filledOrders } = useApp();
   const [result, setResult] = useState<{ data: AnomalyResponse | null; error: string | null } | null>(null);
 
   // Always fetch the full history so the z-scores / 200-day MA have warm-up; the
@@ -415,6 +415,29 @@ export default function AnomalyPage() {
     if (cur) spansB.push(cur);
     return { base, brk, equity, spans: spansB };
   }, [tqqqBars, ladderMask, ladderParams]);
+
+  // Reality check: how many of YOUR actual TQQQ buys landed in breaker-tripped windows.
+  const realCheck = useMemo(() => {
+    const buys = filledOrders.filter((o) => o.side === "BUY");
+    if (buys.length === 0) return null;
+    let nTrip = 0;
+    let usdTrip = 0;
+    let usdTot = 0;
+    let minD = "9999";
+    let maxD = "0";
+    for (const o of buys) {
+      const d = o.time.slice(0, 10);
+      const usd = o.shares * o.fillPrice;
+      usdTot += usd;
+      if (breakerByDate.get(d)) {
+        nTrip++;
+        usdTrip += usd;
+      }
+      if (d < minD) minD = d;
+      if (d > maxD) maxD = d;
+    }
+    return { nBuys: buys.length, nTrip, usdTrip, usdTot, minD, maxD };
+  }, [filledOrders, breakerByDate]);
 
   const spxDomain = useMemo((): [number, number] => {
     if (points.length === 0) return [0, 100];
@@ -589,6 +612,34 @@ export default function AnomalyPage() {
                 {activeAccount?.settings?.sellPercentage ? " (from your account settings)" : ""}. Fills use each day&apos;s
                 intraday high/low — calibrated against hourly TQQQ to within ~16% of true intraday harvest. Ignores
                 fees/taxes.
+              </Text>
+            </Paper>
+          )}
+
+          {/* ---- Reality check: breaker vs your actual fills ---- */}
+          {realCheck && (
+            <Paper p="md" radius={CARD_RADIUS} withBorder>
+              <Text size="sm" fw={600} mb={2}>
+                Reality check — the breaker vs. your real buys
+              </Text>
+              {realCheck.nTrip > 0 ? (
+                <Text size="sm" c="gray.4">
+                  Across your {realCheck.nBuys} TQQQ buys ({fmtDate(realCheck.minD)}–{fmtDate(realCheck.maxD)},{" "}
+                  {fmtUsd(realCheck.usdTot)} deployed), <b style={{ color: "var(--mantine-color-red-4)" }}>{realCheck.nTrip}</b>{" "}
+                  ({fmtUsd(realCheck.usdTrip)}, {Math.round((realCheck.usdTrip / realCheck.usdTot) * 100)}%) landed on
+                  days the circuit breaker was tripped — the buys it would have had you pause into the fast drop. The
+                  rest the ladder runs untouched.
+                </Text>
+              ) : (
+                <Text size="sm" c="gray.4">
+                  None of your {realCheck.nBuys} TQQQ buys ({fmtDate(realCheck.minD)}–{fmtDate(realCheck.maxD)}) fell in a
+                  breaker-tripped window — your trading history hasn&apos;t hit a quick-bear fragility spike yet, so the
+                  breaker would not have changed any of your actual buys. It&apos;s insurance for the next fast crash, not
+                  a tax on your normal laddering.
+                </Text>
+              )}
+              <Text size="xs" c="dimmed" mt={4}>
+                Uses your actual filled BUY orders from the connected account (demo data if not signed in).
               </Text>
             </Paper>
           )}
