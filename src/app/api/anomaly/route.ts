@@ -22,6 +22,7 @@ type Field = keyof typeof TICKERS;
 
 export interface AnomalyResponse {
   points: AnomalyPoint[];
+  tqqq: SeriesPoint[]; // TQQQ daily closes for the ladder simulation
   asOf: string | null;
   components: Record<Field, string>;
 }
@@ -65,9 +66,10 @@ export async function GET(request: Request) {
 
   try {
     const fields = Object.keys(TICKERS) as Field[];
-    const [fetched, baa10y] = await Promise.all([
+    const [fetched, baa10y, tqqq] = await Promise.all([
       Promise.all(fields.map((f) => fetchSeries(TICKERS[f], period1))),
       fetchFred("BAA10Y", period1), // Moody's Baa - 10y Treasury credit spread (regime filter)
+      fetchSeries("TQQQ", period1), // for the ladder simulation
     ]);
 
     const series: Partial<Record<Field | "baa10y", SeriesPoint[]>> = {};
@@ -79,6 +81,7 @@ export async function GET(request: Request) {
 
     return Response.json({
       points,
+      tqqq,
       asOf: points.at(-1)?.date ?? null,
       components: TICKERS,
     } satisfies AnomalyResponse);

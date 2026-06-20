@@ -40,9 +40,12 @@ import {
 } from "@/lib/anomaly";
 import { backtest, strategyOptionsFor, tradeSignals, DEEP_BUY_Z, type StrategyMode } from "@/lib/backtest";
 import { dailyAdvice, backtestAdvice, type AdvicePoint, type Stance } from "@/lib/advice";
+import { circuitBreaker } from "@/lib/circuitBreaker";
+import { simulateLadder, DEFAULT_LADDER } from "@/lib/ladderSim";
 
 interface AnomalyResponse {
   points: AnomalyPoint[];
+  tqqq: { date: string; close: number }[];
   asOf: string | null;
   components: Record<string, string>;
 }
@@ -344,6 +347,49 @@ export default function AnomalyPage() {
     [points, mode, lev],
   );
 
+  // ---- TQQQ ladder + quick-bear circuit breaker ----
+  const breakerFull = useMemo(() => circuitBreaker(fullPoints), [fullPoints]);
+  const breakerByDate = useMemo(
+    () => new Map(fullPoints.map((p, i) => [p.date, breakerFull[i]])),
+    [fullPoints, breakerFull],
+  );
+  const breakerToday = breakerFull.length > 0 && breakerFull[breakerFull.length - 1];
+
+  const tqqqBars = useMemo(() => {
+    const all = data?.tqqq ?? [];
+    return cutoff ? all.filter((b) => b.date >= cutoff) : all;
+  }, [data, cutoff]);
+  const ladderMask = useMemo(() => {
+    const out: boolean[] = [];
+    let last = false;
+    for (const b of tqqqBars) {
+      const v = breakerByDate.get(b.date);
+      if (v !== undefined) last = v;
+      out.push(last);
+    }
+    return out;
+  }, [tqqqBars, breakerByDate]);
+  const ladder = useMemo(() => {
+    if (tqqqBars.length < 2) return null;
+    const base = simulateLadder(tqqqBars, DEFAULT_LADDER);
+    const brk = simulateLadder(tqqqBars, DEFAULT_LADDER, ladderMask);
+    const equity = base.equity.map((e, i) => ({ date: e.date, base: e.value, brk: brk.equity[i]?.value ?? e.value }));
+    // breaker-tripped shading spans
+    const spansB: { x1: string; x2: string }[] = [];
+    let cur: { x1: string; x2: string } | null = null;
+    for (let i = 0; i < tqqqBars.length; i++) {
+      if (ladderMask[i]) {
+        if (cur) cur.x2 = tqqqBars[i].date;
+        else cur = { x1: tqqqBars[i].date, x2: tqqqBars[i].date };
+      } else if (cur) {
+        spansB.push(cur);
+        cur = null;
+      }
+    }
+    if (cur) spansB.push(cur);
+    return { base, brk, equity, spans: spansB };
+  }, [tqqqBars, ladderMask]);
+
   const spxDomain = useMemo((): [number, number] => {
     if (points.length === 0) return [0, 100];
     const v = points.map((p) => p.spx);
@@ -412,6 +458,20 @@ export default function AnomalyPage() {
                 <Text size="sm" c="gray.3">
                   {today.reason}
                 </Text>
+                <Box
+                  mt={4}
+                  px="sm"
+                  py={6}
+                  style={{
+                    borderRadius: 10,
+                    background: breakerToday ? "rgba(239,68,68,0.18)" : "rgba(20,184,166,0.15)",
+                    border: `1px solid ${breakerToday ? "rgba(239,68,68,0.5)" : "rgba(20,184,166,0.4)"}`,
+                  }}
+                >
+                  <Text size="sm" fw={700} c={breakerToday ? "red.3" : "teal.3"}>
+                    TQQQ ladder: {breakerToday ? "PAUSE BUYS — crash risk" : "ACTIVE — keep laddering"}
+                  </Text>
+                </Box>
                 <Group gap="lg" mt={4}>
                   <Text size="xs" c="gray.4">
                     Recommended equity: <b>{Math.round(today.exposure * 100)}%</b>
@@ -429,6 +489,50 @@ export default function AnomalyPage() {
               </Stack>
             </SimpleGrid>
           </Paper>
+
+          {/* ---- TQQQ ladder + crash circuit breaker ---- */}
+          {ladder && (
+            <Paper p="md" radius={CARD_RADIUS} withBorder>
+              <Text size="sm" fw={600} mb={2}>
+                Your TQQQ ladder + crash circuit breaker
+              </Text>
+              <Text size="xs" c="dimmed" mb="sm">
+                The ladder buys dips / sells rips; the breaker pauses new buys during a quick-bear fragility spike so it
+                doesn&apos;t deploy into a falling knife. $100k start.
+              </Text>
+              <Box h={isMobile ? 200 : 260}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={ladder.equity} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" />
+                    <XAxis dataKey="date" tickFormatter={tickFormatter} minTickGap={40} fontSize={11} />
+                    <YAxis tickFormatter={(v) => `$${Math.round(v / 1000)}k`} fontSize={11} width={48} />
+                    <Tooltip
+                      labelFormatter={(l) => fmtDate(String(l))}
+                      formatter={(v, name) => [`$${Math.round(Number(v)).toLocaleString()}`, name]}
+                      contentStyle={{ background: "var(--mantine-color-dark-7)", border: "none", borderRadius: 8 }}
+                    />
+                    {ladder.spans.map((s, i) => (
+                      <ReferenceArea key={i} x1={s.x1} x2={s.x2} fill="var(--mantine-color-red-6)" fillOpacity={0.18} />
+                    ))}
+                    <Line type="monotone" dataKey="base" name="Ladder only" stroke="var(--mantine-color-gray-5)" dot={false} strokeWidth={1.5} />
+                    <Line type="monotone" dataKey="brk" name="Ladder + breaker" stroke="var(--mantine-color-teal-4)" dot={false} strokeWidth={1.5} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </Box>
+              <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="xs" mt="sm">
+                <SummaryStat label="Final (ladder)" follow={ladder.base.finalValue} hold={ladder.base.finalValue} dollars />
+                <SummaryStat label="Final (+breaker)" follow={ladder.brk.finalValue} hold={ladder.base.finalValue} dollars />
+                <SummaryStat label="Max DD (ladder)" follow={ladder.base.maxDrawdown} hold={ladder.brk.maxDrawdown} pct higherBetter />
+                <SummaryStat label="Max DD (+breaker)" follow={ladder.brk.maxDrawdown} hold={ladder.base.maxDrawdown} pct higherBetter />
+              </SimpleGrid>
+              <Text size="xs" c="dimmed" mt="sm">
+                Red shading = breaker tripped (buys paused). Tuned to fire on quick crashes (COVID, Apr-2025) but stay
+                quiet in slow grinds/chop (2022) where the ladder thrives — so it cushions the fast-bear drawdown at a
+                small cost to long-run return. Simplified model of the app&apos;s ladder (88 levels, {DEFAULT_LADDER.sellPct}% sell,
+                uniform sizing); ignores fees/taxes. Your real level config can be plugged in.
+              </Text>
+            </Paper>
+          )}
 
           {/* ---- Backtest: following the signals ---- */}
           {adviceBt && adviceBt.equity.length > 1 && (
@@ -852,27 +956,33 @@ function SummaryStat({
   follow,
   hold,
   pct,
+  dollars,
   higherBetter = true,
 }: {
   label: string;
   follow: number;
   hold: number;
   pct?: boolean;
+  dollars?: boolean;
   higherBetter?: boolean;
 }) {
-  const fmt = (x: number) => (pct ? `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}%` : x.toFixed(2));
+  const fmt = (x: number) =>
+    dollars ? fmtUsd(x) : pct ? `${x >= 0 ? "+" : ""}${(x * 100).toFixed(1)}%` : x.toFixed(2);
+  const same = follow === hold;
   const win = higherBetter ? follow > hold : follow < hold;
   return (
     <Stack gap={0}>
       <Text size="10px" c="dimmed" tt="uppercase" style={{ letterSpacing: "0.08em" }}>
         {label}
       </Text>
-      <Text size="lg" fw={700} c={win ? "teal.4" : undefined}>
+      <Text size="lg" fw={700} c={!same && win ? "teal.4" : undefined}>
         {fmt(follow)}
       </Text>
-      <Text size="10px" c="dimmed">
-        hold {fmt(hold)}
-      </Text>
+      {!same && (
+        <Text size="10px" c="dimmed">
+          {dollars ? "vs" : "hold"} {fmt(hold)}
+        </Text>
+      )}
     </Stack>
   );
 }
