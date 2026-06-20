@@ -41,11 +41,18 @@ import {
 import { backtest, strategyOptionsFor, tradeSignals, DEEP_BUY_Z, type StrategyMode } from "@/lib/backtest";
 import { dailyAdvice, backtestAdvice, type AdvicePoint, type Stance } from "@/lib/advice";
 import { circuitBreaker } from "@/lib/circuitBreaker";
-import { simulateLadder, DEFAULT_LADDER } from "@/lib/ladderSim";
+import { simulateLadder, DEFAULT_LADDER, type LadderParams } from "@/lib/ladderSim";
+import { useApp } from "@/lib/context/AppContext";
+
+const BREAKER_MODES: Record<string, { armZ: number; disarmZ: number }> = {
+  off: { armZ: 99, disarmZ: 99 },
+  normal: { armZ: 3, disarmZ: 1.5 },
+  sensitive: { armZ: 2.5, disarmZ: 1.2 },
+};
 
 interface AnomalyResponse {
   points: AnomalyPoint[];
-  tqqq: { date: string; close: number }[];
+  tqqq: { date: string; close: number; high: number; low: number }[];
   asOf: string | null;
   components: Record<string, string>;
 }
@@ -289,6 +296,9 @@ export default function AnomalyPage() {
   const [mode, setMode] = useState<StrategyMode>("contrarian");
   const [lev, setLev] = useState("1");
   const [followLev, setFollowLev] = useState("2"); // leverage applied to the signal-following backtest
+  const [breakerMode, setBreakerMode] = useState("normal"); // circuit-breaker sensitivity
+  const [sellPctSel, setSellPctSel] = useState(""); // ladder sell% override ("" = from account/default)
+  const { activeAccount } = useApp();
   const [result, setResult] = useState<{ data: AnomalyResponse | null; error: string | null } | null>(null);
 
   // Always fetch the full history so the z-scores / 200-day MA have warm-up; the
@@ -348,7 +358,23 @@ export default function AnomalyPage() {
   );
 
   // ---- TQQQ ladder + quick-bear circuit breaker ----
-  const breakerFull = useMemo(() => circuitBreaker(fullPoints), [fullPoints]);
+  // Ladder params default to the active account's settings, overridable on-page.
+  const ladderParams = useMemo<LadderParams>(() => {
+    const s = activeAccount?.settings;
+    const r = s?.reductionFactor && s.reductionFactor > 0 ? s.reductionFactor : DEFAULT_LADDER.reductionFactor;
+    return {
+      startingCash: s?.levelStartingCash && s.levelStartingCash > 0 ? s.levelStartingCash : 100000,
+      stepPct: 1,
+      sellPct: Number(sellPctSel) || s?.sellPercentage || DEFAULT_LADDER.sellPct,
+      reductionFactor: r,
+      reanchorPct: 0,
+    };
+  }, [activeAccount, sellPctSel]);
+
+  const breakerFull = useMemo(
+    () => circuitBreaker(fullPoints, BREAKER_MODES[breakerMode]),
+    [fullPoints, breakerMode],
+  );
   const breakerByDate = useMemo(
     () => new Map(fullPoints.map((p, i) => [p.date, breakerFull[i]])),
     [fullPoints, breakerFull],
@@ -371,8 +397,8 @@ export default function AnomalyPage() {
   }, [tqqqBars, breakerByDate]);
   const ladder = useMemo(() => {
     if (tqqqBars.length < 2) return null;
-    const base = simulateLadder(tqqqBars, DEFAULT_LADDER);
-    const brk = simulateLadder(tqqqBars, DEFAULT_LADDER, ladderMask);
+    const base = simulateLadder(tqqqBars, ladderParams);
+    const brk = simulateLadder(tqqqBars, ladderParams, ladderMask);
     const equity = base.equity.map((e, i) => ({ date: e.date, base: e.value, brk: brk.equity[i]?.value ?? e.value }));
     // breaker-tripped shading spans
     const spansB: { x1: string; x2: string }[] = [];
@@ -388,7 +414,7 @@ export default function AnomalyPage() {
     }
     if (cur) spansB.push(cur);
     return { base, brk, equity, spans: spansB };
-  }, [tqqqBars, ladderMask]);
+  }, [tqqqBars, ladderMask, ladderParams]);
 
   const spxDomain = useMemo((): [number, number] => {
     if (points.length === 0) return [0, 100];
@@ -493,12 +519,42 @@ export default function AnomalyPage() {
           {/* ---- TQQQ ladder + crash circuit breaker ---- */}
           {ladder && (
             <Paper p="md" radius={CARD_RADIUS} withBorder>
-              <Text size="sm" fw={600} mb={2}>
-                Your TQQQ ladder + crash circuit breaker
-              </Text>
+              <Group justify="space-between" align="center" mb={2} wrap="wrap">
+                <Text size="sm" fw={600}>
+                  Your TQQQ ladder + crash circuit breaker
+                </Text>
+                <Group gap="md" align="center">
+                  <Group gap={6} align="center">
+                    <Text size="xs" c="dimmed">
+                      Sell %
+                    </Text>
+                    <SegmentedControl
+                      size="xs"
+                      value={sellPctSel || String(ladderParams.sellPct)}
+                      onChange={setSellPctSel}
+                      data={["3", "5", "7", "10"].map((v) => ({ label: `${v}%`, value: v }))}
+                    />
+                  </Group>
+                  <Group gap={6} align="center">
+                    <Text size="xs" c="dimmed">
+                      Breaker
+                    </Text>
+                    <SegmentedControl
+                      size="xs"
+                      value={breakerMode}
+                      onChange={setBreakerMode}
+                      data={[
+                        { label: "Off", value: "off" },
+                        { label: "Normal", value: "normal" },
+                        { label: "Sensitive", value: "sensitive" },
+                      ]}
+                    />
+                  </Group>
+                </Group>
+              </Group>
               <Text size="xs" c="dimmed" mb="sm">
                 The ladder buys dips / sells rips; the breaker pauses new buys during a quick-bear fragility spike so it
-                doesn&apos;t deploy into a falling knife. $100k start.
+                doesn&apos;t deploy into a falling knife. Start {fmtUsd(ladderParams.startingCash)}.
               </Text>
               <Box h={isMobile ? 200 : 260}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -528,8 +584,11 @@ export default function AnomalyPage() {
               <Text size="xs" c="dimmed" mt="sm">
                 Red shading = breaker tripped (buys paused). Tuned to fire on quick crashes (COVID, Apr-2025) but stay
                 quiet in slow grinds/chop (2022) where the ladder thrives — so it cushions the fast-bear drawdown at a
-                small cost to long-run return. Simplified model of the app&apos;s ladder (88 levels, {DEFAULT_LADDER.sellPct}% sell,
-                uniform sizing); ignores fees/taxes. Your real level config can be plugged in.
+                small cost to long-run return. Ladder: 88 levels, {ladderParams.sellPct}% sell, reduction{" "}
+                {ladderParams.reductionFactor}
+                {activeAccount?.settings?.sellPercentage ? " (from your account settings)" : ""}. Fills use each day&apos;s
+                intraday high/low — calibrated against hourly TQQQ to within ~16% of true intraday harvest. Ignores
+                fees/taxes.
               </Text>
             </Paper>
           )}

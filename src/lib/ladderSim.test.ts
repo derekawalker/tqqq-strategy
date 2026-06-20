@@ -40,6 +40,18 @@ describe("simulateLadder", () => {
     expect(paused.maxDrawdown).toBeGreaterThan(free.maxDrawdown);
   });
 
+  it("uses intraday high/low to catch touches a flat close would miss", () => {
+    // d1 closes flat at 100 (no close-cross) but dipped to 98 and popped to 106
+    const bars = [
+      { date: "d0", close: 100 }, // buy level0 @100
+      { date: "d1", close: 100, high: 106, low: 98 }, // intraday: sell level0 (hi≥105), buy levels 1 & 2 (lo≤99/98)
+    ];
+    const ohlc = simulateLadder(bars, P);
+    const closeOnly = simulateLadder([{ date: "d0", close: 100 }, { date: "d1", close: 100 }], P);
+    expect(ohlc.buys).toBeGreaterThan(closeOnly.buys); // intraday range catches more
+    expect(ohlc.sells).toBeGreaterThanOrEqual(1);
+  });
+
   it("handles R=1 (uniform allocation) without NaN", () => {
     const bars = [{ date: "d0", close: 100 }, { date: "d1", close: 98 }];
     const r = simulateLadder(bars, P);

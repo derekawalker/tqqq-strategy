@@ -20,11 +20,30 @@ const TICKERS = {
 
 type Field = keyof typeof TICKERS;
 
+export interface OHLCPoint {
+  date: string;
+  close: number;
+  high: number;
+  low: number;
+}
+
 export interface AnomalyResponse {
   points: AnomalyPoint[];
-  tqqq: SeriesPoint[]; // TQQQ daily closes for the ladder simulation
+  tqqq: OHLCPoint[]; // TQQQ daily OHLC for the ladder simulation (intraday range)
   asOf: string | null;
   components: Record<Field, string>;
+}
+
+async function fetchOHLC(symbol: string, period1: Date): Promise<OHLCPoint[]> {
+  const result = await yf.chart(symbol, { period1, interval: "1d" });
+  return (result.quotes ?? [])
+    .filter((q) => q.close != null && q.high != null && q.low != null && q.date != null)
+    .map((q) => ({
+      date: (q.date as Date).toISOString().slice(0, 10),
+      close: q.close as number,
+      high: q.high as number,
+      low: q.low as number,
+    }));
 }
 
 async function fetchSeries(symbol: string, period1: Date): Promise<SeriesPoint[]> {
@@ -69,7 +88,7 @@ export async function GET(request: Request) {
     const [fetched, baa10y, tqqq] = await Promise.all([
       Promise.all(fields.map((f) => fetchSeries(TICKERS[f], period1))),
       fetchFred("BAA10Y", period1), // Moody's Baa - 10y Treasury credit spread (regime filter)
-      fetchSeries("TQQQ", period1), // for the ladder simulation
+      fetchOHLC("TQQQ", period1), // OHLC for the ladder simulation
     ]);
 
     const series: Partial<Record<Field | "baa10y", SeriesPoint[]>> = {};
