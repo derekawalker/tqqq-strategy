@@ -21,12 +21,16 @@ export async function GET(request: Request) {
 
   try {
     if (searchParams.get("probe")) {
-      // One wide request: Schwab returns whatever minute history it has.
+      // Single request for an explicit window (defaults to 2010→now). Pass
+      // ?start= & ?end= to test whether a specific OLD window has data — the
+      // definitive way to tell a depth limit from a per-request count cap.
+      const sStr = searchParams.get("start");
+      const eStr = searchParams.get("end");
       const candles = await getPriceHistory(symbol, {
         frequencyType: "minute",
         frequency: freq,
-        startDate: Date.parse("2010-01-01"),
-        endDate: Date.now(),
+        startDate: sStr ? Date.parse(sStr) : Date.parse("2010-01-01"),
+        endDate: eStr ? Date.parse(eStr) : Date.now(),
         needExtendedHoursData: ext,
       });
       const first = candles[0];
@@ -35,11 +39,12 @@ export async function GET(request: Request) {
       return Response.json({
         symbol,
         freqMinutes: freq,
+        requested: { start: sStr ?? "2010-01-01", end: eStr ?? "now" },
         count: candles.length,
         tradingDays: days.size,
         earliest: first ? new Date(first.datetime).toISOString() : null,
         latest: last ? new Date(last.datetime).toISOString() : null,
-        note: "earliest = how far back Schwab will give this minute granularity in one shot",
+        note: "if a specific old window returns 0, Schwab simply doesn't have that minute history",
       });
     }
 
