@@ -77,16 +77,30 @@ function levelsAt(anchor: number, p: LadderParams): Level[] {
 }
 
 /**
- * Run the ladder over `bars`. `paused[i]` (optional, aligned to bars) suppresses
- * buying on that day (the circuit breaker). Returns the equity curve and stats.
+ * Run the ladder over `bars`. `throttle[i]` (optional, aligned to bars) scales how
+ * much of each touched lot to buy that day: 1 = full, 0.5 = half size, 0 = pause
+ * (the buy throttle / circuit breaker). A boolean[] is also accepted for backward
+ * compatibility (true = paused = 0). Returns the equity curve and stats.
  */
-export function simulateLadder(bars: Bar[], p: LadderParams = DEFAULT_LADDER, paused?: boolean[]): LadderResult {
+export function simulateLadder(
+  bars: Bar[],
+  p: LadderParams = DEFAULT_LADDER,
+  throttle?: (number | boolean)[],
+): LadderResult {
   if (bars.length === 0) {
     return { equity: [], finalValue: 0, totalReturn: 0, maxDrawdown: 0, realizedProfit: 0, buys: 0, sells: 0, peakInvested: 0 };
   }
+  const rateAt = (i: number): number => {
+    const t = throttle?.[i];
+    if (t == null) return 1;
+    if (typeof t === "boolean") return t ? 0 : 1; // legacy paused mask
+    return Math.max(0, Math.min(1, t));
+  };
   let anchor = bars[0].close;
   let levels = levelsAt(anchor, p);
-  const owned = new Array(levels.length).fill(false);
+  // Actual shares held per level (0 = flat); may be a fraction of the nominal lot
+  // when bought on a throttled (partial) day.
+  const ownedShares = new Array(levels.length).fill(0);
   let cash = p.startingCash;
   let realized = 0;
   let buys = 0;
@@ -99,26 +113,28 @@ export function simulateLadder(bars: Bar[], p: LadderParams = DEFAULT_LADDER, pa
     const close = bars[i].close;
     const hi = bars[i].high ?? close;
     const lo = bars[i].low ?? close;
+    const rate = rateAt(i);
 
     // 1) Sells: any owned lot whose sell limit is inside the day's range.
     for (let n = 0; n < levels.length; n++) {
-      if (owned[n] && hi >= levels[n].sellPrice) {
-        cash += levels[n].shares * levels[n].sellPrice;
-        realized += levels[n].shares * (levels[n].sellPrice - levels[n].buyPrice);
-        owned[n] = false;
+      if (ownedShares[n] > 0 && hi >= levels[n].sellPrice) {
+        cash += ownedShares[n] * levels[n].sellPrice;
+        realized += ownedShares[n] * (levels[n].sellPrice - levels[n].buyPrice);
+        ownedShares[n] = 0;
         sells++;
       }
     }
 
-    // 2) Buys: un-owned lots whose buy limit is touched (unless paused). A lot
-    //    bought today is NOT eligible to sell today (no same-day round trip).
-    if (!paused?.[i]) {
+    // 2) Buys: un-owned lots whose buy limit is touched, sized by the day's rate.
+    //    A lot bought today is NOT eligible to sell today (no same-day round trip).
+    if (rate > 0) {
       for (let n = 0; n < levels.length; n++) {
-        if (!owned[n] && lo <= levels[n].buyPrice) {
-          const cost = levels[n].shares * levels[n].buyPrice;
-          if (levels[n].shares > 0 && cash >= cost) {
+        if (ownedShares[n] === 0 && lo <= levels[n].buyPrice) {
+          const shares = Math.round(levels[n].shares * rate);
+          const cost = shares * levels[n].buyPrice;
+          if (shares > 0 && cash >= cost) {
             cash -= cost;
-            owned[n] = true;
+            ownedShares[n] = shares;
             buys++;
           }
         }
@@ -126,16 +142,16 @@ export function simulateLadder(bars: Bar[], p: LadderParams = DEFAULT_LADDER, pa
     }
 
     // 3) Re-anchor the grid up when flat and the close makes a new high.
-    const anyOwned = owned.some(Boolean);
+    const anyOwned = ownedShares.some((s) => s > 0);
     if (!anyOwned && close > anchor * (1 + p.reanchorPct)) {
       anchor = close;
       levels = levelsAt(anchor, p);
-      owned.fill(false);
+      ownedShares.fill(0);
     }
 
     // 4) Mark to market at the close.
     let lotValue = 0;
-    for (let n = 0; n < levels.length; n++) if (owned[n]) lotValue += levels[n].shares * close;
+    for (let n = 0; n < levels.length; n++) if (ownedShares[n] > 0) lotValue += ownedShares[n] * close;
     const value = cash + lotValue;
     equity.push({ date: bars[i].date, value });
     if (value > 0) peakInvested = Math.max(peakInvested, lotValue / value);

@@ -52,6 +52,20 @@ describe("simulateLadder", () => {
     expect(ohlc.sells).toBeGreaterThanOrEqual(1);
   });
 
+  it("fractional throttle buys half-size lots (deploys less cash)", () => {
+    const bars = [
+      { date: "d0", close: 100 }, // level0 @100
+      { date: "d1", close: 98 }, // levels 1 & 2 touched
+    ];
+    const full = simulateLadder(bars, P);
+    const half = simulateLadder(bars, P, [0.5, 0.5]);
+    // same number of levels touched, but each lot is ~half the shares -> less cash deployed
+    const fullInvested = full.equity.at(-1)!.value; // value = cash + lots (≈ start, MTM)
+    expect(half.buys).toBe(full.buys);
+    expect(half.peakInvested).toBeLessThan(full.peakInvested);
+    expect(fullInvested).toBeGreaterThan(0);
+  });
+
   it("handles R=1 (uniform allocation) without NaN", () => {
     const bars = [{ date: "d0", close: 100 }, { date: "d1", close: 98 }];
     const r = simulateLadder(bars, P);
