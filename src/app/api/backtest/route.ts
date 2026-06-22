@@ -5,12 +5,9 @@ import { candlesToBars, buyHoldCurve, downsample, coveredSpan, dailyTable } from
 import { fetchYahooDaily, yahooByDate, type YahooBar } from "@/lib/yahoo";
 import {
   sma,
-  maGateThrottle,
-  vixGateThrottle,
-  atrStepPcts,
-  gcThrottle,
+  maHysteresisThrottle,
+  vixHysteresisThrottle,
   combineThrottles,
-  type DailyPrice,
 } from "@/lib/strategySignals";
 import type { SimBar } from "@/lib/intradayBacktest";
 
@@ -20,7 +17,6 @@ import type { SimBar } from "@/lib/intradayBacktest";
 
 type Timeframe = "intraday" | "1y" | "3y" | "5y" | "10y" | "max";
 
-/** Maps a non-intraday timeframe to a Yahoo Finance range parameter. */
 const DAILY_RANGE: Record<Exclude<Timeframe, "intraday">, number | "max"> = {
   "1y":  1,
   "3y":  3,
@@ -42,23 +38,23 @@ interface ScenarioParams {
   startingCash: number;
   sellPct: number;
   reductionFactor: number;
-  maEnabled?: boolean;
-  maPeriod?: number;
-  maSymbol?: "TQQQ" | "QQQ";
-  vixEnabled?: boolean;
-  vixFloor?: number;
-  vixCeiling?: number;
-  atrEnabled?: boolean;
-  atrPeriod?: number;
-  atrStepMin?: number;
-  atrStepMax?: number;
+  stepPct?: number;
+  levels?: number;
+  reanchorPct?: number;
+  slippageBps?: number;
+  maGateEnabled?: boolean;
+  maStopPeriod?: number;
+  maResumePeriod?: number;
+  vixGateEnabled?: boolean;
+  vixStop?: number;
+  vixResume?: number;
+  balanceGateEnabled?: boolean;
+  balanceGatePct?: number;
+  balanceResumeReboundPct?: number;
   reserveEnabled?: boolean;
   reservePct?: number;
-  tranche1Threshold?: number;
-  tranche2Threshold?: number;
-  gcEnabled?: boolean;
-  gcFastPeriod?: number;
-  gcSlowPeriod?: number;
+  tranche1Pct?: number;
+  tranche2Pct?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,11 +92,10 @@ export async function POST(request: Request) {
       }
     }
 
-    // Optional date-range filter applied after fetching.
     const startDate: string | undefined = body.startDate;
     const endDate: string | undefined = body.endDate;
 
-    // Shared MA lookup built inside the intraday/daily branches below.
+    // Shared MA lookup for the price chart overlay lines.
     const maByDate = new Map<string, { sma50: number | null; sma200: number | null }>();
     function buildMaByDate(sourceBars: SimBar[]) {
       const closes = sourceBars.map((b) => b.close);
@@ -112,9 +107,10 @@ export async function POST(request: Request) {
     }
 
     // ------------------------------------------------------------------
-    // Fetch bars based on timeframe
+    // Fetch bars
     // ------------------------------------------------------------------
-    let allBars: SimBar[]; // full history — used for MA computation
+    let allBars: SimBar[];
+    let maBars: SimBar[]; // extended history for MA signal warm-up
     let barFreq: string;
 
     if (timeframe === "intraday") {
@@ -133,10 +129,12 @@ export async function POST(request: Request) {
       }
       allBars = intradayBars;
       barFreq = `5-min (${source})`;
+      // Use daily bars for MA computation so 50/200 MA lines are daily, not 5-min.
+      const dailyForMa = await fetchYahooDaily("TQQQ", 3).catch(() => []);
+      maBars = dailyForMa.length > 0 ? yahooToSimBars(dailyForMa) : allBars;
+      buildMaByDate(maBars);
     } else {
       const range = DAILY_RANGE[timeframe];
-      // Fetch 1 extra year beyond the display range so SMA200 has full warm-up at
-      // the very first visible bar. Both responses are cached for 1 hr.
       const maFetchRange: number | "max" = range === "max" ? "max" : (range as number) + 1;
       const [yahooTqqq, yahooMaExtra] = await Promise.all([
         fetchYahooDaily("TQQQ", range),
@@ -149,20 +147,14 @@ export async function POST(request: Request) {
         );
       }
       allBars = yahooToSimBars(yahooTqqq);
+      maBars = yahooMaExtra ? yahooToSimBars(yahooMaExtra) : allBars;
       barFreq = "daily (Yahoo Finance)";
-      // Build maByDate from the extended bars if available, else from allBars.
-      const maBars = yahooMaExtra ? yahooToSimBars(yahooMaExtra) : allBars;
       buildMaByDate(maBars);
     }
 
-    // For intraday, maByDate is still empty — fill from allBars.
-    if (maByDate.size === 0) buildMaByDate(allBars);
-
-    // Slice to requested date range for the simulation.
     let bars = allBars;
     if (startDate) bars = bars.filter((b) => b.date.slice(0, 10) >= startDate);
     if (endDate)   bars = bars.filter((b) => b.date.slice(0, 10) <= endDate);
-
     if (bars.length === 0) {
       return Response.json({ error: "No bars in the selected date range." }, { status: 400 });
     }
@@ -170,23 +162,14 @@ export async function POST(request: Request) {
     const span = { ...coveredSpan(bars), barFreq };
 
     // ------------------------------------------------------------------
-    // External signal data (VIX, QQQ) — fetch enough history for any MA
+    // External VIX data (only fetched when at least one scenario needs it)
     // ------------------------------------------------------------------
-    const needsVix = rawScenarios.some((s) => s.vixEnabled);
-    const needsQqq = rawScenarios.some((s) => s.maEnabled && s.maSymbol === "QQQ");
-
-    // For daily timeframes, use the same range so dates align; for intraday,
-    // 3 years of daily data is plenty for a 200-day MA warm-up.
-    const externalRange: number | "max" = timeframe === "intraday"
-      ? 3
-      : DAILY_RANGE[timeframe];
-
-    const [vixBars, qqqBars] = await Promise.all([
-      needsVix ? fetchYahooDaily("^VIX", externalRange).catch(() => []) : Promise.resolve([]),
-      needsQqq ? fetchYahooDaily("QQQ", externalRange).catch(() => []) : Promise.resolve([]),
-    ]);
+    const needsVix = rawScenarios.some((s) => s.vixGateEnabled);
+    const externalRange: number | "max" = timeframe === "intraday" ? 3 : DAILY_RANGE[timeframe];
+    const vixBars = needsVix
+      ? await fetchYahooDaily("^VIX", externalRange).catch(() => [])
+      : [];
     const vixByDate = yahooByDate(vixBars);
-    const qqqPrices: DailyPrice[] = qqqBars.map((b) => ({ date: b.date, close: b.close }));
 
     // ------------------------------------------------------------------
     // Run each scenario
@@ -196,47 +179,54 @@ export async function POST(request: Request) {
 
       const throttles: number[][] = [];
 
-      if (s.maEnabled) {
-        const period = s.maPeriod ?? 200;
-        const external = s.maSymbol === "QQQ" ? qqqPrices : undefined;
-        throttles.push(maGateThrottle(bars, period, external));
+      if (s.maGateEnabled) {
+        // Compute on maBars for warm-up, then project onto bars by date.
+        const full = maHysteresisThrottle(maBars, s.maStopPeriod ?? 200, s.maResumePeriod ?? 200);
+        const byDate = new Map<string, number>();
+        maBars.forEach((b, idx) => byDate.set(b.date.slice(0, 10), full[idx]));
+        throttles.push(bars.map((b) => byDate.get(b.date.slice(0, 10)) ?? 1));
       }
-      if (s.vixEnabled) {
-        throttles.push(vixGateThrottle(bars, vixByDate, s.vixFloor ?? 15, s.vixCeiling ?? 35));
-      }
-      if (s.gcEnabled) {
-        throttles.push(gcThrottle(bars, s.gcFastPeriod ?? 50, s.gcSlowPeriod ?? 200));
+      if (s.vixGateEnabled) {
+        throttles.push(vixHysteresisThrottle(bars, vixByDate, s.vixStop ?? 25, s.vixResume ?? 20));
       }
 
       const throttle = throttles.length > 0 ? combineThrottles(...throttles) : undefined;
 
-      const stepPctByBar = s.atrEnabled
-        ? atrStepPcts(bars, s.atrPeriod ?? 14, s.atrStepMin ?? 0.5, s.atrStepMax ?? 2.5)
-        : undefined;
-
       const params: LadderParams = {
         startingCash: Number(s.startingCash),
-        stepPct: 1,
+        stepPct: Number(s.stepPct) > 0 ? Number(s.stepPct) : 1,
         sellPct: Number(s.sellPct),
         reductionFactor: Number(s.reductionFactor),
-        reanchorPct: 0,
-        reservePct: s.reserveEnabled ? (s.reservePct ?? 30) : 0,
-        tranche1Threshold: s.reserveEnabled ? (s.tranche1Threshold ?? -15) : undefined,
-        tranche2Threshold: s.reserveEnabled ? (s.tranche2Threshold ?? -30) : undefined,
+        reanchorPct: Number(s.reanchorPct) > 0 ? Number(s.reanchorPct) / 100 : 0,
+        levels: Number(s.levels) > 0 ? Math.round(Number(s.levels)) : 88,
+        slippageBps: Number(s.slippageBps) > 0 ? Number(s.slippageBps) : 0,
+        reservePct: 0,
+        ...(s.balanceGateEnabled ? {
+          balanceGatePct: s.balanceGatePct ?? 85,
+          balanceResumeReboundPct: s.balanceResumeReboundPct ?? 5,
+        } : {}),
+        ...(s.reserveEnabled ? {
+          reservePct: Number(s.reservePct) > 0 ? Number(s.reservePct) : 0,
+          ...(Number(s.tranche1Pct) > 0 ? { tranche1Threshold: -Math.abs(Number(s.tranche1Pct)) } : {}),
+          ...(Number(s.tranche2Pct) > 0 ? { tranche2Threshold: -Math.abs(Number(s.tranche2Pct)) } : {}),
+        } : {}),
       };
 
-      const result = simulateLadder(bars, params, throttle, stepPctByBar);
+      const result = simulateLadder(bars, params, throttle);
 
-      // Build a per-day min-throttle curve for chart shading.
-      // For intraday bars, multiple bars share a day — take the minimum throttle for the day.
+      // Visual-only signals for strategies that don't produce a throttle.
+      const visualSignals: number[][] = [];
+      if (result.balanceGatePaused) {
+        visualSignals.push(result.balanceGatePaused.map((p) => p ? 0 : 1));
+      }
+
       let signalCurve: { date: string; value: number }[] | undefined;
-      if (throttle) {
+      if (throttle || visualSignals.length > 0) {
         const dailyMin = new Map<string, number>();
         bars.forEach((b, idx) => {
           const day = b.date.slice(0, 10);
-          const t = typeof throttle[idx] === "boolean"
-            ? (throttle[idx] ? 0 : 1)
-            : Math.max(0, Math.min(1, throttle[idx] as number));
+          let t = throttle ? Math.max(0, Math.min(1, throttle[idx])) : 1;
+          for (const sig of visualSignals) t = Math.min(t, Math.max(0, Math.min(1, sig[idx])));
           const existing = dailyMin.get(day);
           dailyMin.set(day, existing === undefined ? t : Math.min(existing, t));
         });
@@ -260,13 +250,18 @@ export async function POST(request: Request) {
         strategy: toPct(downsample(result.equity)),
         daily: dailyTable(result.equity),
         signalCurve,
+        strategyLabels: [
+          ...(s.maGateEnabled    ? [`MA gate: stop <${s.maStopPeriod ?? 200}d, resume >${s.maResumePeriod ?? 200}d`] : []),
+          ...(s.vixGateEnabled   ? [`VIX gate: stop >${s.vixStop ?? 25}, resume <${s.vixResume ?? 20}`] : []),
+          ...(s.balanceGateEnabled  ? [`Balance gate: stop <${s.balanceGatePct ?? 85}% of start, resume +${s.balanceResumeReboundPct ?? 5}%`] : []),
+          ...(s.reserveEnabled && Number(s.reservePct) > 0 ? [`Reserve: hold ${s.reservePct}%, deploy at −${Math.abs(Number(s.tranche1Pct)) || "?"}% / −${Math.abs(Number(s.tranche2Pct)) || "?"}%`] : []),
+        ],
       };
     });
 
     const benchmarkCurve = buyHoldCurve(bars, Number(rawScenarios[0].startingCash));
     const benchmark = toPct(downsample(benchmarkCurve));
 
-    // TQQQ price curve with server-computed MAs (warm-up from full history).
     const tqqqPrice = downsample(bars.map((b) => ({ date: b.date, value: b.close }))).map((p) => {
       const ma = maByDate.get(p.date.slice(0, 10));
       return { ...p, sma50: ma?.sma50 ?? null, sma200: ma?.sma200 ?? null };

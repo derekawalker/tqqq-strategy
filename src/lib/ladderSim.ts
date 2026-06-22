@@ -31,10 +31,15 @@ export interface LadderParams {
   sellPct: number; // % gain target per lot
   reductionFactor: number;
   reanchorPct: number; // re-anchor up when a new high exceeds the anchor by this fraction
-  // Reserve + capital tranches (Strategy 4)
-  reservePct?: number; // 0–100: fraction of startingCash held back initially
-  tranche1Threshold?: number; // deploy first half of reserve when drawdown from peak hits this % (negative, e.g. -15)
-  tranche2Threshold?: number; // deploy second half when drawdown hits this % (e.g. -30)
+  levels?: number; // number of ladder rungs (default 88)
+  slippageBps?: number; // per-side trade friction in basis points of notional (spread + commission)
+  reservePct?: number;
+  tranche1Threshold?: number;
+  tranche2Threshold?: number;
+  // Balance gate: stop buying when portfolio value falls below startingCash * (balanceGatePct/100),
+  // resume when price rebounds balanceResumeReboundPct% from its trough during the pause.
+  balanceGatePct?: number;
+  balanceResumeReboundPct?: number;
 }
 
 export const DEFAULT_LADDER: LadderParams = {
@@ -53,8 +58,10 @@ export interface LadderResult {
   realizedProfit: number;
   buys: number;
   sells: number;
-  /** Worst single-day deployed fraction (lots' market value / equity) — exposure. */
+  /** Peak single-day deployed fraction (lots' market value / equity) — max exposure. */
   peakInvested: number;
+  /** Per-bar balance gate state (aligned to equity): true = buying paused this bar. */
+  balanceGatePaused?: boolean[];
 }
 
 interface Bar {
@@ -68,9 +75,10 @@ interface Bar {
 // (computeLevels' geometric normalization divides by zero at R=1, so handle the
 // uniform case here.)
 function levelsAt(anchor: number, p: LadderParams): Level[] {
-  const N = 88;
+  const N = Math.max(1, Math.round(p.levels ?? 88));
   const R = p.reductionFactor;
-  if (p.stepPct === 1 && R !== 1) return computeLevels(p.startingCash, anchor, p.sellPct, R);
+  // The shared, live-app grid is exactly 88 rungs at a 1% step; match it bit-for-bit.
+  if (N === 88 && p.stepPct === 1 && R !== 1) return computeLevels(p.startingCash, anchor, p.sellPct, R);
   const K = R === 1 ? 1 / N : (1 - R) / (1 - Math.pow(R, N));
   return Array.from({ length: N }, (_, n) => {
     const buyPrice = anchor * (1 - 0.01 * p.stepPct * n);
@@ -86,14 +94,11 @@ function levelsAt(anchor: number, p: LadderParams): Level[] {
  * (the buy throttle / circuit breaker). A boolean[] is also accepted for backward
  * compatibility (true = paused = 0). Returns the equity curve and stats.
  *
- * `stepPctByBar` (optional, aligned to bars) provides a per-bar step %, used only
- * at re-anchor events. Between re-anchors the grid is fixed. Falls back to p.stepPct.
  */
 export function simulateLadder(
   bars: Bar[],
   p: LadderParams = DEFAULT_LADDER,
   throttle?: (number | boolean)[],
-  stepPctByBar?: number[],
 ): LadderResult {
   if (bars.length === 0) {
     return { equity: [], finalValue: 0, totalReturn: 0, maxDrawdown: 0, realizedProfit: 0, buys: 0, sells: 0, peakInvested: 0 } as LadderResult;
@@ -122,6 +127,15 @@ export function simulateLadder(
   let buys = 0;
   let sells = 0;
   let peakInvested = 0;
+  const slip = Math.max(0, (p.slippageBps ?? 0) / 10000); // per-side friction on notional
+
+  // Balance gate state
+  const balanceGatePausedArr: boolean[] = [];
+  let bgPaused = false;
+  let bgPriceLow = 0;
+  const bgThreshold = p.balanceGatePct != null
+    ? p.startingCash * (p.balanceGatePct / 100)
+    : null;
 
   const equity: { date: string; value: number; barBuys: number; barSells: number; barProfit: number }[] = [];
 
@@ -137,8 +151,10 @@ export function simulateLadder(
     // 1) Sells: any owned lot whose sell limit is inside the day's range.
     for (let n = 0; n < levels.length; n++) {
       if (ownedShares[n] > 0 && hi >= levels[n].sellPrice) {
-        const profit = ownedShares[n] * (levels[n].sellPrice - levels[n].buyPrice);
-        cash += ownedShares[n] * levels[n].sellPrice;
+        const proceeds = ownedShares[n] * levels[n].sellPrice * (1 - slip);
+        const buyCost = ownedShares[n] * levels[n].buyPrice * (1 + slip);
+        const profit = proceeds - buyCost;
+        cash += proceeds;
         realized += profit;
         barProfit += profit;
         ownedShares[n] = 0;
@@ -147,13 +163,29 @@ export function simulateLadder(
       }
     }
 
+    // 1b) Balance gate: check post-sell portfolio value before allowing buys.
+    if (bgThreshold != null) {
+      let preBuyVal = cash + reserve;
+      for (let n = 0; n < levels.length; n++) if (ownedShares[n] > 0) preBuyVal += ownedShares[n] * close;
+      if (!bgPaused && preBuyVal < bgThreshold) {
+        bgPaused = true;
+        bgPriceLow = close;
+      }
+      if (bgPaused) {
+        if (close < bgPriceLow) bgPriceLow = close;
+        const rebound = p.balanceResumeReboundPct ?? 5;
+        if (close >= bgPriceLow * (1 + rebound / 100)) bgPaused = false;
+      }
+    }
+    balanceGatePausedArr.push(bgPaused);
+
     // 2) Buys: un-owned lots whose buy limit is touched, sized by the day's rate.
     //    A lot bought today is NOT eligible to sell today (no same-day round trip).
-    if (rate > 0) {
+    if (rate > 0 && !bgPaused) {
       for (let n = 0; n < levels.length; n++) {
         if (ownedShares[n] === 0 && lo <= levels[n].buyPrice) {
           const shares = Math.round(levels[n].shares * rate);
-          const cost = shares * levels[n].buyPrice;
+          const cost = shares * levels[n].buyPrice * (1 + slip);
           if (shares > 0 && cash >= cost) {
             cash -= cost;
             ownedShares[n] = shares;
@@ -186,15 +218,14 @@ export function simulateLadder(
     const anyOwned = ownedShares.some((s) => s > 0);
     if (!anyOwned && close > anchor * (1 + p.reanchorPct)) {
       anchor = close;
-      const currentStep = stepPctByBar?.[i] ?? p.stepPct;
-      levels = levelsAt(anchor, { ...p, stepPct: currentStep });
+      levels = levelsAt(anchor, p);
       ownedShares.fill(0);
     }
 
     // 5) Mark to market at the close.
     let lotValue = 0;
     for (let n = 0; n < levels.length; n++) if (ownedShares[n] > 0) lotValue += ownedShares[n] * close;
-    const value = cash + lotValue;
+    const value = cash + lotValue + reserve;
     equity.push({ date: bars[i].date, value, barBuys, barSells, barProfit });
     if (value > 0) peakInvested = Math.max(peakInvested, lotValue / value);
   }
@@ -217,5 +248,6 @@ export function simulateLadder(
     buys,
     sells,
     peakInvested,
+    ...(bgThreshold != null ? { balanceGatePaused: balanceGatePausedArr } : {}),
   };
 }
