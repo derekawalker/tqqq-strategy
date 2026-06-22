@@ -36,20 +36,22 @@ import {
   IconHistory,
   IconColumns3,
   IconDotsCircleHorizontal,
-  IconRadar2,
+  IconChartHistogram,
+  IconRadar,
 } from "@tabler/icons-react";
 
 const ALL_PAGES = [
-  { href: "/",                    label: "Dash",    icon: IconLayoutDashboard },
-  { href: "/levels",              label: "Levels",       icon: IconList },
-  { href: "/working-orders",      label: "Working",      icon: IconClockHour4 },
-  { href: "/filled-orders",       label: "Filled",       icon: IconCheckbox },
-  { href: "/options",             label: "Options",      icon: IconChartCandle },
-  { href: "/profit-tracker",      label: "Profit",       icon: IconTrendingUp },
-  { href: "/interest-dividends",  label: "Interest",     icon: IconCoins },
-  { href: "/chart",               label: "Chart",        icon: IconChartLine },
-  { href: "/anomaly",             label: "Anomaly",      icon: IconRadar2 },
-  { href: "/history",             label: "History",      icon: IconHistory },
+  { href: "/",                    label: "Dash",       icon: IconLayoutDashboard },
+  { href: "/levels",              label: "Levels",     icon: IconList },
+  { href: "/working-orders",      label: "Working",    icon: IconClockHour4 },
+  { href: "/filled-orders",       label: "Filled",     icon: IconCheckbox },
+  { href: "/options",             label: "Options",    icon: IconChartCandle },
+  { href: "/profit-tracker",      label: "Profit",     icon: IconTrendingUp },
+  { href: "/interest-dividends",  label: "Interest",   icon: IconCoins },
+  { href: "/chart",               label: "Chart",      icon: IconChartLine },
+  { href: "/backtest",            label: "Backtest",   icon: IconChartHistogram },
+  { href: "/sentiment",           label: "Sentiment",  icon: IconRadar },
+  { href: "/history",             label: "History",    icon: IconHistory },
 ];
 
 const TAB_PAGES = ALL_PAGES.slice(0, 5);

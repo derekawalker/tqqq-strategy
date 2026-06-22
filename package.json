@@ -11,6 +11,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1073.0",
+    "@aws-sdk/s3-request-presigner": "^3.1073.0",
     "@mantine/charts": "^8.3.18",
     "@mantine/core": "^8.3.18",
     "@mantine/dates": "^8.3.18",

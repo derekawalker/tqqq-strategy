@@ -18,7 +18,11 @@
  */
 
 import { sma, type AnomalyPoint } from "./anomaly";
-import { DEEP_BUY_Z, DEEP_BUY_RESET, DEEP_BUY_MA } from "./backtest";
+
+// Deep-fear buy-trigger thresholds (formerly in backtest.ts).
+const DEEP_BUY_Z = -5;
+const DEEP_BUY_RESET = -1;
+const DEEP_BUY_MA = 10;
 
 export interface ThrottleParams {
   halfZ: number; // fragility z at/above which to deploy at half rate

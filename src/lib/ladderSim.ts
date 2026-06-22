@@ -31,6 +31,10 @@ export interface LadderParams {
   sellPct: number; // % gain target per lot
   reductionFactor: number;
   reanchorPct: number; // re-anchor up when a new high exceeds the anchor by this fraction
+  // Reserve + capital tranches (Strategy 4)
+  reservePct?: number; // 0–100: fraction of startingCash held back initially
+  tranche1Threshold?: number; // deploy first half of reserve when drawdown from peak hits this % (negative, e.g. -15)
+  tranche2Threshold?: number; // deploy second half when drawdown hits this % (e.g. -30)
 }
 
 export const DEFAULT_LADDER: LadderParams = {
@@ -42,7 +46,7 @@ export const DEFAULT_LADDER: LadderParams = {
 };
 
 export interface LadderResult {
-  equity: { date: string; value: number }[];
+  equity: { date: string; value: number; barBuys: number; barSells: number; barProfit: number }[];
   finalValue: number;
   totalReturn: number;
   maxDrawdown: number;
@@ -81,14 +85,18 @@ function levelsAt(anchor: number, p: LadderParams): Level[] {
  * much of each touched lot to buy that day: 1 = full, 0.5 = half size, 0 = pause
  * (the buy throttle / circuit breaker). A boolean[] is also accepted for backward
  * compatibility (true = paused = 0). Returns the equity curve and stats.
+ *
+ * `stepPctByBar` (optional, aligned to bars) provides a per-bar step %, used only
+ * at re-anchor events. Between re-anchors the grid is fixed. Falls back to p.stepPct.
  */
 export function simulateLadder(
   bars: Bar[],
   p: LadderParams = DEFAULT_LADDER,
   throttle?: (number | boolean)[],
+  stepPctByBar?: number[],
 ): LadderResult {
   if (bars.length === 0) {
-    return { equity: [], finalValue: 0, totalReturn: 0, maxDrawdown: 0, realizedProfit: 0, buys: 0, sells: 0, peakInvested: 0 };
+    return { equity: [], finalValue: 0, totalReturn: 0, maxDrawdown: 0, realizedProfit: 0, buys: 0, sells: 0, peakInvested: 0 } as LadderResult;
   }
   const rateAt = (i: number): number => {
     const t = throttle?.[i];
@@ -101,27 +109,41 @@ export function simulateLadder(
   // Actual shares held per level (0 = flat); may be a fraction of the nominal lot
   // when bought on a throttled (partial) day.
   const ownedShares = new Array(levels.length).fill(0);
-  let cash = p.startingCash;
+
+  // Reserve + tranche setup (Strategy 4).
+  const reserveFraction = Math.max(0, Math.min(1, (p.reservePct ?? 0) / 100));
+  let reserve = p.startingCash * reserveFraction;
+  let cash = p.startingCash * (1 - reserveFraction);
+  let tranche1Deployed = false;
+  let tranche2Deployed = false;
+  let peakPrice = bars[0].close;
+
   let realized = 0;
   let buys = 0;
   let sells = 0;
   let peakInvested = 0;
 
-  const equity: { date: string; value: number }[] = [];
+  const equity: { date: string; value: number; barBuys: number; barSells: number; barProfit: number }[] = [];
 
   for (let i = 0; i < bars.length; i++) {
     const close = bars[i].close;
     const hi = bars[i].high ?? close;
     const lo = bars[i].low ?? close;
     const rate = rateAt(i);
+    let barBuys = 0;
+    let barSells = 0;
+    let barProfit = 0;
 
     // 1) Sells: any owned lot whose sell limit is inside the day's range.
     for (let n = 0; n < levels.length; n++) {
       if (ownedShares[n] > 0 && hi >= levels[n].sellPrice) {
+        const profit = ownedShares[n] * (levels[n].sellPrice - levels[n].buyPrice);
         cash += ownedShares[n] * levels[n].sellPrice;
-        realized += ownedShares[n] * (levels[n].sellPrice - levels[n].buyPrice);
+        realized += profit;
+        barProfit += profit;
         ownedShares[n] = 0;
         sells++;
+        barSells++;
       }
     }
 
@@ -136,24 +158,44 @@ export function simulateLadder(
             cash -= cost;
             ownedShares[n] = shares;
             buys++;
+            barBuys++;
           }
         }
       }
     }
 
-    // 3) Re-anchor the grid up when flat and the close makes a new high.
+    // 3) Inject reserve tranches when price draws down from its running peak.
+    peakPrice = Math.max(peakPrice, close);
+    if (reserve > 0) {
+      const drawdown = close / peakPrice - 1;
+      const t1 = p.tranche1Threshold != null ? p.tranche1Threshold / 100 : null;
+      const t2 = p.tranche2Threshold != null ? p.tranche2Threshold / 100 : null;
+      if (!tranche1Deployed && t1 != null && drawdown <= t1) {
+        cash += reserve / 2;
+        reserve /= 2;
+        tranche1Deployed = true;
+      }
+      if (!tranche2Deployed && t2 != null && drawdown <= t2) {
+        cash += reserve;
+        reserve = 0;
+        tranche2Deployed = true;
+      }
+    }
+
+    // 4) Re-anchor the grid up when flat and the close makes a new high.
     const anyOwned = ownedShares.some((s) => s > 0);
     if (!anyOwned && close > anchor * (1 + p.reanchorPct)) {
       anchor = close;
-      levels = levelsAt(anchor, p);
+      const currentStep = stepPctByBar?.[i] ?? p.stepPct;
+      levels = levelsAt(anchor, { ...p, stepPct: currentStep });
       ownedShares.fill(0);
     }
 
-    // 4) Mark to market at the close.
+    // 5) Mark to market at the close.
     let lotValue = 0;
     for (let n = 0; n < levels.length; n++) if (ownedShares[n] > 0) lotValue += ownedShares[n] * close;
     const value = cash + lotValue;
-    equity.push({ date: bars[i].date, value });
+    equity.push({ date: bars[i].date, value, barBuys, barSells, barProfit });
     if (value > 0) peakInvested = Math.max(peakInvested, lotValue / value);
   }
 

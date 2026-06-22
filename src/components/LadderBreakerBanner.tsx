@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { Alert, Text } from "@mantine/core";
 import { IconAlertTriangle, IconArrowDown, IconArrowUp } from "@tabler/icons-react";
 import type { ThrottleMode } from "@/lib/throttle";
@@ -79,10 +78,7 @@ export function LadderBreakerBanner() {
       }
     >
       <Text size="sm" c="gray.4">
-        {m.body} (as of {status.date}){" "}
-        <Link href="/anomaly" style={{ color: `var(--mantine-color-${m.color}-3)`, fontWeight: 600 }}>
-          View details →
-        </Link>
+        {m.body} (as of {status.date})
       </Text>
     </Alert>
   );

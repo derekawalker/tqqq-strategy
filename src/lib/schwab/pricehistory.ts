@@ -44,6 +44,20 @@ export async function getPriceHistory(symbol: string, opts: PriceHistoryOpts): P
 }
 
 /**
+ * Full daily OHLC history for a symbol from `fromDate` (YYYY-MM-DD) to today.
+ * Schwab returns up to 20 years of daily bars in a single request — no paging needed.
+ */
+export async function getDailyHistory(symbol: string, fromDate = "2010-01-01"): Promise<Candle[]> {
+  return getPriceHistory(symbol, {
+    periodType: "year",
+    frequencyType: "daily",
+    frequency: 1,
+    startDate: Date.parse(fromDate),
+    endDate: Date.now(),
+  });
+}
+
+/**
  * Pull a long span of minute candles by paging month-by-month (a single request
  * caps the candle count, and minute history is windowed). De-dupes by datetime
  * and returns ascending. `freq` is minutes (1/5/10/15/30).
@@ -73,6 +87,57 @@ export async function getIntradayHistory(
       continue;
     }
     for (const c of candles) if (c.datetime >= startMs && c.datetime <= endMs) byTs.set(c.datetime, c);
+  }
+  return [...byTs.values()].sort((a, b) => a.datetime - b.datetime);
+}
+
+export interface IntradayBackOpts {
+  /** Hard ceiling on how many monthly windows to walk back (safety bound). */
+  maxMonths?: number;
+  /** Stop after this many consecutive empty/error windows (past the depth limit). */
+  stopAfterEmpty?: number;
+  needExtendedHoursData?: boolean;
+}
+
+/**
+ * Pull "as far back as Schwab has" minute candles by walking *backward* from now
+ * one month at a time, stopping once we pass the depth limit. Schwab's minute
+ * history only goes back a limited span, so paging forward from a fixed old date
+ * wastes a request per empty month; walking back and bailing after a couple of
+ * empty windows bounds the work to roughly (depth + stopAfterEmpty) requests.
+ * De-dupes by datetime and returns ascending — same shape as getIntradayHistory.
+ */
+export async function getIntradayHistoryBack(
+  symbol: string,
+  freq: number,
+  opts: IntradayBackOpts = {},
+): Promise<Candle[]> {
+  const { maxMonths = 60, stopAfterEmpty = 2, needExtendedHoursData = false } = opts;
+  const byTs = new Map<number, Candle>();
+  const MONTH = 31 * 24 * 60 * 60 * 1000;
+  let emptyStreak = 0;
+  let to = Date.now();
+  for (let i = 0; i < maxMonths; i++) {
+    const from = to - MONTH;
+    let candles: Candle[] = [];
+    try {
+      candles = await getPriceHistory(symbol, {
+        frequencyType: "minute",
+        frequency: freq,
+        startDate: from,
+        endDate: to,
+        needExtendedHoursData,
+      });
+    } catch {
+      candles = [];
+    }
+    if (candles.length === 0) {
+      if (++emptyStreak >= stopAfterEmpty) break;
+    } else {
+      emptyStreak = 0;
+      for (const c of candles) byTs.set(c.datetime, c);
+    }
+    to = from;
   }
   return [...byTs.values()].sort((a, b) => a.datetime - b.datetime);
 }
