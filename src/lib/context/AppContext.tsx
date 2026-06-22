@@ -291,8 +291,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
           if (activeNumData.status === "fulfilled" && activeNumData.value?.value) {
             savedNumber = activeNumData.value.value as string;
           }
-          if (historyData.status === "fulfilled" && Array.isArray(historyData.value?.value)) {
-            setBalanceHistory(historyData.value.value as BalanceSnapshot[]);
+          if (historyData.status === "fulfilled") {
+            if (Array.isArray(historyData.value?.value)) {
+              setBalanceHistory(historyData.value.value as BalanceSnapshot[]);
+            }
+            // Batched with setBalanceHistory so the snapshot effect never sees
+            // persistReadyRef=true with a stale (empty) balanceHistory.
+            setBalanceHistoryLoaded(true);
           }
         }
       } catch {}
@@ -369,6 +374,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [allBalances, setAllBalances] = useState<AccountBalance[]>([]);
   const [balanceHistory, setBalanceHistory] = useState<BalanceSnapshot[]>([]);
+  // Set to true in the same React batch as setBalanceHistory so the snapshot effect
+  // never sees persistReadyRef=true + balanceHistory=[] at the same time.
+  const [balanceHistoryLoaded, setBalanceHistoryLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -447,7 +455,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // piggybacks on the existing refresh flow — no cron/infra needed — so the portfolio-history
   // chart fills in naturally as the app is used.
   useEffect(() => {
-    if (snapshotLoading || allBalances.length === 0 || !persistReadyRef.current) return;
+    if (snapshotLoading || allBalances.length === 0 || !persistReadyRef.current || !balanceHistoryLoaded) return;
     const today = toDateKey(new Date());
     const accountNumbers = allBalances.map((b) => b.accountNumber);
     // Record when today is missing entirely, or is missing an account we now have a balance for
@@ -462,7 +470,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key: "balanceHistory", value: next }),
     }).catch(() => {});
-  }, [allBalances, snapshotLoading, balanceHistory]);
+  }, [allBalances, snapshotLoading, balanceHistory, balanceHistoryLoaded]);
 
   const accountNumber = activeAccount?.accountNumber ?? null;
   const filledOrders = useMemo(
