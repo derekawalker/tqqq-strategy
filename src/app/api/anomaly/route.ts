@@ -1,7 +1,6 @@
 import YahooFinance from "yahoo-finance2";
 import { alignSeries, computeAnomaly, type AnomalyPoint, type SeriesPoint } from "@/lib/anomaly";
-import { circuitBreaker } from "@/lib/circuitBreaker";
-import { dailyAdvice } from "@/lib/advice";
+import { buyThrottle } from "@/lib/throttle";
 import { getCached, setCached } from "@/lib/ttlCache";
 
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
@@ -110,18 +109,16 @@ export async function GET(request: Request) {
       setCached(cacheKey, payload);
     }
 
-    // Lightweight status for app-wide alerts (breaker / advice for today).
+    // Lightweight status for app-wide alerts: today's buy-side posture.
     if (statusOnly) {
-      const breaker = circuitBreaker(payload.points);
-      const today = dailyAdvice(payload.points).at(-1) ?? null;
+      const throttle = buyThrottle(payload.points);
       const last = payload.points.at(-1) ?? null;
+      const today = throttle.at(-1) ?? { mode: "full" as const, rate: 1 };
       return Response.json({
         date: payload.asOf,
-        breaker: breaker.at(-1) ?? false,
+        mode: today.mode,
+        rate: today.rate,
         fragility: last?.fragility ?? null,
-        action: today?.action ?? "normal",
-        stance: today?.stance ?? "in",
-        exposure: today?.exposure ?? 1,
       });
     }
 
