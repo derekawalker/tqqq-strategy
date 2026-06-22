@@ -1,8 +1,12 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useMediaQuery } from "@mantine/hooks";
-import { Paper, Stack, Text, Group, SegmentedControl, Center } from "@mantine/core";
+import {
+  Paper, Stack, Text, Group, SegmentedControl, Center,
+  Button, Alert, Loader, Table, Badge,
+} from "@mantine/core";
+import { IconAlertTriangle, IconHistory } from "@tabler/icons-react";
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, Customized } from "recharts";
 import { useApp } from "@/lib/context/AppContext";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
@@ -17,11 +21,135 @@ const RANGE_OPTIONS: { label: string; value: HistoryRange }[] = [
   { label: "All", value: "all" },
 ];
 
+interface BackupEntry {
+  date: string;
+  balanceHistoryCount: number;
+  keys: string[];
+}
+
+function RestorePanel({ onRestored }: { onRestored: () => void }) {
+  const [backups, setBackups] = useState<BackupEntry[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [restoring, setRestoring] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/settings/backup");
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Failed to load backups");
+      setBackups(json.backups as BackupEntry[]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function restore(date: string) {
+    setRestoring(date);
+    setError(null);
+    try {
+      const res = await fetch("/api/settings/backup", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date, keys: ["balanceHistory"] }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Restore failed");
+      setSuccess(true);
+      onRestored();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Restore failed");
+    } finally {
+      setRestoring(null);
+    }
+  }
+
+  if (success) {
+    return (
+      <Alert color="teal" icon={<IconHistory size={16} />} radius="md">
+        History restored — reload the page to see it.
+      </Alert>
+    );
+  }
+
+  return (
+    <Paper p="md" withBorder radius="md">
+      <Stack gap="sm">
+        <Group justify="space-between">
+          <Text size="sm" fw={600}>Restore from backup</Text>
+          <Button size="xs" variant="subtle" color="gray" onClick={load} loading={loading}>
+            Refresh
+          </Button>
+        </Group>
+        <Text size="xs" c="dimmed">
+          Daily backups are kept for 30 days. Restoring only overwrites balance history — account
+          settings are not affected.
+        </Text>
+
+        {error && (
+          <Alert color="red" icon={<IconAlertTriangle size={14} />} radius="sm">
+            {error}
+          </Alert>
+        )}
+
+        {loading && <Center py="sm"><Loader size="sm" /></Center>}
+
+        {backups && backups.length === 0 && (
+          <Text size="sm" c="dimmed">No backups found.</Text>
+        )}
+
+        {backups && backups.length > 0 && (
+          <Table fz="sm">
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Backup date</Table.Th>
+                <Table.Th>Entries</Table.Th>
+                <Table.Th />
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {backups.map((b) => (
+                <Table.Tr key={b.date}>
+                  <Table.Td>{b.date}</Table.Td>
+                  <Table.Td>
+                    <Badge variant="light" color={b.balanceHistoryCount > 1 ? "teal" : "gray"} size="sm">
+                      {b.balanceHistoryCount} day{b.balanceHistoryCount !== 1 ? "s" : ""}
+                    </Badge>
+                  </Table.Td>
+                  <Table.Td>
+                    <Button
+                      size="xs"
+                      variant="light"
+                      loading={restoring === b.date}
+                      disabled={restoring !== null || b.balanceHistoryCount === 0}
+                      onClick={() => restore(b.date)}
+                    >
+                      Restore
+                    </Button>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        )}
+      </Stack>
+    </Paper>
+  );
+}
+
 export default function HistoryPage() {
   const { activeAccount, balanceHistory, privacyMode } = useApp();
   const color = useAccountColor();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const mask = createMask(privacyMode);
+  const [showRestore, setShowRestore] = useState(false);
 
   const [range, setRange] = useState<HistoryRange>(() => {
     if (typeof window === "undefined") return "3m";
@@ -60,16 +188,43 @@ export default function HistoryPage() {
     <Stack gap="md">
       <Group justify="space-between" align="center">
         <Text fw={700} size="xl">History</Text>
-        <SegmentedControl size="xs" value={range} onChange={handleRangeChange} data={RANGE_OPTIONS} />
+        <Group gap="xs">
+          <Button
+            size="xs"
+            variant="subtle"
+            color="gray"
+            leftSection={<IconHistory size={14} />}
+            onClick={() => setShowRestore((v) => !v)}
+          >
+            {showRestore ? "Hide restore" : "Restore backup"}
+          </Button>
+          <SegmentedControl size="xs" value={range} onChange={handleRangeChange} data={RANGE_OPTIONS} />
+        </Group>
       </Group>
+
+      {showRestore && (
+        <RestorePanel onRestored={() => setShowRestore(false)} />
+      )}
 
       <Paper p={isMobile ? "xs" : "md"}>
         {series.length === 0 ? (
           <Center h={isMobile ? 280 : 360}>
-            <Text size="sm" c="dimmed" ta="center">
-              Not enough history yet — account value is recorded once per day,
-              <br />so check back after a couple of days of use.
-            </Text>
+            <Stack align="center" gap="sm">
+              <Text size="sm" c="dimmed" ta="center">
+                Not enough history yet — account value is recorded once per day,
+                <br />so check back after a couple of days of use.
+              </Text>
+              {!showRestore && (
+                <Button
+                  size="xs"
+                  variant="light"
+                  leftSection={<IconHistory size={14} />}
+                  onClick={() => setShowRestore(true)}
+                >
+                  Restore from backup
+                </Button>
+              )}
+            </Stack>
           </Center>
         ) : (
           <Stack gap="md">

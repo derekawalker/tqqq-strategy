@@ -26,6 +26,48 @@ const BACKUP_RETENTION_DAYS = 30;
  * repeated calls on the same day overwrite rather than pile up. Older snapshots beyond the
  * retention window are pruned. Lets accidental overwrites of `settings` be recovered manually.
  */
+/** Returns all available backup dates, newest first, with a snapshot of how much data each has. */
+export async function listBackups(): Promise<
+  { date: string; balanceHistoryCount: number; keys: string[] }[]
+> {
+  const sb = supabase();
+  const { data, error } = await sb
+    .from("settings_backups")
+    .select("date, value")
+    .order("date", { ascending: false });
+  if (error || !data) return [];
+  return data.map((row) => ({
+    date: row.date as string,
+    keys: Object.keys(row.value as Record<string, unknown>),
+    balanceHistoryCount: Array.isArray((row.value as Record<string, unknown>).balanceHistory)
+      ? ((row.value as Record<string, unknown>).balanceHistory as unknown[]).length
+      : 0,
+  }));
+}
+
+/**
+ * Restore specific keys from a backup date back into the live settings table.
+ * Defaults to restoring only balanceHistory to avoid overwriting account config.
+ */
+export async function restoreBackup(
+  date: string,
+  keys: string[] = ["balanceHistory"],
+): Promise<void> {
+  const sb = supabase();
+  const { data, error } = await sb
+    .from("settings_backups")
+    .select("value")
+    .eq("date", date)
+    .single();
+  if (error || !data) throw new Error(`No backup found for ${date}`);
+
+  const backup = data.value as Record<string, unknown>;
+  for (const key of keys) {
+    if (!(key in backup)) continue;
+    await sb.from("settings").upsert({ key, value: backup[key] });
+  }
+}
+
 export async function backupSettings(): Promise<void> {
   const sb = supabase();
   const { data, error } = await sb.from("settings").select("key, value").in("key", BACKUP_KEYS);
