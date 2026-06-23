@@ -11,15 +11,27 @@ import { fetchYahooDaily } from "@/lib/yahoo";
 import {
   alignHedgeBars,
   simulatePutHedge,
+  simulateLadderHedge,
   sweepPutHedge,
+  type LadderLeg,
   type PutHedgeParams,
   type PutHedgeResult,
   type SweepGrid,
 } from "@/lib/putHedge";
+import { TRANCHES, HEDGE_DTE, ROLL_AT_DTE } from "@/lib/hedgeTranches";
 
 // The hedge is always QQQ puts against a held TQQQ position.
 const QQQ_COVERAGE = [1, 2, 3, 4];
 const QQQ_DIVIDEND_YIELD = 0.006;
+
+// The recommended ladder = the active tranches at their target coverage caps,
+// 60 DTE, rolled at 21d — i.e. exactly the strategy the buy panel sizes.
+const RECOMMENDED_LEGS: LadderLeg[] = TRANCHES.filter((t) => t.budgetShare > 0).map((t) => ({
+  moneyness: t.moneyness,
+  dteDays: HEDGE_DTE,
+  rollEveryDays: ROLL_AT_DTE,
+  coverageRatio: t.maxCoverage,
+}));
 
 function summarize(r: PutHedgeResult) {
   const { equity: _equity, ...rest } = r;
@@ -101,11 +113,18 @@ export async function POST(request: Request) {
       return Response.json({ error: "No protective configuration found" }, { status: 200 });
     }
 
+    // The strategy the buy panel actually recommends, backtested as one ladder.
+    const recommended = simulateLadderHedge(bars, RECOMMENDED_LEGS, {
+      dividendYield: QQQ_DIVIDEND_YIELD,
+      costBps: 75,
+    });
+
     return Response.json({
       putUnderlying: "QQQ",
       span,
       currentMarket,
       unhedged: { cagr: unhedgedRef.unhedgedCagr, maxDD: unhedgedRef.unhedgedMaxDD },
+      recommended,
       best: ranked[0],
       table: ranked.slice(0, 15).map(summarize),
     });

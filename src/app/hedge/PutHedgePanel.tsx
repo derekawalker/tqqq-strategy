@@ -19,6 +19,8 @@ import {
   Badge,
   ThemeIcon,
   NumberInput,
+  CopyButton,
+  ActionIcon,
 } from "@mantine/core";
 import {
   IconAlertTriangle,
@@ -26,6 +28,8 @@ import {
   IconShield,
   IconShieldOff,
   IconPlayerPlayFilled,
+  IconCopy,
+  IconCheck,
 } from "@tabler/icons-react";
 import {
   ResponsiveContainer,
@@ -51,6 +55,7 @@ import {
   type TrancheKey,
   type ChainResolver,
 } from "@/lib/hedgeTranches";
+import { occSymbol, humanContract } from "@/lib/optionSymbol";
 
 const DEFAULT_BUDGET_PCT = 2; // annual premium budget, % of TQQQ value
 
@@ -159,16 +164,32 @@ interface FullResult extends ResultRow {
   equity: { date: string; hedged: number; unhedged: number }[];
 }
 
+interface LadderResult {
+  equity: { date: string; hedged: number; unhedged: number }[];
+  hedgedMaxDD: number;
+  unhedgedMaxDD: number;
+  ddReduction: number;
+  annualBleed: number;
+  premiumPerYear: number;
+  hedgedCagr: number;
+}
+
 interface SweepResponse {
   putUnderlying: "QQQ" | "TQQQ";
   span: { start: string; end: string };
   currentMarket?: MarketData;
   unhedged: { cagr: number; maxDD: number };
+  recommended?: LadderResult;
   best?: FullResult;
   table?: ResultRow[];
   result?: FullResult;
   error?: string;
 }
+
+/** Human label for the recommended ladder, built from the active tranches. */
+const LADDER_LABEL = TRANCHES.filter((t) => t.budgetShare > 0)
+  .map((t) => `${Math.round((1 - t.moneyness) * 100)}% OTM`)
+  .join(" + ");
 
 const fmtEff = (x: number | null) => (x === null || !isFinite(x) ? "∞" : x.toFixed(2));
 const fmtRoll = (r?: number | null) => (r == null ? "exp" : `${r}d`);
@@ -245,6 +266,21 @@ function AccountRec({
     if (key) openByTranche.set(key, (openByTranche.get(key) ?? 0) + p.longQty);
   }
 
+  // Per-tranche display rows + the exact contract to buy.
+  const rows = plan.map((t) => {
+    const open = openByTranche.get(t.def.key) ?? 0;
+    const buyNow = Math.min(t.weeklyContracts, Math.max(0, t.targetContracts - open));
+    return {
+      t,
+      open,
+      buyNow,
+      otmPct: Math.round((1 - t.def.moneyness) * 100),
+      human: humanContract("QQQ", expiry, "P", t.strike),
+      occ: occSymbol("QQQ", expiry, "P", t.strike),
+    };
+  });
+  const orders = rows.filter((r) => r.buyNow > 0);
+
   const targetTotal = plan.reduce((s, t) => s + t.targetContracts, 0);
   const openTotal = [...openByTranche.values()].reduce((s, n) => s + n, 0);
   const isHedged = targetTotal > 0 && openTotal >= Math.ceil(targetTotal * 0.75);
@@ -285,29 +321,56 @@ function AccountRec({
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {plan.map((t) => {
-            const open = openByTranche.get(t.def.key) ?? 0;
-            const buyNow = Math.min(t.weeklyContracts, Math.max(0, t.targetContracts - open));
-            const otmPct = Math.round((1 - t.def.moneyness) * 100);
-            return (
-              <Table.Tr key={t.def.key}>
-                <Table.Td>
-                  <Tooltip label={t.def.desc} withArrow multiline w={200}>
-                    <Text size="xs" c={`${t.def.color}.4`} fw={600} span>{t.def.label}</Text>
-                  </Tooltip>
-                  <Text size="9px" c="dimmed">{otmPct}% OTM</Text>
-                </Table.Td>
-                <Table.Td ta="right">${t.strike}</Table.Td>
-                <Table.Td ta="right" c={open > 0 ? undefined : "dimmed"}>{open}</Table.Td>
-                <Table.Td ta="right">{t.targetContracts}</Table.Td>
-                <Table.Td ta="right" fw={700} c={buyNow > 0 ? `${t.def.color}.4` : "dimmed"}>
-                  {buyNow > 0 ? `+${buyNow}` : open >= t.targetContracts ? "✓" : "—"}
-                </Table.Td>
-              </Table.Tr>
-            );
-          })}
+          {rows.map(({ t, open, buyNow, otmPct }) => (
+            <Table.Tr key={t.def.key}>
+              <Table.Td>
+                <Tooltip label={t.def.desc} withArrow multiline w={200}>
+                  <Text size="xs" c={`${t.def.color}.4`} fw={600} span>{t.def.label}</Text>
+                </Tooltip>
+                <Text size="9px" c="dimmed">{otmPct}% OTM</Text>
+              </Table.Td>
+              <Table.Td ta="right">${t.strike}</Table.Td>
+              <Table.Td ta="right" c={open > 0 ? undefined : "dimmed"}>{open}</Table.Td>
+              <Table.Td ta="right">{t.targetContracts}</Table.Td>
+              <Table.Td ta="right" fw={700} c={buyNow > 0 ? `${t.def.color}.4` : "dimmed"}>
+                {buyNow > 0 ? `+${buyNow}` : open >= t.targetContracts ? "✓" : "—"}
+              </Table.Td>
+            </Table.Tr>
+          ))}
         </Table.Tbody>
       </Table>
+
+      {orders.length > 0 && (
+        <Box mt="sm">
+          <Text size="xs" fw={600} mb={4}>This week&apos;s orders</Text>
+          <Stack gap={4}>
+            {orders.map(({ t, buyNow, human, occ }) => (
+              <Group key={t.def.key} gap={6} wrap="nowrap" justify="space-between">
+                <Text size="xs">
+                  Buy <Text span fw={700} c={`${t.def.color}.4`}>{buyNow}×</Text> {human}
+                </Text>
+                <Group gap={4} wrap="nowrap">
+                  <Text size="9px" c="dimmed" ff="monospace">{occ}</Text>
+                  <CopyButton value={occ}>
+                    {({ copied, copy }) => (
+                      <Tooltip label={copied ? "Copied" : "Copy OCC symbol"} withArrow>
+                        <ActionIcon
+                          size="xs"
+                          variant="subtle"
+                          color={copied ? "teal" : "gray"}
+                          onClick={copy}
+                        >
+                          {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
+                        </ActionIcon>
+                      </Tooltip>
+                    )}
+                  </CopyButton>
+                </Group>
+              </Group>
+            ))}
+          </Stack>
+        </Box>
+      )}
 
       <Text size="9px" c="dimmed" mt={6}>
         Same day each week · {HEDGE_DTE} DTE · exp {fmtDate(expiry)} · roll at {ROLL_AT_DTE}d ·
@@ -471,6 +534,9 @@ export default function PutHedgePanel() {
   const [error, setError] = useState<string | null>(null);
   const [sweepData, setSweepData] = useState<SweepResponse | null>(null);
   const [curve, setCurve] = useState<FullResult | null>(null);
+  // Headline shows the recommended ladder by default; a clicked sweep row
+  // switches to that single config until "Recommended ladder" is clicked.
+  const [showRec, setShowRec] = useState(true);
 
   const runSweep = useCallback(async () => {
     setLoading(true);
@@ -485,6 +551,7 @@ export default function PutHedgePanel() {
       if (!res.ok || json.error) throw new Error(json.error ?? `Request failed (${res.status})`);
       setSweepData(json);
       setCurve(json.best ?? null);
+      setShowRec(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Backtest failed");
       setSweepData(null);
@@ -503,13 +570,18 @@ export default function PutHedgePanel() {
           body: JSON.stringify({ years: Number(years), params }),
         });
         const json: SweepResponse = await res.json();
-        if (res.ok && json.result) setCurve(json.result);
+        if (res.ok && json.result) { setCurve(json.result); setShowRec(false); }
       } catch { /* keep current */ }
     },
     [years],
   );
 
   const qqqPrice = market?.qqqPrice ?? sweepData?.currentMarket?.qqqPrice ?? null;
+
+  // Headline reads from the recommended ladder by default, or the clicked config.
+  const recLadder = sweepData?.recommended ?? null;
+  const display = showRec && recLadder ? recLadder : curve;
+  const isLadder = !!(showRec && recLadder);
 
   return (
     <Stack gap="lg">
@@ -647,17 +719,34 @@ export default function PutHedgePanel() {
         </Center>
       )}
 
-      {sweepData?.best && curve && (
+      {sweepData?.best && display && (
         <>
+          <Group justify="space-between" align="center">
+            <Text size="sm" fw={600} c={isLadder ? color : undefined}>
+              {isLadder
+                ? `Recommended ladder · QQQ puts ${LADDER_LABEL} · ${HEDGE_DTE} DTE · roll ${ROLL_AT_DTE}d`
+                : "Selected configuration"}
+            </Text>
+            {!isLadder && recLadder && (
+              <Button size="xs" variant="subtle" color={color} onClick={() => setShowRec(true)}>
+                ← Recommended ladder
+              </Button>
+            )}
+          </Group>
+
           <Alert color={color} variant="light" icon={<IconInfoCircle size={16} />} radius={CARD_RADIUS}>
-            <Text size="sm">{describeConfig(curve, sweepData.unhedged.maxDD, sweepData.putUnderlying)}</Text>
+            <Text size="sm">
+              {isLadder
+                ? `Over this window the ladder cut the worst drop from ${fmtPct(sweepData.unhedged.maxDD)} to ${fmtPct(display.hedgedMaxDD)} — ${display.annualBleed > 0 ? `costing about ${fmtPct(display.annualBleed)}/yr in returns` : `actually adding about ${fmtPct(-display.annualBleed)}/yr over this stretch`}. Sized at the tranche coverage caps; click any row below to compare a single config.`
+                : describeConfig(curve!, sweepData.unhedged.maxDD, sweepData.putUnderlying)}
+            </Text>
           </Alert>
 
           <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="md">
             <Metric label="Worst drop, no hedge" value={fmtPct(sweepData.unhedged.maxDD)} />
-            <Metric label="Worst drop, hedged" value={fmtPct(curve.hedgedMaxDD)} accent={color} />
-            <Metric label="Drop avoided" value={fmtPct(curve.ddReduction)} accent={color} />
-            <Metric label="Cost to returns / yr" value={fmtPct(curve.annualBleed)} />
+            <Metric label="Worst drop, hedged" value={fmtPct(display.hedgedMaxDD)} accent={color} />
+            <Metric label="Drop avoided" value={fmtPct(display.ddReduction)} accent={color} />
+            <Metric label="Cost to returns / yr" value={fmtPct(display.annualBleed)} />
           </SimpleGrid>
 
           <Paper withBorder radius={CARD_RADIUS} p="md">
@@ -667,7 +756,7 @@ export default function PutHedgePanel() {
             </Text>
             <Box h={300}>
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={curve.equity} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                <ComposedChart data={display.equity} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
                   <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={48} />
                   <YAxis scale="log" domain={["auto", "auto"]} tick={{ fontSize: 11 }} width={48} />
@@ -711,10 +800,11 @@ export default function PutHedgePanel() {
                 <Table.Tbody>
                   {sweepData.table?.map((r, i) => {
                     const active =
-                      curve.params.moneyness === r.params.moneyness &&
-                      curve.params.dteDays === r.params.dteDays &&
-                      curve.params.rollEveryDays === r.params.rollEveryDays &&
-                      curve.params.coverageRatio === r.params.coverageRatio;
+                      !showRec &&
+                      curve?.params.moneyness === r.params.moneyness &&
+                      curve?.params.dteDays === r.params.dteDays &&
+                      curve?.params.rollEveryDays === r.params.rollEveryDays &&
+                      curve?.params.coverageRatio === r.params.coverageRatio;
                     return (
                       <Table.Tr
                         key={i}

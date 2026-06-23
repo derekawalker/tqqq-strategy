@@ -290,6 +290,133 @@ export function simulatePutHedge(bars: HedgeBar[], params: PutHedgeParams): PutH
 }
 
 // ---------------------------------------------------------------------------
+// Multi-leg ladder
+// ---------------------------------------------------------------------------
+
+/** One rolling-put leg of a ladder (e.g. a crash tranche or catastrophe tranche). */
+export interface LadderLeg {
+  /** Strike / spot at entry. 0.75 = a 25%-out-of-the-money put. */
+  moneyness: number;
+  dteDays: number;
+  /** Roll cadence in calendar days. Omit / null = hold to expiry. */
+  rollEveryDays?: number | null;
+  /** Put-underlying notional to cover, as a multiple of held-portfolio value. */
+  coverageRatio: number;
+}
+
+export interface LadderResult {
+  equity: HedgeEquityPoint[];
+  hedgedMaxDD: number;
+  unhedgedMaxDD: number;
+  hedgedCagr: number;
+  unhedgedCagr: number;
+  totalPremiumPaid: number;
+  totalPutPayoff: number;
+  annualBleed: number;
+  ddReduction: number;
+  premiumPerYear: number;
+}
+
+/**
+ * Simulate several rolling-put legs at once over a shared held position — the
+ * multi-tranche generalization of [simulatePutHedge]. Each leg keeps its own
+ * strike / expiry / roll cadence; all of them self-finance from (and liquidate
+ * into) the single held asset, so the returned equity already nets out the
+ * combined premium drag. Legs are processed in array order each bar, so a later
+ * leg sizes off the held value remaining after earlier legs trade that day.
+ */
+export function simulateLadderHedge(
+  bars: HedgeBar[],
+  legs: LadderLeg[],
+  opts: { riskFreeRate?: number; dividendYield?: number; costBps?: number } = {},
+): LadderResult {
+  if (bars.length === 0) throw new Error("simulateLadderHedge: need at least one bar");
+  const r = opts.riskFreeRate ?? 0.04;
+  const q = opts.dividendYield ?? 0;
+  const fee = (opts.costBps ?? 0) / 1e4;
+
+  const start = bars[0];
+  let heldUnits = 1 / start.heldClose;
+  const st = legs.map((leg) => ({
+    leg,
+    rollEvery: leg.rollEveryDays ?? leg.dteDays,
+    putShares: 0,
+    strike: 0,
+    expiry: null as string | null,
+    lastRoll: start.date,
+  }));
+
+  let totalPremium = 0;
+  let totalPayoff = 0;
+  const equity: HedgeEquityPoint[] = [];
+
+  for (let i = 0; i < bars.length; i++) {
+    const { date, heldClose, putClose, iv } = bars[i];
+    let putfolio = 0;
+
+    for (const s of st) {
+      let putVal = 0;
+      if (s.putShares > 0 && s.expiry) {
+        const t = Math.max(0, daysBetween(date, s.expiry) / 365);
+        putVal = bsPut(putClose, s.strike, t, iv, r, q);
+      }
+
+      const expired = s.expiry != null && date >= s.expiry;
+      const dueToRoll = daysBetween(s.lastRoll, date) >= s.rollEvery;
+      const needNew = i === 0 || expired || dueToRoll;
+
+      if (i > 0 && s.putShares > 0 && (expired || dueToRoll)) {
+        const proceeds = s.putShares * putVal * (1 - fee);
+        heldUnits += proceeds / heldClose;
+        totalPayoff += proceeds;
+        s.putShares = 0;
+      }
+
+      if (needNew && s.leg.coverageRatio > 0) {
+        const heldValue = heldUnits * heldClose;
+        const newStrike = s.leg.moneyness * putClose;
+        const price = bsPut(putClose, newStrike, s.leg.dteDays / 365, iv, r, q);
+        const cover = (s.leg.coverageRatio * heldValue) / putClose;
+        const premium = cover * price * (1 + fee);
+        heldUnits -= premium / heldClose;
+        totalPremium += premium;
+        s.putShares = cover;
+        s.strike = newStrike;
+        s.expiry = addDays(date, s.leg.dteDays);
+        s.lastRoll = date;
+        putVal = price;
+      }
+
+      putfolio += s.putShares * putVal;
+    }
+
+    equity.push({ date, hedged: heldUnits * heldClose + putfolio, unhedged: heldClose / start.heldClose });
+  }
+
+  const last = bars[bars.length - 1];
+  const hedgedSeries = equity.map((e) => e.hedged);
+  const unhedgedSeries = equity.map((e) => e.unhedged);
+  const hedgedMaxDD = maxDrawdown(hedgedSeries);
+  const unhedgedMaxDD = maxDrawdown(unhedgedSeries);
+  const hedgedCagr = cagr(hedgedSeries, start.date, last.date);
+  const unhedgedCagr = cagr(unhedgedSeries, start.date, last.date);
+  const years = Math.max(daysBetween(start.date, last.date) / 365, 1e-9);
+
+  return {
+    equity,
+    hedgedMaxDD,
+    unhedgedMaxDD,
+    hedgedCagr,
+    unhedgedCagr,
+    totalPremiumPaid: totalPremium,
+    totalPutPayoff: totalPayoff,
+    annualBleed: unhedgedCagr - hedgedCagr,
+    ddReduction: hedgedMaxDD - unhedgedMaxDD,
+    premiumPerYear: totalPremium / years,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Parameter sweep
 // ---------------------------------------------------------------------------
 

@@ -4,6 +4,7 @@ import {
   bsPut,
   maxDrawdown,
   simulatePutHedge,
+  simulateLadderHedge,
   sweepPutHedge,
   alignHedgeBars,
   type HedgeBar,
@@ -146,6 +147,48 @@ describe("simulatePutHedge", () => {
     const near = simulatePutHedge(bars, { moneyness: 0.97, dteDays: 30, coverageRatio: 1 });
     const far = simulatePutHedge(bars, { moneyness: 0.85, dteDays: 30, coverageRatio: 1 });
     expect(far.totalPremiumPaid).toBeLessThan(near.totalPremiumPaid);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// simulateLadderHedge
+// ---------------------------------------------------------------------------
+
+describe("simulateLadderHedge", () => {
+  it("a one-leg ladder reproduces the single-put simulation", () => {
+    const bars = crashBars();
+    const params = { moneyness: 0.85, dteDays: 60, rollEveryDays: 21, coverageRatio: 1 };
+    const single = simulatePutHedge(bars, params);
+    const ladder = simulateLadderHedge(bars, [params]);
+    expect(ladder.hedgedMaxDD).toBeCloseTo(single.hedgedMaxDD, 10);
+    expect(ladder.totalPremiumPaid).toBeCloseTo(single.totalPremiumPaid, 10);
+    expect(ladder.equity.at(-1)!.hedged).toBeCloseTo(single.equity.at(-1)!.hedged, 10);
+  });
+
+  it("runs a crash + catastrophe ladder: cuts drawdown and pays out in the crash", () => {
+    const bars = crashBars();
+    const r = simulateLadderHedge(
+      bars,
+      [
+        { moneyness: 0.75, dteDays: 60, rollEveryDays: 21, coverageRatio: 3 },
+        { moneyness: 0.65, dteDays: 60, rollEveryDays: 21, coverageRatio: 1.5 },
+      ],
+      { dividendYield: 0.006, costBps: 75 },
+    );
+    expect(r.totalPremiumPaid).toBeGreaterThan(0);
+    expect(r.totalPutPayoff).toBeGreaterThan(0);
+    expect(r.ddReduction).toBeGreaterThan(0);
+    expect(r.hedgedMaxDD).toBeGreaterThan(r.unhedgedMaxDD); // shallower (less negative)
+  });
+
+  it("zero-coverage legs are a no-op equal to buy & hold", () => {
+    const bars = crashBars();
+    const r = simulateLadderHedge(bars, [
+      { moneyness: 0.75, dteDays: 60, coverageRatio: 0 },
+      { moneyness: 0.65, dteDays: 60, coverageRatio: 0 },
+    ]);
+    expect(r.totalPremiumPaid).toBe(0);
+    for (const p of r.equity) expect(p.hedged).toBeCloseTo(p.unhedged, 10);
   });
 });
 

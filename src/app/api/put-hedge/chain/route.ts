@@ -7,13 +7,14 @@
  * Black-Scholes model instead of surfacing an error.
  */
 
-import { getPutChain, pickExpiry } from "@/lib/schwab/optionChain";
+import { getPutChain, pickLiquidExpiry } from "@/lib/schwab/optionChain";
 import { HEDGE_DTE } from "@/lib/hedgeTranches";
 
 export async function GET() {
   try {
     const quotes = await getPutChain("QQQ", HEDGE_DTE);
-    const expiry = pickExpiry(quotes, HEDGE_DTE);
+    // Most-liquid expiry near the target DTE (by open interest), not just nearest.
+    const expiry = pickLiquidExpiry(quotes, HEDGE_DTE);
     if (!expiry) {
       return Response.json({ connected: true, expiry: null, quotes: [] });
     }

@@ -77,6 +77,39 @@ export function parsePutChain(raw: RawChain): OptionQuote[] {
   return out.sort((a, b) => a.expiry.localeCompare(b.expiry) || a.strike - b.strike);
 }
 
+/**
+ * The most *liquid* expiry near `targetDte` — the one with the most total open
+ * interest within ±`window` days. Monthlies (3rd Friday) usually win since OI
+ * concentrates there, but this adapts if a weekly is ever deeper. Falls back to
+ * the nearest-DTE expiry when nothing carries open interest in the window.
+ */
+export function pickLiquidExpiry(
+  quotes: OptionQuote[],
+  targetDte: number,
+  window = 25,
+): string | null {
+  const byExp = new Map<string, { oi: number; dte: number }>();
+  for (const q of quotes) {
+    if (Math.abs(q.daysToExp - targetDte) > window) continue;
+    const cur = byExp.get(q.expiry) ?? { oi: 0, dte: q.daysToExp };
+    cur.oi += q.openInterest;
+    byExp.set(q.expiry, cur);
+  }
+  let best: string | null = null;
+  let bestOi = -1;
+  let bestGap = Infinity;
+  for (const [exp, { oi, dte }] of byExp) {
+    const gap = Math.abs(dte - targetDte);
+    if (oi > bestOi || (oi === bestOi && gap < bestGap)) {
+      best = exp;
+      bestOi = oi;
+      bestGap = gap;
+    }
+  }
+  // Nothing in window, or every candidate had zero OI → nearest DTE.
+  return bestOi > 0 ? best : pickExpiry(quotes, targetDte);
+}
+
 /** The single expiry whose DTE is closest to `targetDte`. */
 export function pickExpiry(quotes: OptionQuote[], targetDte: number): string | null {
   let best: string | null = null;

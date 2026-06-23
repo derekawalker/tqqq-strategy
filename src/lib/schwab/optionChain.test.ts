@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parsePutChain, pickExpiry, nearestStrike } from "./optionChain";
+import { parsePutChain, pickExpiry, pickLiquidExpiry, nearestStrike } from "./optionChain";
 
 // Minimal Schwab `chains` response: two expiries, a few strikes, with the kinds
 // of dirty data the parser must survive (missing mark, -999 vol, no quote).
@@ -61,6 +61,21 @@ describe("pickExpiry", () => {
     expect(pickExpiry(quotes, 60)).toBe("2026-08-21"); // 65d beats 30d
     expect(pickExpiry(quotes, 25)).toBe("2026-07-17"); // 30d beats 65d
     expect(pickExpiry([], 60)).toBeNull();
+  });
+});
+
+describe("pickLiquidExpiry", () => {
+  it("picks the expiry with the most open interest within the DTE window", () => {
+    const quotes = parsePutChain(RAW);
+    // Near 60d: only the 65d expiry is in window (the 30d one is 30 days off).
+    expect(pickLiquidExpiry(quotes, 60)).toBe("2026-08-21");
+    // Near 40d: both in window; the 30d expiry has far more OI (2000 vs 500).
+    expect(pickLiquidExpiry(quotes, 40)).toBe("2026-07-17");
+  });
+
+  it("falls back to nearest DTE when nothing in window carries OI", () => {
+    const flat = parsePutChain(RAW).map((q) => ({ ...q, openInterest: 0 }));
+    expect(pickLiquidExpiry(flat, 60)).toBe(pickExpiry(flat, 60));
   });
 });
 
