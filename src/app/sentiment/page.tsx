@@ -44,6 +44,9 @@ import { useCardBg } from "@/lib/hooks/useCardBg";
 import { CARD_RADIUS } from "@/lib/cardStyles";
 import { fmtDate } from "@/lib/format";
 
+const PANEL_BG = "color-mix(in srgb, var(--mantine-color-dark-7) 55%, transparent)";
+const SCORE_ITEM_BG = "color-mix(in srgb, var(--mantine-color-dark-6) 40%, transparent)";
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -96,8 +99,9 @@ function regimeColor(r: "Risk-On" | "Neutral" | "Risk-Off"): string {
   return "red";
 }
 
+// Score range: −12 (worst) to +8 (best) = 20-point span.
 function scoreToRingPct(score: number): number {
-  return Math.round(Math.max(0, Math.min(100, ((score + 8) / 13) * 100)));
+  return Math.round(Math.max(0, Math.min(100, ((score + 12) / 20) * 100)));
 }
 
 function RegimeIcon({ regime }: { regime: "Risk-On" | "Neutral" | "Risk-Off" }) {
@@ -264,7 +268,7 @@ export default function SentimentPage() {
                 {regime}
               </Badge>
               <Text size="xs" c="dimmed" mt={2}>
-                Score: {score > 0 ? `+${score}` : score} / +5
+                Score: {score > 0 ? `+${score}` : score} / +8
               </Text>
             </Box>
           </Group>
@@ -278,7 +282,7 @@ export default function SentimentPage() {
       {/* Signal panels */}
       <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
         {/* Trend */}
-        <Paper p="md" radius={CARD_RADIUS} withBorder>
+        <Paper p="md" radius={CARD_RADIUS} withBorder style={{ background: PANEL_BG }}>
           <Text size="xs" fw={600} tt="uppercase" c="dimmed" mb="sm">Trend</Text>
           <Stack gap="md">
             <SignalRow
@@ -310,7 +314,7 @@ export default function SentimentPage() {
         </Paper>
 
         {/* Volatility */}
-        <Paper p="md" radius={CARD_RADIUS} withBorder>
+        <Paper p="md" radius={CARD_RADIUS} withBorder style={{ background: PANEL_BG }}>
           <Text size="xs" fw={600} tt="uppercase" c="dimmed" mb="sm">Volatility</Text>
           <Stack gap="md">
             <SignalRow
@@ -337,7 +341,7 @@ export default function SentimentPage() {
         </Paper>
 
         {/* Momentum */}
-        <Paper p="md" radius={CARD_RADIUS} withBorder>
+        <Paper p="md" radius={CARD_RADIUS} withBorder style={{ background: PANEL_BG }}>
           <Text size="xs" fw={600} tt="uppercase" c="dimmed" mb="sm">Momentum</Text>
           <Stack gap="md">
             <SignalRow
@@ -358,7 +362,7 @@ export default function SentimentPage() {
         </Paper>
 
         {/* Stress */}
-        <Paper p="md" radius={CARD_RADIUS} withBorder>
+        <Paper p="md" radius={CARD_RADIUS} withBorder style={{ background: PANEL_BG }}>
           <Text size="xs" fw={600} tt="uppercase" c="dimmed" mb="sm">Drawdown Stress</Text>
           <Stack gap="md">
             <SignalRow
@@ -384,7 +388,7 @@ export default function SentimentPage() {
       </SimpleGrid>
 
       {/* Chart */}
-      <Paper p="md" radius={CARD_RADIUS} withBorder>
+      <Paper p="md" radius={CARD_RADIUS} withBorder style={{ background: PANEL_BG }}>
         <Group justify="space-between" mb="sm">
           <Text size="sm" fw={500}>1-Year Chart</Text>
           <Group gap="xs">
@@ -443,31 +447,90 @@ export default function SentimentPage() {
       </Paper>
 
       {/* Scoring legend */}
-      <Paper p="md" radius={CARD_RADIUS} withBorder>
+      <Paper p="md" radius={CARD_RADIUS} withBorder style={{ background: PANEL_BG }}>
         <Text size="xs" fw={600} tt="uppercase" c="dimmed" mb="sm">Scoring model</Text>
-        <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="xs">
-          {[
-            { label: "QQQ vs 200-day SMA", bull: "+2", bear: "−2" },
-            { label: "QQQ vs 50-day SMA", bull: "+1", bear: "−1" },
-            { label: "VIX trend (5-day slope)", bull: "+1 (falling)", bear: "−2 (rising)" },
-            { label: "RSI momentum (14-day)", bull: "+1 (40–70)", bear: "−1 (<35)" },
-            { label: "20-day drawdown stress", bull: "0 (mild)", bear: "−2 (>−10%)" },
-          ].map(({ label, bull, bear }) => (
-            <Group key={label} gap="xs" justify="space-between">
-              <Text size="xs" c="dimmed" style={{ flex: 1 }}>{label}</Text>
-              <Group gap={4}>
-                <Badge color="teal" variant="light" size="xs">{bull}</Badge>
-                <Badge color="red" variant="light" size="xs">{bear}</Badge>
-              </Group>
-            </Group>
+        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="xs">
+          {([
+            {
+              label: "QQQ vs 200-day SMA",
+              tiers: [
+                { score: "+2", desc: ">5% above",    color: "teal" },
+                { score: "+1", desc: "1–5% above",   color: "teal" },
+                { score: "0",  desc: "within ±1%",   color: "gray" },
+                { score: "−1", desc: "1–5% below",   color: "red" },
+                { score: "−2", desc: ">5% below",    color: "red" },
+              ],
+            },
+            {
+              label: "QQQ vs 50-day SMA",
+              tiers: [
+                { score: "+2", desc: ">5% above",    color: "teal" },
+                { score: "+1", desc: "1–5% above",   color: "teal" },
+                { score: "0",  desc: "within ±1%",   color: "gray" },
+                { score: "−1", desc: "1–5% below",   color: "red" },
+                { score: "−2", desc: ">5% below",    color: "red" },
+              ],
+            },
+            {
+              label: "VIX level",
+              tiers: [
+                { score: "+1", desc: "VIX < 15", color: "teal" },
+                { score: "0",  desc: "VIX 15–20", color: "gray" },
+                { score: "−1", desc: "VIX 20–25 or rising", color: "orange" },
+                { score: "−2", desc: "VIX 25–35", color: "red" },
+                { score: "−3", desc: "VIX > 35", color: "red" },
+              ],
+            },
+            {
+              label: "RSI (14-day)",
+              tiers: [
+                { score: "+2", desc: "RSI 55–70 (strong)", color: "teal" },
+                { score: "+1", desc: "RSI 45–55 or >70", color: "teal" },
+                { score: "0",  desc: "RSI 35–45", color: "gray" },
+                { score: "−1", desc: "RSI 30–35", color: "orange" },
+                { score: "−2", desc: "RSI < 30", color: "red" },
+              ],
+            },
+            {
+              label: "20-day drawdown",
+              tiers: [
+                { score: "+1", desc: "< 1% (stable)", color: "teal" },
+                { score: "0",  desc: "1–5%",          color: "gray" },
+                { score: "−1", desc: "5–10%",         color: "orange" },
+                { score: "−2", desc: "10–20%",        color: "red" },
+                { score: "−3", desc: "> 20%",         color: "red" },
+              ],
+            },
+          ] as const).map(({ label, tiers }) => (
+            <Box
+              key={label}
+              p="xs"
+              style={{
+                background: SCORE_ITEM_BG,
+                borderRadius: CARD_RADIUS,
+                border: "1px solid var(--mantine-color-dark-4)",
+              }}
+            >
+              <Text size="xs" c="dimmed" fw={500} mb={6}>{label}</Text>
+              <Stack gap={3}>
+                {tiers.map((t) => (
+                  <Group key={t.desc} gap={6} wrap="nowrap">
+                    <Badge color={t.color} variant="light" size="xs" w={28} style={{ flexShrink: 0, textAlign: "center" }}>
+                      {t.score}
+                    </Badge>
+                    <Text size="xs" c="dimmed" style={{ lineHeight: 1.3 }}>{t.desc}</Text>
+                  </Group>
+                ))}
+              </Stack>
+            </Box>
           ))}
         </SimpleGrid>
         <Divider my="sm" />
         <Group gap="md">
           {[
-            { label: "≥ +3 → Risk-On", color: "teal" },
-            { label: "0 to +2 → Neutral", color: "yellow" },
-            { label: "< 0 → Risk-Off", color: "red" },
+            { label: "+4 to +8 → Risk-On", color: "teal" },
+            { label: "0 to +3 → Neutral", color: "yellow" },
+            { label: "−12 to −1 → Risk-Off", color: "red" },
           ].map(({ label, color }) => (
             <Badge key={label} color={color} variant="light" size="sm">{label}</Badge>
           ))}

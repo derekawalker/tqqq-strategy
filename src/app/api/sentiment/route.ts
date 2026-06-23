@@ -121,44 +121,63 @@ export async function GET() {
     });
 
     // ---------------------------------------------------------------------------
-    // Scoring
+    // Scoring  (max ≈ +7, min ≈ −12)
     // ---------------------------------------------------------------------------
 
-    // 1. QQQ vs 200-day SMA: +2 above, -2 below
-    const vs200Score = latest200 != null
-      ? (latestClose >= latest200 ? 2 : -2)
-      : 0;
-
-    // 2. QQQ vs 50-day SMA: +1 above, -1 below
-    const vs50Score = latest50 != null
-      ? (latestClose >= latest50 ? 1 : -1)
-      : 0;
-
-    // 3. VIX trend: +1 falling, 0 flat, -2 rising fast
-    let vixScore = 0;
-    if (vixSlope != null) {
-      if (vixSlope < -1) vixScore = 1;
-      else if (vixSlope < 1) vixScore = 0;
-      else vixScore = -2;
+    // 1. QQQ vs 200-day SMA  (-2 to +2, 5 tiers by % distance)
+    let vs200Score = 0;
+    if (latest200 != null) {
+      const pct = latestClose / latest200 - 1;
+      if (pct > 0.05) vs200Score = 2;
+      else if (pct > 0.01) vs200Score = 1;
+      else if (pct >= -0.01) vs200Score = 0;   // within ±1% — neutral zone
+      else if (pct >= -0.05) vs200Score = -1;
+      else vs200Score = -2;
     }
-    // Also penalise extremely elevated VIX
-    if (latestVix != null && latestVix > 30) vixScore = Math.min(vixScore, -2);
 
-    // 4. Momentum (RSI): +1 healthy (40–70), 0 neutral, -1 stress
+    // 2. QQQ vs 50-day SMA  (-2 to +2, 5 tiers by % distance)
+    let vs50Score = 0;
+    if (latest50 != null) {
+      const pct = latestClose / latest50 - 1;
+      if (pct > 0.05) vs50Score = 2;
+      else if (pct > 0.01) vs50Score = 1;
+      else if (pct >= -0.01) vs50Score = 0;    // within ±1% — neutral zone
+      else if (pct >= -0.05) vs50Score = -1;
+      else vs50Score = -2;
+    }
+
+    // 3. VIX level + 5-day slope  (-3 to +1, 5 tiers)
+    let vixScore = 0;
+    if (latestVix != null) {
+      if (latestVix < 15) vixScore = 1;
+      else if (latestVix < 20) vixScore = 0;
+      else if (latestVix < 25) vixScore = -1;
+      else if (latestVix < 35) vixScore = -2;
+      else vixScore = -3;
+    }
+    // Rising VIX adds extra pressure regardless of level
+    if (vixSlope != null && vixSlope > 2) vixScore = Math.min(vixScore, -1);
+
+    // 4. RSI momentum  (-2 to +2, 5 tiers)
     let momentumScore = 0;
-    if (latestRsi >= 40 && latestRsi <= 70) momentumScore = 1;
-    else if (latestRsi < 35) momentumScore = -1;
+    if (latestRsi >= 55 && latestRsi <= 70) momentumScore = 2;
+    else if ((latestRsi >= 45 && latestRsi < 55) || latestRsi > 70) momentumScore = 1;
+    else if (latestRsi >= 35 && latestRsi < 45) momentumScore = 0;
+    else if (latestRsi >= 30) momentumScore = -1;
+    else momentumScore = -2;
 
-    // 5. Drawdown stress: 0 mild, -1 caution, -2 danger
+    // 5. 20-day drawdown stress  (-3 to +1, 5 tiers)
     let stressScore = 0;
-    if (dd20 <= -0.10) stressScore = -2;
+    if (dd20 <= -0.20) stressScore = -3;
+    else if (dd20 <= -0.10) stressScore = -2;
     else if (dd20 <= -0.05) stressScore = -1;
+    else if (dd20 > -0.01) stressScore = 1;   // near-flat: market is stable
 
     const totalScore = vs200Score + vs50Score + vixScore + momentumScore + stressScore;
 
     let regime: "Risk-On" | "Neutral" | "Risk-Off";
     let action: string;
-    if (totalScore >= 3) {
+    if (totalScore >= 4) {
       regime = "Risk-On";
       action = "Full TQQQ exposure OK. Add on dips (RSI < 40).";
     } else if (totalScore >= 0) {
