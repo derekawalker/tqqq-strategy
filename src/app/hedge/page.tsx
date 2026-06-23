@@ -19,8 +19,6 @@ import {
   ScrollArea,
   Tabs,
   Tooltip,
-  Switch,
-  Collapse,
   Divider,
   Menu,
   Checkbox,
@@ -46,6 +44,7 @@ import { useApp } from "@/lib/context/AppContext";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { CARD_RADIUS } from "@/lib/cardStyles";
 import { fmtDate } from "@/lib/format";
+import PutHedgePanel from "./PutHedgePanel";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -159,23 +158,6 @@ interface ScenarioInputs {
   levels: number | "";
   reanchorPct: number | "";
   slippageBps: number | "";
-  // MA gate with hysteresis
-  maGateEnabled: boolean;
-  maStopPeriod: number | "";
-  maResumePeriod: number | "";
-  // VIX gate with hysteresis
-  vixGateEnabled: boolean;
-  vixStop: number | "";
-  vixResume: number | "";
-  // Balance gate
-  balanceGateEnabled: boolean;
-  balanceGatePct: number | "";
-  balanceResumeReboundPct: number | "";
-  // Reserve tranches
-  reserveEnabled: boolean;
-  reservePct: number | "";
-  tranche1Pct: number | "";
-  tranche2Pct: number | "";
 }
 
 function defaultScenario(label: string): ScenarioInputs {
@@ -183,10 +165,6 @@ function defaultScenario(label: string): ScenarioInputs {
     label,
     startingCash: "", sellPct: "", reductionFactor: "",
     stepPct: 1, levels: 88, reanchorPct: 0, slippageBps: 0,
-    maGateEnabled: false, maStopPeriod: 200, maResumePeriod: 200,
-    vixGateEnabled: false, vixStop: 25, vixResume: 20,
-    balanceGateEnabled: false, balanceGatePct: 85, balanceResumeReboundPct: 5,
-    reserveEnabled: false, reservePct: 20, tranche1Pct: 15, tranche2Pct: 30,
   };
 }
 
@@ -234,38 +212,6 @@ const STAT_ROWS: { key: keyof ScenarioResult["stats"]; label: string; fmt: (v: n
   { key: "sells",          label: "Sells",           fmt: (v) => v.toLocaleString() },
   { key: "peakInvested",  label: "Peak invested",   fmt: pctUnsigned },
 ];
-
-// ---------------------------------------------------------------------------
-// Strategy section component
-// ---------------------------------------------------------------------------
-
-function StrategySection({
-  label,
-  enabled,
-  onToggle,
-  children,
-}: {
-  label: string;
-  enabled: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <Box>
-      <Group justify="space-between" wrap="nowrap">
-        <Text size="xs" fw={500} c={enabled ? undefined : "dimmed"}>
-          {label}
-        </Text>
-        <Switch checked={enabled} onChange={onToggle} size="xs" />
-      </Group>
-      <Collapse in={enabled}>
-        <Stack gap={4} mt={6}>
-          {children}
-        </Stack>
-      </Collapse>
-    </Box>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Chart panel — memoized so form-input re-renders don't touch Recharts
@@ -547,7 +493,7 @@ const ChartPanel = memo(function ChartPanel({
 // Main page
 // ---------------------------------------------------------------------------
 
-export default function BacktestPage() {
+function LadderBacktest() {
   const isMobile = useMediaQuery("(max-width: 768px)");
   const { activeAccount } = useApp();
   const color = useAccountColor();
@@ -648,19 +594,6 @@ export default function BacktestPage() {
         levels: Number(s.levels) > 0 ? Number(s.levels) : 88,
         reanchorPct: Number(s.reanchorPct) > 0 ? Number(s.reanchorPct) : 0,
         slippageBps: Number(s.slippageBps) > 0 ? Number(s.slippageBps) : 0,
-        maGateEnabled: s.maGateEnabled,
-        maStopPeriod: s.maGateEnabled ? Number(s.maStopPeriod) || 200 : undefined,
-        maResumePeriod: s.maGateEnabled ? Number(s.maResumePeriod) || 200 : undefined,
-        vixGateEnabled: s.vixGateEnabled,
-        vixStop: s.vixGateEnabled ? Number(s.vixStop) || 25 : undefined,
-        vixResume: s.vixGateEnabled ? Number(s.vixResume) || 20 : undefined,
-        balanceGateEnabled: s.balanceGateEnabled,
-        balanceGatePct: s.balanceGateEnabled ? Number(s.balanceGatePct) || 85 : undefined,
-        balanceResumeReboundPct: s.balanceGateEnabled ? Number(s.balanceResumeReboundPct) || 5 : undefined,
-        reserveEnabled: s.reserveEnabled,
-        reservePct: s.reserveEnabled ? Number(s.reservePct) || 0 : undefined,
-        tranche1Pct: s.reserveEnabled ? Number(s.tranche1Pct) || undefined : undefined,
-        tranche2Pct: s.reserveEnabled ? Number(s.tranche2Pct) || undefined : undefined,
       })),
     };
     const cacheKey = JSON.stringify(payload);
@@ -872,101 +805,6 @@ export default function BacktestPage() {
                 />
               </Group>
 
-              <Divider label="Buy filters" labelPosition="left" />
-
-              {/* MA gate */}
-              <StrategySection
-                label="MA gate"
-                enabled={sc.maGateEnabled}
-                onToggle={() => updateScenario(i, { maGateEnabled: !sc.maGateEnabled })}
-              >
-                <Group grow gap="xs">
-                  <NumberInput
-                    label="Stop buying below MA"
-                    value={sc.maStopPeriod}
-                    onChange={(v) => updateScenario(i, { maStopPeriod: v === "" ? "" : Number(v) })}
-                    min={5} max={500} step={10} size="xs" suffix="-day"
-                  />
-                  <NumberInput
-                    label="Resume buying above MA"
-                    value={sc.maResumePeriod}
-                    onChange={(v) => updateScenario(i, { maResumePeriod: v === "" ? "" : Number(v) })}
-                    min={5} max={500} step={10} size="xs" suffix="-day"
-                  />
-                </Group>
-              </StrategySection>
-
-              {/* VIX gate */}
-              <StrategySection
-                label="VIX gate"
-                enabled={sc.vixGateEnabled}
-                onToggle={() => updateScenario(i, { vixGateEnabled: !sc.vixGateEnabled })}
-              >
-                <Group grow gap="xs">
-                  <NumberInput
-                    label="Stop buying above"
-                    value={sc.vixStop}
-                    onChange={(v) => updateScenario(i, { vixStop: v === "" ? "" : Number(v) })}
-                    min={10} max={80} step={1} size="xs" prefix="VIX "
-                  />
-                  <NumberInput
-                    label="Resume buying below"
-                    value={sc.vixResume}
-                    onChange={(v) => updateScenario(i, { vixResume: v === "" ? "" : Number(v) })}
-                    min={10} max={80} step={1} size="xs" prefix="VIX "
-                  />
-                </Group>
-              </StrategySection>
-
-              {/* Balance gate */}
-              <StrategySection
-                label="Balance gate"
-                enabled={sc.balanceGateEnabled}
-                onToggle={() => updateScenario(i, { balanceGateEnabled: !sc.balanceGateEnabled })}
-              >
-                <Group grow gap="xs">
-                  <NumberInput
-                    label="Stop buying when balance at"
-                    value={sc.balanceGatePct}
-                    onChange={(v) => updateScenario(i, { balanceGatePct: v === "" ? "" : Number(v) })}
-                    min={50} max={99} step={1} size="xs" suffix="% of start"
-                  />
-                  <NumberInput
-                    label="Resume when price rebounds"
-                    value={sc.balanceResumeReboundPct}
-                    onChange={(v) => updateScenario(i, { balanceResumeReboundPct: v === "" ? "" : Number(v) })}
-                    min={1} max={50} step={1} size="xs" suffix="% from low"
-                  />
-                </Group>
-              </StrategySection>
-
-              {/* Reserve tranches */}
-              <StrategySection
-                label="Reserve tranches"
-                enabled={sc.reserveEnabled}
-                onToggle={() => updateScenario(i, { reserveEnabled: !sc.reserveEnabled })}
-              >
-                <NumberInput
-                  label="Hold back as reserve"
-                  value={sc.reservePct}
-                  onChange={(v) => updateScenario(i, { reservePct: v === "" ? "" : Number(v) })}
-                  min={0} max={90} step={5} size="xs" suffix="% of start"
-                />
-                <Group grow gap="xs">
-                  <NumberInput
-                    label="Deploy ½ at drawdown"
-                    value={sc.tranche1Pct}
-                    onChange={(v) => updateScenario(i, { tranche1Pct: v === "" ? "" : Number(v) })}
-                    min={1} max={90} step={1} size="xs" prefix="−" suffix="%"
-                  />
-                  <NumberInput
-                    label="Deploy rest at drawdown"
-                    value={sc.tranche2Pct}
-                    onChange={(v) => updateScenario(i, { tranche2Pct: v === "" ? "" : Number(v) })}
-                    min={1} max={90} step={1} size="xs" prefix="−" suffix="%"
-                  />
-                </Group>
-              </StrategySection>
             </Stack>
           </Paper>
         ))}
@@ -1137,5 +975,23 @@ export default function BacktestPage() {
         </>
       )}
     </Stack>
+  );
+}
+
+export default function BacktestPage() {
+  const color = useAccountColor();
+  return (
+    <Tabs defaultValue="hedge" color={color} keepMounted={false}>
+      <Tabs.List mb="md">
+        <Tabs.Tab value="hedge">Put hedge</Tabs.Tab>
+        <Tabs.Tab value="ladder">Ladder strategy</Tabs.Tab>
+      </Tabs.List>
+      <Tabs.Panel value="hedge">
+        <PutHedgePanel />
+      </Tabs.Panel>
+      <Tabs.Panel value="ladder">
+        <LadderBacktest />
+      </Tabs.Panel>
+    </Tabs>
   );
 }

@@ -49,7 +49,7 @@ const ALL_PAGES = [
   { href: "/profit-tracker",      label: "Profit",     icon: IconTrendingUp },
   { href: "/interest-dividends",  label: "Interest",   icon: IconCoins },
   { href: "/chart",               label: "Chart",      icon: IconChartLine },
-  { href: "/backtest",            label: "Backtest",   icon: IconChartHistogram },
+  { href: "/hedge",               label: "Hedge",      icon: IconChartHistogram },
   { href: "/sentiment",           label: "Sentiment",  icon: IconRadar },
   { href: "/history",             label: "History",    icon: IconHistory },
 ];
