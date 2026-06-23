@@ -34,7 +34,7 @@ describe("classifyTranche", () => {
 });
 
 describe("buildTranchePlan", () => {
-  const base = { tqqqValue: 100_000, qqqPrice: 500, vxnPct: 22, annualBudgetPct: 0.02 };
+  const base = { tqqqValue: 100_000, spot: 500, vxnPct: 22, annualBudgetPct: 0.02 };
 
   it("only sizes active (budgetShare > 0) tranches and prices the deeper one cheaper", () => {
     const plan = buildTranchePlan(base);
@@ -110,5 +110,25 @@ describe("buildTranchePlan", () => {
   it("ignores a resolver that returns no quote (falls back to model)", () => {
     const plan = buildTranchePlan({ ...base, resolver: () => null });
     expect(plan.every((t) => !t.live && t.estPremiumPerContract > 0)).toBe(true);
+  });
+
+  it("TQQQ mode uses deeper strikes than QQQ for the same legs", () => {
+    const qqq = buildTranchePlan({ ...base, instrument: "QQQ" });
+    const tqqq = buildTranchePlan({ ...base, instrument: "TQQQ" });
+    // Same active legs, but TQQQ strikes are a smaller fraction of spot (deeper OTM).
+    expect(tqqq.map((t) => t.def.key)).toEqual(qqq.map((t) => t.def.key));
+    for (let i = 0; i < qqq.length; i++) {
+      expect(tqqq[i].strike / base.spot).toBeLessThan(qqq[i].strike / base.spot);
+    }
+  });
+});
+
+describe("classifyTranche by instrument", () => {
+  it("uses TQQQ's deeper boundaries", () => {
+    // QQQ moneyness 0.45 would be 'catastrophe'; for TQQQ it's the crash leg.
+    expect(classifyTranche(0.45, "QQQ")).toBe("catastrophe");
+    expect(classifyTranche(0.45, "TQQQ")).toBe("crash");
+    expect(classifyTranche(0.3, "TQQQ")).toBe("catastrophe");
+    expect(classifyTranche(0.65, "TQQQ")).toBe("workhorse");
   });
 });

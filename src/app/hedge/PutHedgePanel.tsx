@@ -43,12 +43,14 @@ import { fmtDate } from "@/lib/format";
 import type { OptionPosition } from "@/lib/schwab/parse";
 import {
   TRANCHES,
+  TRANCHE_SETS,
   HEDGE_DTE,
   ROLL_AT_DTE,
   buildTranchePlan,
   classifyTranche,
   type TrancheKey,
   type ChainResolver,
+  type HedgeInstrument,
 } from "@/lib/hedgeTranches";
 
 const DEFAULT_BUDGET_PCT = 3; // annual premium budget, % of TQQQ value
@@ -103,6 +105,7 @@ function closeRec(pos: OptionPosition, currentQqq: number | null): CloseRec {
 
 interface MarketData {
   qqqPrice: number | null;
+  tqqqPrice: number | null;
   vxnPct: number | null;
   asOf: string | null;
   error?: string;
@@ -217,7 +220,8 @@ function HeadCell({ label, tip, right }: { label: string; tip: string; right?: b
 function AccountRec({
   account,
   tqqqValue,
-  qqqPrice,
+  instrument,
+  spot,
   vxnPct,
   budgetPct,
   openHedgePuts,
@@ -225,7 +229,8 @@ function AccountRec({
 }: {
   account: Account;
   tqqqValue: number;
-  qqqPrice: number;
+  instrument: HedgeInstrument;
+  spot: number;
   vxnPct: number | null;
   budgetPct: number;
   openHedgePuts: OptionPosition[];
@@ -233,9 +238,10 @@ function AccountRec({
 }) {
   const plan = buildTranchePlan({
     tqqqValue,
-    qqqPrice,
+    spot,
     vxnPct,
     annualBudgetPct: budgetPct / 100,
+    instrument,
     resolver,
   });
   const anyLive = plan.some((t) => t.live);
@@ -243,7 +249,7 @@ function AccountRec({
   // Open puts currently held in each tranche, by moneyness of the strike.
   const openByTranche = new Map<TrancheKey, number>();
   for (const p of openHedgePuts) {
-    const key = classifyTranche(p.strike / qqqPrice);
+    const key = classifyTranche(p.strike / spot, instrument);
     if (key) openByTranche.set(key, (openByTranche.get(key) ?? 0) + p.longQty);
   }
 
@@ -304,7 +310,7 @@ function AccountRec({
                 <Text size="9px" c="dimmed">{otmPct}% OTM</Text>
               </Table.Td>
               <Table.Td>
-                <Text size="xs">QQQ ~${t.strike} P</Text>
+                <Text size="xs">{instrument} ~${t.strike} P</Text>
                 <Text size="9px" c="dimmed">≈ ${t.estPremiumPerContract.toFixed(0)}/ct @ {HEDGE_DTE}d</Text>
               </Table.Td>
               <Table.Td ta="right" c={open > 0 ? undefined : "dimmed"}>{open}</Table.Td>
@@ -315,9 +321,9 @@ function AccountRec({
       </Table>
 
       <Text size="9px" c="dimmed" mt={6}>
-        Each week go to your preferred DTE (~{HEDGE_DTE} suggested) and buy as many QQQ puts at each
-        depth as the weekly amount covers; roll at {ROLL_AT_DTE}d. Strikes/prices move with QQQ — the
-        % OTM is what stays fixed. {anyLive ? "Live marks" : "Modeled prices"} · ~{fmtMoney(weeklyTotal)}/wk
+        Each week go to your preferred DTE (~{HEDGE_DTE} suggested) and buy as many {instrument} puts at
+        each depth as the weekly amount covers; roll at {ROLL_AT_DTE}d. Strikes/prices move with {instrument} —
+        the % OTM is what stays fixed. {anyLive ? "Live marks" : "Modeled prices"} · ~{fmtMoney(weeklyTotal)}/wk
         total ({budgetPct}%/yr).
       </Text>
     </Paper>
@@ -330,10 +336,12 @@ function AccountRec({
 
 function OpenHedgePuts({
   puts,
-  qqqPrice,
+  instrument,
+  spot,
 }: {
   puts: OptionPosition[];
-  qqqPrice: number | null;
+  instrument: HedgeInstrument;
+  spot: number | null;
 }) {
   if (puts.length === 0) {
     return (
@@ -369,9 +377,9 @@ function OpenHedgePuts({
               const costTotal = Math.abs(pos.averagePrice) * pos.longQty * 100;
               const currentValue = pos.marketValue;
               const pnl = currentValue - costTotal;
-              const rec = closeRec(pos, qqqPrice);
-              const trKey = qqqPrice ? classifyTranche(pos.strike / qqqPrice) : null;
-              const tr = trKey ? TRANCHES.find((t) => t.key === trKey) : null;
+              const rec = closeRec(pos, spot);
+              const trKey = spot ? classifyTranche(pos.strike / spot, instrument) : null;
+              const tr = trKey ? TRANCHE_SETS[instrument].find((t) => t.key === trKey) : null;
               return (
                 <Table.Tr key={i}>
                   <Table.Td>{pos.accountNumber.slice(-4)}</Table.Td>
@@ -454,13 +462,17 @@ export default function PutHedgePanel() {
     };
   }, [chain]);
 
-  // All long put positions across every account
+  // Hedge instrument: QQQ puts (live marks, big units) or TQQQ puts (modeled,
+  // smaller units that fit a small weekly budget).
+  const [instrument, setInstrument] = useState<HedgeInstrument>("QQQ");
+
+  // Long put positions in the selected hedge instrument, across every account.
   const hedgePuts = useMemo(
     () =>
       allOptionPositions.filter(
-        (p) => p.underlyingSymbol === "QQQ" && p.putCall === "PUT" && p.longQty > 0,
+        (p) => p.underlyingSymbol === instrument && p.putCall === "PUT" && p.longQty > 0,
       ),
-    [allOptionPositions],
+    [allOptionPositions, instrument],
   );
 
   // Recommendations are scoped to the account selected app-wide.
@@ -523,6 +535,10 @@ export default function PutHedgePanel() {
   );
 
   const qqqPrice = market?.qqqPrice ?? sweepData?.currentMarket?.qqqPrice ?? null;
+  const tqqqPrice = market?.tqqqPrice ?? null;
+  // Spot of the selected put underlying; live chain only exists for QQQ.
+  const spot = instrument === "TQQQ" ? tqqqPrice : qqqPrice;
+  const instrumentResolver = instrument === "QQQ" ? resolver : undefined;
 
   // Headline reads from the recommended ladder by default, or the clicked config.
   const recLadder = sweepData?.recommended ?? null;
@@ -534,10 +550,11 @@ export default function PutHedgePanel() {
       <Box>
         <Text size="xl" fw={700}>Put hedge</Text>
         <Text size="sm" c="dimmed">
-          Laddered QQQ-put overlay for TQQQ, tuned for buying dips — it spends on the long-bear
-          (crash) and tail (catastrophe) legs rather than insuring the ordinary dips you buy. Each
-          account gets a weekly dollar budget per leg; go to your preferred DTE, buy what fits, and
-          roll at {ROLL_AT_DTE} days. Monetize on spikes.
+          Laddered protective-put overlay for TQQQ, tuned for buying dips — it spends on the
+          long-bear (crash) and tail (catastrophe) legs rather than insuring the ordinary dips you
+          buy. Hedge with QQQ puts (cheap IV, big units) or TQQQ puts (smaller units that fit a
+          small weekly budget). Each account gets a weekly dollar budget per leg; go to your
+          preferred DTE, buy what fits, and roll at {ROLL_AT_DTE} days. Monetize on spikes.
         </Text>
       </Box>
 
@@ -549,34 +566,50 @@ export default function PutHedgePanel() {
             <Text size="sm" c="dimmed">Loading market data…</Text>
           </Group>
         </Center>
-      ) : qqqPrice === null ? (
+      ) : spot === null ? (
         <Alert color="yellow" icon={<IconAlertTriangle size={16} />} radius={CARD_RADIUS}>
-          Could not fetch current QQQ price. Reload to retry.
+          Could not fetch the current {instrument} price. Reload to retry.
         </Alert>
       ) : (
         <>
           <Group justify="space-between" align="flex-end" wrap="wrap" gap="sm">
             <Group gap={6} align="center">
               <Text size="xs" c="dimmed">
-                QQQ ${qqqPrice.toFixed(2)}{market?.vxnPct != null ? ` · ^VXN ${market.vxnPct.toFixed(1)}%` : ""}
+                {instrument} ${spot.toFixed(2)}{market?.vxnPct != null ? ` · ^VXN ${market.vxnPct.toFixed(1)}%` : ""}
                 {market?.asOf ? ` · as of ${fmtDate(market.asOf)}` : ""}
               </Text>
               <Tooltip
                 label={
-                  resolver
+                  instrumentResolver
                     ? "Premiums priced off live Schwab option marks."
-                    : "Schwab not connected — premiums use the Black-Scholes model off ^VXN. Connect Schwab for live marks."
+                    : instrument === "TQQQ"
+                      ? "TQQQ premiums use the Black-Scholes model at ~3× index IV (live chain wired for QQQ only)."
+                      : "Schwab not connected — premiums use the Black-Scholes model off ^VXN. Connect Schwab for live marks."
                 }
                 withArrow
                 multiline
-                w={240}
+                w={250}
               >
-                <Badge color={resolver ? "teal" : "gray"} variant="light" size="xs">
-                  {resolver ? "live marks" : "modeled"}
+                <Badge color={instrumentResolver ? "teal" : "gray"} variant="light" size="xs">
+                  {instrumentResolver ? "live marks" : "modeled"}
                 </Badge>
               </Tooltip>
             </Group>
-            <Group gap="xs" align="center">
+            <Group gap="md" align="center">
+              <Group gap="xs" align="center">
+                <Text size="xs" c="dimmed">Instrument</Text>
+                <SegmentedControl
+                  size="xs"
+                  value={instrument}
+                  onChange={(v) => setInstrument(v as HedgeInstrument)}
+                  color={color}
+                  data={[
+                    { label: "QQQ", value: "QQQ" },
+                    { label: "TQQQ", value: "TQQQ" },
+                  ]}
+                />
+              </Group>
+              <Group gap="xs" align="center">
               <Text size="xs" c="dimmed">Premium budget</Text>
               <Tooltip
                 label="Annual premium you're willing to bleed, as a % of TQQQ value. Split 60/40 across the crash and catastrophe legs and divided into a weekly dollar budget per leg."
@@ -597,16 +630,18 @@ export default function PutHedgePanel() {
                 />
               </Tooltip>
             </Group>
+            </Group>
           </Group>
           {activeAccount && activeTqqqValue > 0 ? (
             <AccountRec
               account={activeAccount}
               tqqqValue={activeTqqqValue}
-              qqqPrice={qqqPrice}
+              instrument={instrument}
+              spot={spot}
               vxnPct={market?.vxnPct ?? sweepData?.currentMarket?.vxnPct ?? null}
               budgetPct={budgetPct}
               openHedgePuts={activePuts}
-              resolver={resolver}
+              resolver={instrumentResolver}
             />
           ) : (
             <Alert color="gray" icon={<IconInfoCircle size={16} />} radius={CARD_RADIUS}>
@@ -618,7 +653,7 @@ export default function PutHedgePanel() {
       )}
 
       {/* ── Open hedge puts with close/roll guidance ── */}
-      <OpenHedgePuts puts={activePuts} qqqPrice={qqqPrice} />
+      <OpenHedgePuts puts={activePuts} instrument={instrument} spot={spot} />
 
       {/* ── Parameter sweep ── */}
       <Box>

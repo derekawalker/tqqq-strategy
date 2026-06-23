@@ -29,6 +29,9 @@ import { bsPut } from "./putHedge";
 
 export type TrancheKey = "workhorse" | "crash" | "catastrophe";
 
+/** The put underlying used to hedge the TQQQ position. */
+export type HedgeInstrument = "QQQ" | "TQQQ";
+
 export interface TrancheDef {
   key: TrancheKey;
   label: string;
@@ -44,35 +47,80 @@ export interface TrancheDef {
   color: string;
 }
 
-export const TRANCHES: TrancheDef[] = [
-  {
-    key: "crash",
-    label: "Crash",
-    desc: "Core long-bear / fast-crash cover — the workhorse of this ladder.",
-    moneyness: 0.75,
-    budgetShare: 0.6,
-    maxCoverage: 3,
-    color: "orange",
-  },
-  {
-    key: "catastrophe",
-    label: "Catastrophe",
-    desc: "Deep tail insurance — cheap, max convexity in a 2008/2020 event.",
-    moneyness: 0.65,
-    budgetShare: 0.4,
-    maxCoverage: 1.5,
-    color: "red",
-  },
-  {
-    key: "workhorse",
-    label: "Workhorse",
-    desc: "Near-the-money cover for ordinary dips. Off by default — you buy those dips.",
-    moneyness: 0.88,
-    budgetShare: 0,
-    maxCoverage: 2,
-    color: "teal",
-  },
-];
+/**
+ * Tranche sets per put instrument. The QQQ depths hedge QQQ −25% / −35% moves;
+ * the TQQQ depths hedge the *same* scenarios, but because TQQQ falls ~2.3–3× as
+ * fast, the equivalent strikes are far deeper (a QQQ −25% bear ≈ TQQQ −55–60%).
+ * TQQQ puts hedge the held position directly, so coverage is ~1× notional, not 3×.
+ */
+export const TRANCHE_SETS: Record<HedgeInstrument, TrancheDef[]> = {
+  QQQ: [
+    {
+      key: "crash",
+      label: "Crash",
+      desc: "Core long-bear / fast-crash cover (≈ QQQ −25%).",
+      moneyness: 0.75,
+      budgetShare: 0.6,
+      maxCoverage: 3,
+      color: "orange",
+    },
+    {
+      key: "catastrophe",
+      label: "Catastrophe",
+      desc: "Deep tail insurance (≈ QQQ −35%) — cheap, max convexity in a 2008/2020 event.",
+      moneyness: 0.65,
+      budgetShare: 0.4,
+      maxCoverage: 1.5,
+      color: "red",
+    },
+    {
+      key: "workhorse",
+      label: "Workhorse",
+      desc: "Near-the-money cover for ordinary dips. Off by default — you buy those dips.",
+      moneyness: 0.88,
+      budgetShare: 0,
+      maxCoverage: 2,
+      color: "teal",
+    },
+  ],
+  TQQQ: [
+    {
+      key: "crash",
+      label: "Crash",
+      desc: "Core long-bear / fast-crash cover (TQQQ ≈ −55%, the QQQ −25% scenario).",
+      moneyness: 0.45,
+      budgetShare: 0.6,
+      maxCoverage: 1,
+      color: "orange",
+    },
+    {
+      key: "catastrophe",
+      label: "Catastrophe",
+      desc: "Deep tail insurance (TQQQ ≈ −70%, the QQQ −35% scenario) — explosive convexity.",
+      moneyness: 0.3,
+      budgetShare: 0.4,
+      maxCoverage: 0.7,
+      color: "red",
+    },
+    {
+      key: "workhorse",
+      label: "Workhorse",
+      desc: "Shallower TQQQ cover for ordinary dips. Off by default — you buy those dips.",
+      moneyness: 0.65,
+      budgetShare: 0,
+      maxCoverage: 1,
+      color: "teal",
+    },
+  ],
+};
+
+/** Default (QQQ) tranche set — kept for callers that don't pick an instrument. */
+export const TRANCHES: TrancheDef[] = TRANCHE_SETS.QQQ;
+
+/** IV multiplier vs ^VXN: TQQQ options run ~3× the index implied vol. */
+const IV_SCALE: Record<HedgeInstrument, number> = { QQQ: 1, TQQQ: 3 };
+/** Dividend yield of the put underlying. */
+const DIV_YIELD: Record<HedgeInstrument, number> = { QQQ: 0.006, TQQQ: 0 };
 
 /** Days to expiry to buy at. */
 export const HEDGE_DTE = 60;
@@ -82,7 +130,6 @@ export const ROLL_AT_DTE = 21;
 export const WEEKS_PER_CYCLE = 5;
 
 const RISK_FREE = 0.04;
-const QQQ_DIV = 0.006;
 /** Linear vol skew: deeper-OTM puts carry richer IV than the ATM ^VXN level. */
 const SKEW = 0.8;
 /** Fallback IV (as a fraction) when ^VXN is unavailable. */
@@ -94,15 +141,21 @@ function ivFor(baseIv: number, moneyness: number): number {
 }
 
 /**
- * Classify an open put into a tranche by its moneyness (strike / current spot).
- * Returns null for near-the-money puts (> 95% of spot) that aren't part of the
- * laddered hedge. Boundaries sit halfway between adjacent tranche strikes.
+ * Classify an open put into a tranche by its moneyness (strike / current spot),
+ * for the given instrument. Returns null for near-the-money puts that aren't part
+ * of the laddered hedge. Boundaries sit halfway between adjacent tranche strikes.
  */
-export function classifyTranche(moneyness: number): TrancheKey | null {
-  if (moneyness > 0.95) return null;
-  if (moneyness >= 0.815) return "workhorse"; // midpoint of 0.88 / 0.75
-  if (moneyness >= 0.7) return "crash"; // midpoint of 0.75 / 0.65
-  return "catastrophe";
+export function classifyTranche(
+  moneyness: number,
+  instrument: HedgeInstrument = "QQQ",
+): TrancheKey | null {
+  const defs = [...TRANCHE_SETS[instrument]].sort((a, b) => b.moneyness - a.moneyness);
+  if (defs.length === 0 || moneyness > defs[0].moneyness + 0.07) return null;
+  for (let i = 0; i < defs.length; i++) {
+    const lower = i + 1 < defs.length ? (defs[i].moneyness + defs[i + 1].moneyness) / 2 : -Infinity;
+    if (moneyness >= lower) return defs[i].key;
+  }
+  return defs[defs.length - 1].key;
 }
 
 /** A live quote for a strike, supplied by an option-chain resolver. */
@@ -140,27 +193,32 @@ export interface TranchePlan {
  * Build the per-tranche buy plan for one account's TQQQ exposure.
  *
  * @param tqqqValue       current TQQQ market value to hedge
- * @param qqqPrice        current QQQ spot
+ * @param spot            current spot of the put underlying (QQQ or TQQQ price)
  * @param vxnPct          ^VXN level (e.g. 22 for 22%); null → DEFAULT_IV
  * @param annualBudgetPct annual premium budget as a fraction of tqqqValue
  *                        (0.02 = 2%/yr)
+ * @param instrument      put underlying (default "QQQ"); "TQQQ" uses deeper
+ *                        strikes and ~3× IV
  */
 export function buildTranchePlan(opts: {
   tqqqValue: number;
-  qqqPrice: number;
+  spot: number;
   vxnPct: number | null;
   annualBudgetPct: number;
+  instrument?: HedgeInstrument;
   /** Optional live option-chain resolver; when it returns a quote, real marks
    *  and the real listed strike replace the Black-Scholes estimate. */
   resolver?: ChainResolver;
 }): TranchePlan[] {
-  const { tqqqValue, qqqPrice, vxnPct, annualBudgetPct, resolver } = opts;
-  const baseIv = vxnPct != null && vxnPct > 0 ? vxnPct / 100 : DEFAULT_IV;
+  const { tqqqValue, spot, vxnPct, annualBudgetPct, resolver } = opts;
+  const instrument = opts.instrument ?? "QQQ";
+  const baseIv = (vxnPct != null && vxnPct > 0 ? vxnPct / 100 : DEFAULT_IV) * IV_SCALE[instrument];
+  const div = DIV_YIELD[instrument];
   const totalBudget = Math.max(0, tqqqValue) * Math.max(0, annualBudgetPct);
   const rollsPerYear = 365 / HEDGE_DTE;
 
-  return TRANCHES.filter((def) => def.budgetShare > 0).map((def) => {
-    const idealStrike = Math.max(1, Math.round(qqqPrice * def.moneyness));
+  return TRANCHE_SETS[instrument].filter((def) => def.budgetShare > 0).map((def) => {
+    const idealStrike = Math.max(1, Math.round(spot * def.moneyness));
 
     // Prefer a live mark; fall back to the skew-adjusted Black-Scholes model.
     const quote = resolver?.(idealStrike) ?? null;
@@ -173,7 +231,7 @@ export function buildTranchePlan(opts: {
     } else {
       strike = idealStrike;
       const iv = ivFor(baseIv, def.moneyness);
-      estPremiumPerContract = bsPut(qqqPrice, strike, HEDGE_DTE / 365, iv, RISK_FREE, QQQ_DIV) * 100;
+      estPremiumPerContract = bsPut(spot, strike, HEDGE_DTE / 365, iv, RISK_FREE, div) * 100;
     }
 
     const annualPerContract = estPremiumPerContract * rollsPerYear;

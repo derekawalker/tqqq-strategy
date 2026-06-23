@@ -40,15 +40,17 @@ function summarize(r: PutHedgeResult) {
   return rest;
 }
 
-/** GET: current QQQ price and ^VXN level — used for live recommendations. */
+/** GET: current QQQ + TQQQ prices and ^VXN level — used for live recommendations. */
 export async function GET() {
   try {
-    const [qqq, vxn] = await Promise.all([
+    const [qqq, tqqq, vxn] = await Promise.all([
       fetchYahooDaily("QQQ", 1),
+      fetchYahooDaily("TQQQ", 1),
       fetchYahooDaily("^VXN", 1),
     ]);
     return Response.json({
       qqqPrice: qqq.at(-1)?.close ?? null,
+      tqqqPrice: tqqq.at(-1)?.close ?? null,
       vxnPct: vxn.at(-1)?.close ?? null,
       asOf: qqq.at(-1)?.date ?? null,
     });
