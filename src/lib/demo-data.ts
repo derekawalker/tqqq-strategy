@@ -216,20 +216,20 @@ export const DEMO_DATA: SchwabData = {
   optionPositions: [
     // ── Account A ────────────────────────────────────────────────────────────
     // ITM put: strike $55 > current ~$52, opened when stock was at $57 (was OTM)
-    { accountNumber: A, symbol: "TQQQ260417P00055000", putCall: "PUT",  strike: 55, expiry: "2026-04-17", shortQty: 2, longQty: 0, marketValue:  -660.00, averagePrice: 1.45, openedAt: daysAgo(30) },
+    { accountNumber: A, symbol: "TQQQ260417P00055000", underlyingSymbol: "TQQQ", putCall: "PUT",  strike: 55, expiry: "2026-04-17", shortQty: 2, longQty: 0, marketValue:  -660.00, averagePrice: 1.45, openedAt: daysAgo(30) },
     // OTM put: strike $45 < current ~$52
-    { accountNumber: A, symbol: "TQQQ260515P00045000", putCall: "PUT",  strike: 45, expiry: "2026-05-15", shortQty: 3, longQty: 0, marketValue:  -225.00, averagePrice: 0.90, openedAt: daysAgo(14) },
+    { accountNumber: A, symbol: "TQQQ260515P00045000", underlyingSymbol: "TQQQ", putCall: "PUT",  strike: 45, expiry: "2026-05-15", shortQty: 3, longQty: 0, marketValue:  -225.00, averagePrice: 0.90, openedAt: daysAgo(14) },
     // ITM call: strike $50 < current ~$52, opened when stock was at $46 (was OTM)
-    { accountNumber: A, symbol: "TQQQ260417C00050000", putCall: "CALL", strike: 50, expiry: "2026-04-17", shortQty: 2, longQty: 0, marketValue:  -450.00, averagePrice: 0.72, openedAt: daysAgo(10) },
+    { accountNumber: A, symbol: "TQQQ260417C00050000", underlyingSymbol: "TQQQ", putCall: "CALL", strike: 50, expiry: "2026-04-17", shortQty: 2, longQty: 0, marketValue:  -450.00, averagePrice: 0.72, openedAt: daysAgo(10) },
     // OTM call: strike $62 > current ~$52
-    { accountNumber: A, symbol: "TQQQ260515C00062000", putCall: "CALL", strike: 62, expiry: "2026-05-15", shortQty: 2, longQty: 0, marketValue:   -76.00, averagePrice: 0.55, openedAt: daysAgo(30) },
+    { accountNumber: A, symbol: "TQQQ260515C00062000", underlyingSymbol: "TQQQ", putCall: "CALL", strike: 62, expiry: "2026-05-15", shortQty: 2, longQty: 0, marketValue:   -76.00, averagePrice: 0.55, openedAt: daysAgo(30) },
     // ── Account C ────────────────────────────────────────────────────────────
     // Deep ITM put: strike $57 > current ~$52, opened at $58 slightly OTM
-    { accountNumber: C, symbol: "TQQQ260417P00057000", putCall: "PUT",  strike: 57, expiry: "2026-04-17", shortQty: 3, longQty: 0, marketValue: -1530.00, averagePrice: 0.95, openedAt: daysAgo(28) },
+    { accountNumber: C, symbol: "TQQQ260417P00057000", underlyingSymbol: "TQQQ", putCall: "PUT",  strike: 57, expiry: "2026-04-17", shortQty: 3, longQty: 0, marketValue: -1530.00, averagePrice: 0.95, openedAt: daysAgo(28) },
     // OTM put: strike $44 < current ~$52
-    { accountNumber: C, symbol: "TQQQ260515P00044000", putCall: "PUT",  strike: 44, expiry: "2026-05-15", shortQty: 4, longQty: 0, marketValue:  -272.00, averagePrice: 0.85, openedAt: daysAgo(14) },
+    { accountNumber: C, symbol: "TQQQ260515P00044000", underlyingSymbol: "TQQQ", putCall: "PUT",  strike: 44, expiry: "2026-05-15", shortQty: 4, longQty: 0, marketValue:  -272.00, averagePrice: 0.85, openedAt: daysAgo(14) },
     // OTM call: strike $64 > current ~$52
-    { accountNumber: C, symbol: "TQQQ260515C00064000", putCall: "CALL", strike: 64, expiry: "2026-05-15", shortQty: 3, longQty: 0, marketValue:   -84.00, averagePrice: 0.42, openedAt: daysAgo(28) },
+    { accountNumber: C, symbol: "TQQQ260515C00064000", underlyingSymbol: "TQQQ", putCall: "CALL", strike: 64, expiry: "2026-05-15", shortQty: 3, longQty: 0, marketValue:   -84.00, averagePrice: 0.42, openedAt: daysAgo(28) },
   ],
 
   // Held shares: A = L0(re)+L1(re)+L3-L11, B = L0-L6, C = L0(re)+L1(re)+L3-L12

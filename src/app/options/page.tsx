@@ -1677,6 +1677,7 @@ function OptionsPageInner() {
         {
           accountNumber: "",
           symbol: "",
+          underlyingSymbol: "TQQQ",
           putCall: "CALL" as const,
           strike,
           expiry: "",
@@ -1697,6 +1698,7 @@ function OptionsPageInner() {
         {
           accountNumber: "",
           symbol: "",
+          underlyingSymbol: "TQQQ",
           putCall: "PUT" as const,
           strike,
           expiry: "",

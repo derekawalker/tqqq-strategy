@@ -423,8 +423,16 @@ export function simulateLadderHedge(
 export interface SweepGrid {
   moneyness: number[];
   dteDays: number[];
-  /** null entry = hold to expiry. */
+  /** Fixed calendar roll cadence in days. null entry = hold to expiry. */
   rollEveryDays?: (number | null)[];
+  /**
+   * Roll when this many days remain — the way the strategy actually rolls.
+   * Converted per-DTE to a cadence of `dteDays - rollAtDte`. null = hold to
+   * expiry. Takes precedence over `rollEveryDays` when set.
+   */
+  rollAtDte?: (number | null)[];
+  /** Drop combos whose holding window (dteDays - rollEvery) is shorter than this. */
+  minHoldDays?: number;
   coverageRatio: number[];
   riskFreeRate?: number;
   dividendYield?: number;
@@ -440,12 +448,19 @@ export interface SweepGrid {
  * dropped.
  */
 export function sweepPutHedge(bars: HedgeBar[], grid: SweepGrid): PutHedgeResult[] {
-  const rolls = grid.rollEveryDays ?? [null];
+  const minHold = grid.minHoldDays ?? 0;
   const results: PutHedgeResult[] = [];
 
   for (const moneyness of grid.moneyness) {
     for (const dteDays of grid.dteDays) {
-      for (const rollEveryDays of rolls) {
+      // Roll-at-DTE (the strategy's real rule) converts to a per-DTE cadence;
+      // otherwise fall back to a fixed calendar cadence.
+      const cadences: (number | null)[] = grid.rollAtDte
+        ? grid.rollAtDte.map((rad) => (rad == null ? null : dteDays - rad))
+        : (grid.rollEveryDays ?? [null]);
+      for (const rollEveryDays of cadences) {
+        // Skip degenerate combos held for only a handful of days before rolling.
+        if (rollEveryDays != null && rollEveryDays < minHold) continue;
         for (const coverageRatio of grid.coverageRatio) {
           results.push(
             simulatePutHedge(bars, {

@@ -25,11 +25,13 @@ const QQQ_COVERAGE = [1, 2, 3, 4];
 const QQQ_DIVIDEND_YIELD = 0.006;
 
 // The recommended ladder = the active tranches at their target coverage caps,
-// 60 DTE, rolled at 21d — i.e. exactly the strategy the buy panel sizes.
+// 60 DTE, rolled when 21 days remain — i.e. exactly the strategy the buy panel
+// sizes. `rollEveryDays` is a calendar cadence, so "roll at 21 DTE" means
+// holding HEDGE_DTE - ROLL_AT_DTE days before replacing.
 const RECOMMENDED_LEGS: LadderLeg[] = TRANCHES.filter((t) => t.budgetShare > 0).map((t) => ({
   moneyness: t.moneyness,
   dteDays: HEDGE_DTE,
-  rollEveryDays: ROLL_AT_DTE,
+  rollEveryDays: HEDGE_DTE - ROLL_AT_DTE,
   coverageRatio: t.maxCoverage,
 }));
 
@@ -100,10 +102,14 @@ export async function POST(request: Request) {
     }
 
     const grid: SweepGrid = {
-      // Spans the 3-tranche ladder: deep-OTM catastrophe (0.65) through near-money (0.95).
+      // Spans the ladder depths: deep-OTM catastrophe (0.65) through near-money (0.95).
       moneyness: [0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95],
-      dteDays: [30, 45, 60, 90],
-      rollEveryDays: [null, 21],
+      // Focused on the laddering range we settled on (45–90 DTE); 30 is too short
+      // to roll at 21 DTE without bleeding through the gamma cliff.
+      dteDays: [45, 60, 90],
+      // Roll the way the strategy does — at N days remaining, not every N days.
+      rollAtDte: [null, 21, 30],
+      minHoldDays: 14,
       coverageRatio: QQQ_COVERAGE,
       dividendYield: QQQ_DIVIDEND_YIELD,
       costBps: 75,

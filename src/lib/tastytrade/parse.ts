@@ -124,7 +124,8 @@ export function parseOptionPosition(
   openedAtMap: Map<string, string>,
 ): OptionPosition | null {
   if (pos["instrument-type"] !== "Equity Option") return null;
-  if (pos["underlying-symbol"] !== "TQQQ") return null;
+  const underlyingSymbol: string = pos["underlying-symbol"] ?? "";
+  if (underlyingSymbol !== "TQQQ" && underlyingSymbol !== "QQQ") return null;
   const sym: string = pos.symbol ?? "";
   const parsed = parseOccTail(sym);
   if (!parsed) return null;
@@ -142,6 +143,7 @@ export function parseOptionPosition(
   return {
     accountNumber,
     symbol: sym.trim(),
+    underlyingSymbol,
     putCall: parsed.putCall,
     strike: parsed.strike,
     expiry: parsed.expiry,

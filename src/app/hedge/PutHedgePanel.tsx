@@ -19,8 +19,6 @@ import {
   Badge,
   ThemeIcon,
   NumberInput,
-  CopyButton,
-  ActionIcon,
 } from "@mantine/core";
 import {
   IconAlertTriangle,
@@ -28,8 +26,6 @@ import {
   IconShield,
   IconShieldOff,
   IconPlayerPlayFilled,
-  IconCopy,
-  IconCheck,
 } from "@tabler/icons-react";
 import {
   ResponsiveContainer,
@@ -51,13 +47,11 @@ import {
   ROLL_AT_DTE,
   buildTranchePlan,
   classifyTranche,
-  planAnnualCost,
   type TrancheKey,
   type ChainResolver,
 } from "@/lib/hedgeTranches";
-import { occSymbol, humanContract } from "@/lib/optionSymbol";
 
-const DEFAULT_BUDGET_PCT = 2; // annual premium budget, % of TQQQ value
+const DEFAULT_BUDGET_PCT = 3; // annual premium budget, % of TQQQ value
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -68,28 +62,16 @@ function daysUntil(expiry: string): number {
   return Math.max(0, Math.ceil(ms / 86_400_000));
 }
 
-/** Nearest 3rd-Friday monthly expiry at least `minDays` calendar days out. */
-function nextMonthlyExpiry(minDays: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + minDays);
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const year = d.getFullYear();
-    const month = d.getMonth();
-    const firstDow = new Date(year, month, 1).getDay();
-    const firstFri = 1 + ((5 - firstDow + 7) % 7);
-    const thirdFri = new Date(year, month, firstFri + 14);
-    if (thirdFri > d) return thirdFri.toISOString().slice(0, 10);
-    d.setMonth(d.getMonth() + 1);
-    d.setDate(1);
-  }
-  const fb = new Date();
-  fb.setDate(fb.getDate() + minDays);
-  return fb.toISOString().slice(0, 10);
-}
-
 const fmtPct = (x: number) => `${(x * 100).toFixed(1)}%`;
 const fmtUsd = (x: number) =>
   x.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+/** Currency with cents for small (weekly) amounts, whole dollars otherwise. */
+const fmtMoney = (x: number) =>
+  x.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: x < 100 ? 2 : 0,
+  });
 
 // ---------------------------------------------------------------------------
 // Close-recommendation logic
@@ -192,7 +174,9 @@ const LADDER_LABEL = TRANCHES.filter((t) => t.budgetShare > 0)
   .join(" + ");
 
 const fmtEff = (x: number | null) => (x === null || !isFinite(x) ? "∞" : x.toFixed(2));
-const fmtRoll = (r?: number | null) => (r == null ? "exp" : `${r}d`);
+/** Roll rule as "at N DTE" (days remaining when you roll) or "to exp". */
+const fmtRollAt = (p: { dteDays: number; rollEveryDays?: number | null }) =>
+  p.rollEveryDays == null ? "to exp" : `at ${p.dteDays - p.rollEveryDays}d`;
 const otmLabel = (m: number) => `${Math.round((1 - m) * 100)}% OTM`;
 
 /** One-sentence plain-English readout of a backtested configuration. */
@@ -202,7 +186,8 @@ function describeConfig(
   instrument: "QQQ" | "TQQQ",
 ): string {
   const p = c.params;
-  const roll = p.rollEveryDays == null ? "held to expiry" : `rolled every ${p.rollEveryDays} days`;
+  const roll =
+    p.rollEveryDays == null ? "held to expiry" : `rolled at ${p.dteDays - p.rollEveryDays} DTE`;
   const buy = `${instrument} puts ${otmLabel(p.moneyness)}, ${p.dteDays} days out, ${roll}, sized ${p.coverageRatio}×`;
   const cut = `cut the worst drop from ${fmtPct(unhedgedMaxDD)} to ${fmtPct(c.hedgedMaxDD)}`;
   const cost =
@@ -237,7 +222,6 @@ function AccountRec({
   budgetPct,
   openHedgePuts,
   resolver,
-  liveExpiry,
 }: {
   account: Account;
   tqqqValue: number;
@@ -246,7 +230,6 @@ function AccountRec({
   budgetPct: number;
   openHedgePuts: OptionPosition[];
   resolver?: ChainResolver;
-  liveExpiry?: string | null;
 }) {
   const plan = buildTranchePlan({
     tqqqValue,
@@ -256,72 +239,63 @@ function AccountRec({
     resolver,
   });
   const anyLive = plan.some((t) => t.live);
-  // Live marks carry their own expiry; otherwise target the nearest monthly ≥55d out.
-  const expiry = anyLive && liveExpiry ? liveExpiry : nextMonthlyExpiry(HEDGE_DTE - 5);
 
-  // Open contracts currently held in each tranche, by moneyness of the strike.
+  // Open puts currently held in each tranche, by moneyness of the strike.
   const openByTranche = new Map<TrancheKey, number>();
   for (const p of openHedgePuts) {
     const key = classifyTranche(p.strike / qqqPrice);
     if (key) openByTranche.set(key, (openByTranche.get(key) ?? 0) + p.longQty);
   }
 
-  // Per-tranche display rows + the exact contract to buy.
-  const rows = plan.map((t) => {
-    const open = openByTranche.get(t.def.key) ?? 0;
-    const buyNow = Math.min(t.weeklyContracts, Math.max(0, t.targetContracts - open));
-    return {
-      t,
-      open,
-      buyNow,
-      otmPct: Math.round((1 - t.def.moneyness) * 100),
-      human: humanContract("QQQ", expiry, "P", t.strike),
-      occ: occSymbol("QQQ", expiry, "P", t.strike),
-    };
-  });
-  const orders = rows.filter((r) => r.buyNow > 0);
+  // A weekly premium budget per tranche — divisible, so it works at any account
+  // size (buy whatever fits at your chosen DTE instead of a whole-contract target).
+  const rows = plan.map((t) => ({
+    t,
+    open: openByTranche.get(t.def.key) ?? 0,
+    otmPct: Math.round((1 - t.def.moneyness) * 100),
+    weekly: t.annualBudget / 52,
+  }));
 
-  const targetTotal = plan.reduce((s, t) => s + t.targetContracts, 0);
-  const openTotal = [...openByTranche.values()].reduce((s, n) => s + n, 0);
-  const isHedged = targetTotal > 0 && openTotal >= Math.ceil(targetTotal * 0.75);
+  const openTotal = rows.reduce((s, r) => s + r.open, 0);
+  const covered = rows.filter((r) => r.open > 0).length;
+  const statusColor = covered === 0 ? "red" : covered < rows.length ? "yellow" : "teal";
+  const weeklyTotal = rows.reduce((s, r) => s + r.weekly, 0);
   const soonExpiring = openHedgePuts.some((p) => daysUntil(p.expiry) <= ROLL_AT_DTE);
-  const annualCost = planAnnualCost(plan);
 
   return (
     <Paper withBorder radius={CARD_RADIUS} p="md">
       <Group justify="space-between" mb="xs" wrap="nowrap">
         <Group gap="xs">
-          <ThemeIcon size="sm" variant="light" color={isHedged ? "teal" : "red"} radius="xl">
-            {isHedged ? <IconShield size={12} /> : <IconShieldOff size={12} />}
+          <ThemeIcon size="sm" variant="light" color={statusColor} radius="xl">
+            {covered === rows.length ? <IconShield size={12} /> : <IconShieldOff size={12} />}
           </ThemeIcon>
           <Box>
             <Text size="sm" fw={600} lineClamp={1}>{account.accountName}</Text>
             <Text size="xs" c="dimmed">{fmtUsd(tqqqValue)} TQQQ</Text>
           </Box>
         </Group>
-        <Badge color={isHedged ? "teal" : "red"} variant="light" size="sm">
-          {openTotal > 0 ? `${openTotal} / ${targetTotal}` : "unhedged"}
+        <Badge color={statusColor} variant="light" size="sm">
+          {openTotal > 0 ? `${openTotal} open` : "unhedged"}
         </Badge>
       </Group>
 
       {soonExpiring && (
         <Text size="xs" c="yellow.4" mb="xs">
-          A position is within {ROLL_AT_DTE}d of expiry — roll it to the next monthly.
+          A position is within {ROLL_AT_DTE}d of expiry — roll it.
         </Text>
       )}
 
-      <Table fz="xs" verticalSpacing={4} withRowBorders={false}>
+      <Table fz="xs" verticalSpacing={6} withRowBorders={false}>
         <Table.Thead>
           <Table.Tr>
             <Table.Th>Tranche</Table.Th>
-            <Table.Th ta="right">Strike</Table.Th>
+            <Table.Th>Suggested put</Table.Th>
             <Table.Th ta="right">Open</Table.Th>
-            <Table.Th ta="right">Target</Table.Th>
-            <Table.Th ta="right">Buy now</Table.Th>
+            <Table.Th ta="right">Buy / week</Table.Th>
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {rows.map(({ t, open, buyNow, otmPct }) => (
+          {rows.map(({ t, open, otmPct, weekly }) => (
             <Table.Tr key={t.def.key}>
               <Table.Td>
                 <Tooltip label={t.def.desc} withArrow multiline w={200}>
@@ -329,53 +303,22 @@ function AccountRec({
                 </Tooltip>
                 <Text size="9px" c="dimmed">{otmPct}% OTM</Text>
               </Table.Td>
-              <Table.Td ta="right">${t.strike}</Table.Td>
-              <Table.Td ta="right" c={open > 0 ? undefined : "dimmed"}>{open}</Table.Td>
-              <Table.Td ta="right">{t.targetContracts}</Table.Td>
-              <Table.Td ta="right" fw={700} c={buyNow > 0 ? `${t.def.color}.4` : "dimmed"}>
-                {buyNow > 0 ? `+${buyNow}` : open >= t.targetContracts ? "✓" : "—"}
+              <Table.Td>
+                <Text size="xs">QQQ ~${t.strike} P</Text>
+                <Text size="9px" c="dimmed">≈ ${t.estPremiumPerContract.toFixed(0)}/ct @ {HEDGE_DTE}d</Text>
               </Table.Td>
+              <Table.Td ta="right" c={open > 0 ? undefined : "dimmed"}>{open}</Table.Td>
+              <Table.Td ta="right" fw={700} c={`${t.def.color}.4`}>{fmtMoney(weekly)}</Table.Td>
             </Table.Tr>
           ))}
         </Table.Tbody>
       </Table>
 
-      {orders.length > 0 && (
-        <Box mt="sm">
-          <Text size="xs" fw={600} mb={4}>This week&apos;s orders</Text>
-          <Stack gap={4}>
-            {orders.map(({ t, buyNow, human, occ }) => (
-              <Group key={t.def.key} gap={6} wrap="nowrap" justify="space-between">
-                <Text size="xs">
-                  Buy <Text span fw={700} c={`${t.def.color}.4`}>{buyNow}×</Text> {human}
-                </Text>
-                <Group gap={4} wrap="nowrap">
-                  <Text size="9px" c="dimmed" ff="monospace">{occ}</Text>
-                  <CopyButton value={occ}>
-                    {({ copied, copy }) => (
-                      <Tooltip label={copied ? "Copied" : "Copy OCC symbol"} withArrow>
-                        <ActionIcon
-                          size="xs"
-                          variant="subtle"
-                          color={copied ? "teal" : "gray"}
-                          onClick={copy}
-                        >
-                          {copied ? <IconCheck size={12} /> : <IconCopy size={12} />}
-                        </ActionIcon>
-                      </Tooltip>
-                    )}
-                  </CopyButton>
-                </Group>
-              </Group>
-            ))}
-          </Stack>
-        </Box>
-      )}
-
       <Text size="9px" c="dimmed" mt={6}>
-        Same day each week · {HEDGE_DTE} DTE · exp {fmtDate(expiry)} · roll at {ROLL_AT_DTE}d ·
-        {anyLive ? " live marks · " : " modeled · "}
-        est. carry ~{fmtUsd(annualCost)}/yr ({((annualCost / Math.max(tqqqValue, 1)) * 100).toFixed(1)}%)
+        Each week go to your preferred DTE (~{HEDGE_DTE} suggested) and buy as many QQQ puts at each
+        depth as the weekly amount covers; roll at {ROLL_AT_DTE}d. Strikes/prices move with QQQ — the
+        % OTM is what stays fixed. {anyLive ? "Live marks" : "Modeled prices"} · ~{fmtMoney(weeklyTotal)}/wk
+        total ({budgetPct}%/yr).
       </Text>
     </Paper>
   );
@@ -513,7 +456,10 @@ export default function PutHedgePanel() {
 
   // All long put positions across every account
   const hedgePuts = useMemo(
-    () => allOptionPositions.filter((p) => p.putCall === "PUT" && p.longQty > 0),
+    () =>
+      allOptionPositions.filter(
+        (p) => p.underlyingSymbol === "QQQ" && p.putCall === "PUT" && p.longQty > 0,
+      ),
     [allOptionPositions],
   );
 
@@ -589,9 +535,9 @@ export default function PutHedgePanel() {
         <Text size="xl" fw={700}>Put hedge</Text>
         <Text size="sm" c="dimmed">
           Laddered QQQ-put overlay for TQQQ, tuned for buying dips — it spends on the long-bear
-          (crash) and tail (catastrophe) legs rather than insuring the ordinary dips you buy.
-          Sized for the selected account from your premium budget, capped by sane notional
-          coverage. Buy the weekly clip, hold to a {ROLL_AT_DTE}-day roll, and monetize on spikes.
+          (crash) and tail (catastrophe) legs rather than insuring the ordinary dips you buy. Each
+          account gets a weekly dollar budget per leg; go to your preferred DTE, buy what fits, and
+          roll at {ROLL_AT_DTE} days. Monetize on spikes.
         </Text>
       </Box>
 
@@ -633,7 +579,7 @@ export default function PutHedgePanel() {
             <Group gap="xs" align="center">
               <Text size="xs" c="dimmed">Premium budget</Text>
               <Tooltip
-                label="Annual premium you're willing to bleed, as a % of TQQQ value. Split 60/40 across the crash and catastrophe tranches, then capped by each tranche's notional ceiling — so you may spend less than this."
+                label="Annual premium you're willing to bleed, as a % of TQQQ value. Split 60/40 across the crash and catastrophe legs and divided into a weekly dollar budget per leg."
                 withArrow
                 multiline
                 w={240}
@@ -661,7 +607,6 @@ export default function PutHedgePanel() {
               budgetPct={budgetPct}
               openHedgePuts={activePuts}
               resolver={resolver}
-              liveExpiry={chain?.expiry ?? null}
             />
           ) : (
             <Alert color="gray" icon={<IconInfoCircle size={16} />} radius={CARD_RADIUS}>
@@ -679,8 +624,9 @@ export default function PutHedgePanel() {
       <Box>
         <Text size="sm" fw={600} mb={4}>Parameter sweep</Text>
         <Text size="xs" c="dimmed" mb="md">
-          Backtests QQQ-put hedges across strike depth / DTE / roll cadence / size and ranks them by
-          drawdown avoided per dollar of annual premium. Click a row to chart that config.
+          Backtests QQQ-put hedges across strike depth / DTE (45–90) / roll-at-DTE / size — rolling
+          the way the strategy does (at N days remaining) — and ranks them by drawdown avoided per
+          dollar of annual premium. Click a row to chart that config.
         </Text>
         <Group gap="lg" align="flex-end" wrap="wrap">
           <Box>
@@ -737,7 +683,7 @@ export default function PutHedgePanel() {
           <Alert color={color} variant="light" icon={<IconInfoCircle size={16} />} radius={CARD_RADIUS}>
             <Text size="sm">
               {isLadder
-                ? `Over this window the ladder cut the worst drop from ${fmtPct(sweepData.unhedged.maxDD)} to ${fmtPct(display.hedgedMaxDD)} — ${display.annualBleed > 0 ? `costing about ${fmtPct(display.annualBleed)}/yr in returns` : `actually adding about ${fmtPct(-display.annualBleed)}/yr over this stretch`}. Sized at the tranche coverage caps; click any row below to compare a single config.`
+                ? `Over this window the ladder ${display.ddReduction > 0.005 ? `cut the worst drop from ${fmtPct(sweepData.unhedged.maxDD)} to ${fmtPct(display.hedgedMaxDD)}` : `barely moved the worst drop (${fmtPct(sweepData.unhedged.maxDD)} → ${fmtPct(display.hedgedMaxDD)})`} — ${display.annualBleed > 0 ? `costing about ${fmtPct(display.annualBleed)}/yr in returns` : `actually adding about ${fmtPct(-display.annualBleed)}/yr over this stretch`}. Deep-OTM legs barely cap the trough; their value is crash payoffs you can monetize into dip-buys. Click any row below to compare a single config.`
                 : describeConfig(curve!, sweepData.unhedged.maxDD, sweepData.putUnderlying)}
             </Text>
           </Alert>
@@ -788,7 +734,7 @@ export default function PutHedgePanel() {
                   <Table.Tr>
                     <HeadCell label="Strike" tip="How far below today's price the put strike sits. 15% OTM = strike 15% under spot. Deeper is cheaper but only pays in a bigger drop." />
                     <HeadCell label="Days out" tip="Days to expiration when you buy the put." />
-                    <HeadCell label="Roll" tip="How often you replace the put. 'exp' means hold it all the way to expiration." />
+                    <HeadCell label="Roll" tip="When you replace the put. 'at 21d' = roll once 21 days remain (avoids the gamma cliff); 'to exp' = hold to expiration." />
                     <HeadCell label="Size" tip="How much protection you buy — QQQ notional as a multiple of your TQQQ. Higher = more cover and more cost." />
                     <HeadCell right label="Worst drop" tip="The worst peak-to-trough loss with this hedge on, over the backtest window. Closer to 0 is better." />
                     <HeadCell right label="Drop avoided" tip="How much shallower the worst drop became versus unhedged buy & hold." />
@@ -816,7 +762,7 @@ export default function PutHedgePanel() {
                       >
                         <Table.Td>{otmLabel(r.params.moneyness)}</Table.Td>
                         <Table.Td>{r.params.dteDays}d</Table.Td>
-                        <Table.Td>{fmtRoll(r.params.rollEveryDays)}</Table.Td>
+                        <Table.Td>{fmtRollAt(r.params)}</Table.Td>
                         <Table.Td>{r.params.coverageRatio}×</Table.Td>
                         <Table.Td ta="right">{fmtPct(r.hedgedMaxDD)}</Table.Td>
                         <Table.Td ta="right">{fmtPct(r.ddReduction)}</Table.Td>

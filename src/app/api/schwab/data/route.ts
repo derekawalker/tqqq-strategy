@@ -223,7 +223,7 @@ async function fetchAccountData(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .filter((p: any) =>
       p.instrument?.assetType === "OPTION" &&
-      p.instrument?.underlyingSymbol === "TQQQ" &&
+      (p.instrument?.underlyingSymbol === "TQQQ" || p.instrument?.underlyingSymbol === "QQQ") &&
       ((p.shortQuantity ?? 0) > 0 || (p.longQuantity ?? 0) > 0)
     )
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -241,7 +241,9 @@ async function fetchAccountData(
       const putCallRaw: string = p.instrument?.putCall ?? (occMatch?.[4] === "C" ? "CALL" : "PUT");
       const putCall: "CALL" | "PUT" = putCallRaw === "CALL" ? "CALL" : "PUT";
       return {
-        accountNumber, symbol: sym, putCall, strike, expiry,
+        accountNumber, symbol: sym,
+        underlyingSymbol: p.instrument?.underlyingSymbol ?? "TQQQ",
+        putCall, strike, expiry,
         shortQty: p.shortQuantity ?? 0, longQty: p.longQuantity ?? 0,
         marketValue: p.marketValue ?? 0, averagePrice: p.averagePrice ?? 0,
         openedAt: optionOpenDates.get(sym) ?? null,

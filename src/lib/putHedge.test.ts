@@ -220,6 +220,23 @@ describe("sweepPutHedge", () => {
     }
   });
 
+  it("roll-at-DTE converts to a per-DTE cadence and prunes too-short holds", () => {
+    const bars = crashBars();
+    const results = sweepPutHedge(bars, {
+      moneyness: [0.9],
+      dteDays: [30, 60],
+      rollAtDte: [21], // roll when 21 days remain
+      minHoldDays: 14,
+      coverageRatio: [1],
+    });
+    // 30 DTE rolled at 21 = held 9 days (< 14) → pruned. Only the 60 DTE combo
+    // (held 39 days) survives, with cadence dteDays - rollAtDte = 39.
+    const dtes = results.map((r) => r.params.dteDays);
+    expect(dtes).not.toContain(30);
+    const r60 = results.find((r) => r.params.dteDays === 60);
+    expect(r60?.params.rollEveryDays).toBe(39);
+  });
+
   it("breaks the Infinity bucket toward cheaper hedges, not oversized ones", () => {
     const bars = crashBars();
     const results = sweepPutHedge(bars, {

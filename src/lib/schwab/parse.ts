@@ -12,6 +12,7 @@ export interface FilledOrder {
 export interface OptionPosition {
   accountNumber: string;
   symbol: string;
+  underlyingSymbol: string; // "TQQQ" (ladder) or "QQQ" (hedge)
   putCall: "CALL" | "PUT";
   strike: number;
   expiry: string;         // "YYYY-MM-DD"
