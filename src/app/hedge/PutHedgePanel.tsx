@@ -45,6 +45,7 @@ import {
   TRANCHES,
   TRANCHE_SETS,
   HEDGE_DTE,
+  HEDGE_DTE_BY_INSTRUMENT,
   ROLL_AT_DTE,
   buildTranchePlan,
   classifyTranche,
@@ -54,6 +55,15 @@ import {
 } from "@/lib/hedgeTranches";
 
 const DEFAULT_BUDGET_PCT = 3; // annual premium budget, % of TQQQ value
+
+// Buy cadence options — how often you place clips (the budget is chunked to match).
+const CADENCES = [
+  { value: "52", short: "Weekly", label: "week" },
+  { value: "26", short: "2 wks", label: "2 weeks" },
+  { value: "12", short: "Monthly", label: "month" },
+];
+const cadenceLabelOf = (buysPerYear: number) =>
+  CADENCES.find((c) => c.value === String(buysPerYear))?.label ?? "week";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -224,6 +234,8 @@ function AccountRec({
   spot,
   vxnPct,
   budgetPct,
+  buysPerYear,
+  cadenceLabel,
   openHedgePuts,
   resolver,
 }: {
@@ -233,6 +245,8 @@ function AccountRec({
   spot: number;
   vxnPct: number | null;
   budgetPct: number;
+  buysPerYear: number;
+  cadenceLabel: string;
   openHedgePuts: OptionPosition[];
   resolver?: ChainResolver;
 }) {
@@ -253,19 +267,21 @@ function AccountRec({
     if (key) openByTranche.set(key, (openByTranche.get(key) ?? 0) + p.longQty);
   }
 
-  // A weekly premium budget per tranche — divisible, so it works at any account
+  const suggestedDte = HEDGE_DTE_BY_INSTRUMENT[instrument];
+
+  // A per-buy premium budget per tranche — divisible, so it works at any account
   // size (buy whatever fits at your chosen DTE instead of a whole-contract target).
   const rows = plan.map((t) => ({
     t,
     open: openByTranche.get(t.def.key) ?? 0,
     otmPct: Math.round((1 - t.def.moneyness) * 100),
-    weekly: t.annualBudget / 52,
+    perBuy: t.annualBudget / buysPerYear,
   }));
 
   const openTotal = rows.reduce((s, r) => s + r.open, 0);
   const covered = rows.filter((r) => r.open > 0).length;
   const statusColor = covered === 0 ? "red" : covered < rows.length ? "yellow" : "teal";
-  const weeklyTotal = rows.reduce((s, r) => s + r.weekly, 0);
+  const perBuyTotal = rows.reduce((s, r) => s + r.perBuy, 0);
   const soonExpiring = openHedgePuts.some((p) => daysUntil(p.expiry) <= ROLL_AT_DTE);
 
   return (
@@ -297,11 +313,11 @@ function AccountRec({
             <Table.Th>Tranche</Table.Th>
             <Table.Th>Suggested put</Table.Th>
             <Table.Th ta="right">Open</Table.Th>
-            <Table.Th ta="right">Buy / week</Table.Th>
+            <Table.Th ta="right">Buy / {cadenceLabel}</Table.Th>
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {rows.map(({ t, open, otmPct, weekly }) => (
+          {rows.map(({ t, open, otmPct, perBuy }) => (
             <Table.Tr key={t.def.key}>
               <Table.Td>
                 <Tooltip label={t.def.desc} withArrow multiline w={200}>
@@ -311,20 +327,20 @@ function AccountRec({
               </Table.Td>
               <Table.Td>
                 <Text size="xs">{instrument} ~${t.strike} P</Text>
-                <Text size="9px" c="dimmed">≈ ${t.estPremiumPerContract.toFixed(0)}/ct @ {HEDGE_DTE}d</Text>
+                <Text size="9px" c="dimmed">≈ ${t.estPremiumPerContract.toFixed(0)}/ct @ {suggestedDte}d</Text>
               </Table.Td>
               <Table.Td ta="right" c={open > 0 ? undefined : "dimmed"}>{open}</Table.Td>
-              <Table.Td ta="right" fw={700} c={`${t.def.color}.4`}>{fmtMoney(weekly)}</Table.Td>
+              <Table.Td ta="right" fw={700} c={`${t.def.color}.4`}>{fmtMoney(perBuy)}</Table.Td>
             </Table.Tr>
           ))}
         </Table.Tbody>
       </Table>
 
       <Text size="9px" c="dimmed" mt={6}>
-        Each week go to your preferred DTE (~{HEDGE_DTE} suggested) and buy as many {instrument} puts at
-        each depth as the weekly amount covers; roll at {ROLL_AT_DTE}d. Strikes/prices move with {instrument} —
-        the % OTM is what stays fixed. {anyLive ? "Live marks" : "Modeled prices"} · ~{fmtMoney(weeklyTotal)}/wk
-        total ({budgetPct}%/yr).
+        Each {cadenceLabel} go to your preferred DTE (~{suggestedDte} suggested) and buy as many {instrument}
+        puts at each depth as the amount covers; roll at {ROLL_AT_DTE}d. Strikes/prices move with {instrument} —
+        the % OTM is what stays fixed. {anyLive ? "Live marks" : "Modeled prices"} · ~{fmtMoney(perBuyTotal)}/{cadenceLabel}
+        ({budgetPct}%/yr).
       </Text>
     </Paper>
   );
@@ -485,6 +501,8 @@ export default function PutHedgePanel() {
 
   // Annual premium budget (% of TQQQ value) driving tranche sizing.
   const [budgetPct, setBudgetPct] = useState<number>(DEFAULT_BUDGET_PCT);
+  // How often you buy clips — the per-buy budget is the annual budget / buysPerYear.
+  const [buysPerYear, setBuysPerYear] = useState<number>(52);
 
   // Backtest sweep state
   const [years, setYears] = useState("10");
@@ -610,6 +628,16 @@ export default function PutHedgePanel() {
                 />
               </Group>
               <Group gap="xs" align="center">
+                <Text size="xs" c="dimmed">Buy every</Text>
+                <SegmentedControl
+                  size="xs"
+                  value={String(buysPerYear)}
+                  onChange={(v) => setBuysPerYear(Number(v))}
+                  color={color}
+                  data={CADENCES.map((c) => ({ label: c.short, value: c.value }))}
+                />
+              </Group>
+              <Group gap="xs" align="center">
               <Text size="xs" c="dimmed">Premium budget</Text>
               <Tooltip
                 label="Annual premium you're willing to bleed, as a % of TQQQ value. Split 60/40 across the crash and catastrophe legs and divided into a weekly dollar budget per leg."
@@ -640,6 +668,8 @@ export default function PutHedgePanel() {
               spot={spot}
               vxnPct={market?.vxnPct ?? sweepData?.currentMarket?.vxnPct ?? null}
               budgetPct={budgetPct}
+              buysPerYear={buysPerYear}
+              cadenceLabel={cadenceLabelOf(buysPerYear)}
               openHedgePuts={activePuts}
               resolver={instrumentResolver}
             />

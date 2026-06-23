@@ -122,8 +122,13 @@ const IV_SCALE: Record<HedgeInstrument, number> = { QQQ: 1, TQQQ: 3 };
 /** Dividend yield of the put underlying. */
 const DIV_YIELD: Record<HedgeInstrument, number> = { QQQ: 0.006, TQQQ: 0 };
 
-/** Days to expiry to buy at. */
+/** Default days to expiry to buy at (QQQ). */
 export const HEDGE_DTE = 60;
+/**
+ * Suggested DTE per instrument. Deep-OTM TQQQ puts have no market at 60 days —
+ * the bids/asks only show up ~90 days out — so TQQQ buys longer-dated.
+ */
+export const HEDGE_DTE_BY_INSTRUMENT: Record<HedgeInstrument, number> = { QQQ: 60, TQQQ: 90 };
 /** Roll/replace a clip once it decays to this many days left. */
 export const ROLL_AT_DTE = 21;
 /** Dollar-cost-average each tranche's target over this many weekly clips. */
@@ -212,10 +217,11 @@ export function buildTranchePlan(opts: {
 }): TranchePlan[] {
   const { tqqqValue, spot, vxnPct, annualBudgetPct, resolver } = opts;
   const instrument = opts.instrument ?? "QQQ";
+  const dte = HEDGE_DTE_BY_INSTRUMENT[instrument];
   const baseIv = (vxnPct != null && vxnPct > 0 ? vxnPct / 100 : DEFAULT_IV) * IV_SCALE[instrument];
   const div = DIV_YIELD[instrument];
   const totalBudget = Math.max(0, tqqqValue) * Math.max(0, annualBudgetPct);
-  const rollsPerYear = 365 / HEDGE_DTE;
+  const rollsPerYear = 365 / dte;
 
   return TRANCHE_SETS[instrument].filter((def) => def.budgetShare > 0).map((def) => {
     const idealStrike = Math.max(1, Math.round(spot * def.moneyness));
@@ -231,7 +237,7 @@ export function buildTranchePlan(opts: {
     } else {
       strike = idealStrike;
       const iv = ivFor(baseIv, def.moneyness);
-      estPremiumPerContract = bsPut(spot, strike, HEDGE_DTE / 365, iv, RISK_FREE, div) * 100;
+      estPremiumPerContract = bsPut(spot, strike, dte / 365, iv, RISK_FREE, div) * 100;
     }
 
     const annualPerContract = estPremiumPerContract * rollsPerYear;
