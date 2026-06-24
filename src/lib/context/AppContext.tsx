@@ -139,6 +139,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // true only when Supabase returned at least one account on init — guards against overwriting real data
   // with all-null defaults when the settings load fails (network hiccup, cold start, etc.)
   const supabaseLoadedRef = useRef(false);
+  // Always-current accounts ref for the snapshot effect, whose closure captures accounts at the
+  // time refreshTick last changed — which may be before Tastytrade accounts are discovered.
+  // Without this, tastyNums would be built from a stale empty-accounts snapshot and the merge
+  // logic would incorrectly wipe Tastytrade option positions when Schwab data arrives.
+  const accountsRef = useRef(accounts);
+
+  useEffect(() => { accountsRef.current = accounts; }, [accounts]);
 
   // Persist accounts to Supabase whenever they change (after initial load)
   useEffect(() => {
@@ -391,10 +398,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     setSnapshotLoading(true);
 
-    const tastyNums = new Set(
-      accounts.filter(a => a.broker === "tastytrade").map(a => a.accountNumber)
-    );
-
     function mergeByTime<T>(a: T[] = [], b: T[] = [], key: keyof T): T[] {
       return [...a, ...b].sort(
         (x, y) =>
@@ -408,6 +411,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const applyData = (data: any, incomingIsTasty: boolean) => {
       if (cancelled || !Array.isArray(data?.filledOrders)) return;
+      // Read from the ref at call time, not from the stale closure captured when the effect ran.
+      // The init effect may discover Tastytrade accounts after this effect has already started its
+      // fetches; reading the ref here ensures the correct account numbers are always used.
+      const tastyNums = new Set(
+        accountsRef.current.filter(a => a.broker === "tastytrade").map(a => a.accountNumber)
+      );
       const owns = (acct: string) => (incomingIsTasty ? tastyNums.has(acct) : !tastyNums.has(acct));
       const keepOther = <T extends { accountNumber: string }>(arr: T[]) =>
         arr.filter((o) => !owns(o.accountNumber));
