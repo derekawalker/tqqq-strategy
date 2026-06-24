@@ -1,235 +1,145 @@
 /**
  * TQQQ Regime Dashboard — data endpoint.
  *
- * Fetches QQQ and ^VIX daily bars from Yahoo Finance, computes all signals,
- * scores them, and returns a single regime classification.
+ * Fetches QQQ, ^VIX and ^VIX3M daily bars from Yahoo Finance, scores the regime
+ * model in @/lib/sentiment for every historical day, and returns:
+ *   - the current regime + per-signal breakdown
+ *   - how long the current regime has held (hysteresis-aware)
+ *   - a 1-year history series (incl. the score line) for charting
+ *   - a regime backtest: forward QQQ returns bucketed by regime
  *
- * Scoring:
- *   QQQ vs 200-day SMA  +2 / 0 / -2
- *   QQQ vs 50-day SMA   +1 / 0 / -1
- *   VIX trend (5-day slope)  +1 / 0 / -2
- *   Momentum (RSI-14)   +1 / 0 / -1
- *   Drawdown stress (20-day peak-to-trough)  0 / -1 / -2
- *
- *   +3 to +5 → Risk-On
- *    0 to +2 → Neutral
- *   < 0      → Risk-Off
+ * All scoring lives in @/lib/sentiment so the page and server share one source
+ * of truth for tiers, the score range, and thresholds.
  */
 
 import { fetchYahooDaily } from "@/lib/yahoo";
-import { sma } from "@/lib/strategySignals";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function rsi(closes: number[], period = 14): number[] {
-  const out: number[] = new Array(closes.length).fill(50);
-  let avgGain = 0;
-  let avgLoss = 0;
-  for (let i = 1; i <= period && i < closes.length; i++) {
-    const delta = closes[i] - closes[i - 1];
-    avgGain += Math.max(delta, 0);
-    avgLoss += Math.max(-delta, 0);
-  }
-  avgGain /= period;
-  avgLoss /= period;
-  for (let i = period; i < closes.length; i++) {
-    if (i > period) {
-      const delta = closes[i] - closes[i - 1];
-      avgGain = (avgGain * (period - 1) + Math.max(delta, 0)) / period;
-      avgLoss = (avgLoss * (period - 1) + Math.max(-delta, 0)) / period;
-    }
-    const rs = avgLoss === 0 ? 100 : avgGain / avgLoss;
-    out[i] = 100 - 100 / (1 + rs);
-  }
-  return out;
-}
-
-function slope5(arr: (number | null)[]): number | null {
-  const vals = arr.slice(-5).filter((v): v is number => v != null);
-  if (vals.length < 2) return null;
-  return vals[vals.length - 1] - vals[0];
-}
-
-function maxDrawdown20(closes: number[]): number {
-  const window = closes.slice(-20);
-  if (window.length === 0) return 0;
-  let peak = window[0];
-  let maxDD = 0;
-  for (const c of window) {
-    if (c > peak) peak = c;
-    const dd = c / peak - 1;
-    if (dd < maxDD) maxDD = dd;
-  }
-  return maxDD; // negative number, e.g. -0.08 = -8%
-}
-
-// ---------------------------------------------------------------------------
-// GET handler
-// ---------------------------------------------------------------------------
+import {
+  computeSeries,
+  backtestRegimes,
+  daysInRegime,
+  regimeAction,
+  type SeriesInput,
+} from "@/lib/sentiment";
 
 export async function GET() {
   try {
-    const [qqqBars, vixBars] = await Promise.all([
-      fetchYahooDaily("QQQ", 2),
-      fetchYahooDaily("^VIX", 2),
+    // ~6 years gives a meaningful backtest sample while staying a single fetch.
+    const [qqqBars, vixBars, vix3mBars] = await Promise.all([
+      fetchYahooDaily("QQQ", 6),
+      fetchYahooDaily("^VIX", 6),
+      fetchYahooDaily("^VIX3M", 6),
     ]);
 
     if (qqqBars.length < 210) {
       return Response.json({ error: "Not enough QQQ history" }, { status: 502 });
     }
 
-    const closes = qqqBars.map((b) => b.close);
     const dates = qqqBars.map((b) => b.date);
-    const n = closes.length;
-
-    const sma50vals = sma(closes, 50);
-    const sma200vals = sma(closes, 200);
-    const rsiVals = rsi(closes, 14);
-
-    const latestClose = closes[n - 1];
-    const latestDate = dates[n - 1];
-    const latest50 = sma50vals[n - 1];
-    const latest200 = sma200vals[n - 1];
-    const latestRsi = rsiVals[n - 1];
-    const dd20 = maxDrawdown20(closes);
-
-    // 10-day return
-    const return10d = n >= 11 ? (closes[n - 1] / closes[n - 11] - 1) : 0;
-
-    // VIX
+    const closes = qqqBars.map((b) => b.close);
     const vixByDate = new Map(vixBars.map((b) => [b.date, b.close]));
-    const latestVix = vixByDate.get(latestDate)
-      ?? vixBars.at(-1)?.close
-      ?? null;
-    const vixCloses5 = vixBars.slice(-7).map((b): number | null => b.close);
-    const vixSlope = slope5(vixCloses5);
+    const vix3mByDate = new Map(vix3mBars.map((b) => [b.date, b.close]));
 
-    // Build historical chart data (last 252 trading days ≈ 1 year)
-    const chartLen = Math.min(n, 252);
-    const history = Array.from({ length: chartLen }, (_, k) => {
-      const idx = n - chartLen + k;
-      return {
-        date: dates[idx],
-        qqq: closes[idx],
-        sma50: sma50vals[idx],
-        sma200: sma200vals[idx],
-        rsi: Math.round(rsiVals[idx] * 10) / 10,
-        vix: vixByDate.get(dates[idx]) ?? null,
-      };
-    });
+    const input: SeriesInput = {
+      dates,
+      closes,
+      vix: dates.map((d) => vixByDate.get(d) ?? null),
+      vix3m: dates.map((d) => vix3mByDate.get(d) ?? null),
+    };
 
-    // ---------------------------------------------------------------------------
-    // Scoring  (max ≈ +7, min ≈ −12)
-    // ---------------------------------------------------------------------------
+    const series = computeSeries(input);
+    const latest = series[series.length - 1];
+    const backtest = backtestRegimes(series, 20);
+    const heldDays = daysInRegime(series);
 
-    // 1. QQQ vs 200-day SMA  (-2 to +2, 5 tiers by % distance)
-    let vs200Score = 0;
-    if (latest200 != null) {
-      const pct = latestClose / latest200 - 1;
-      if (pct > 0.05) vs200Score = 2;
-      else if (pct > 0.01) vs200Score = 1;
-      else if (pct >= -0.01) vs200Score = 0;   // within ±1% — neutral zone
-      else if (pct >= -0.05) vs200Score = -1;
-      else vs200Score = -2;
-    }
-
-    // 2. QQQ vs 50-day SMA  (-2 to +2, 5 tiers by % distance)
-    let vs50Score = 0;
-    if (latest50 != null) {
-      const pct = latestClose / latest50 - 1;
-      if (pct > 0.05) vs50Score = 2;
-      else if (pct > 0.01) vs50Score = 1;
-      else if (pct >= -0.01) vs50Score = 0;    // within ±1% — neutral zone
-      else if (pct >= -0.05) vs50Score = -1;
-      else vs50Score = -2;
-    }
-
-    // 3. VIX level + 5-day slope  (-3 to +1, 5 tiers)
-    let vixScore = 0;
-    if (latestVix != null) {
-      if (latestVix < 15) vixScore = 1;
-      else if (latestVix < 20) vixScore = 0;
-      else if (latestVix < 25) vixScore = -1;
-      else if (latestVix < 35) vixScore = -2;
-      else vixScore = -3;
-    }
-    // Rising VIX adds extra pressure regardless of level
-    if (vixSlope != null && vixSlope > 2) vixScore = Math.min(vixScore, -1);
-
-    // 4. RSI momentum  (-2 to +2, 5 tiers)
-    let momentumScore = 0;
-    if (latestRsi >= 55 && latestRsi <= 70) momentumScore = 2;
-    else if ((latestRsi >= 45 && latestRsi < 55) || latestRsi > 70) momentumScore = 1;
-    else if (latestRsi >= 35 && latestRsi < 45) momentumScore = 0;
-    else if (latestRsi >= 30) momentumScore = -1;
-    else momentumScore = -2;
-
-    // 5. 20-day drawdown stress  (-3 to +1, 5 tiers)
-    let stressScore = 0;
-    if (dd20 <= -0.20) stressScore = -3;
-    else if (dd20 <= -0.10) stressScore = -2;
-    else if (dd20 <= -0.05) stressScore = -1;
-    else if (dd20 > -0.01) stressScore = 1;   // near-flat: market is stable
-
-    const totalScore = vs200Score + vs50Score + vixScore + momentumScore + stressScore;
-
-    let regime: "Risk-On" | "Neutral" | "Risk-Off";
-    let action: string;
-    if (totalScore >= 4) {
-      regime = "Risk-On";
-      action = "Full TQQQ exposure OK. Add on dips (RSI < 40).";
-    } else if (totalScore >= 0) {
-      regime = "Neutral";
-      action = "Reduce size 25–50%. Trade QQQ instead of TQQQ. No aggressive leverage adds.";
-    } else {
-      regime = "Risk-Off";
-      action = "Exit TQQQ. Cash / SGOV / hedged exposure. No dip-buying.";
-    }
-
-    // Trend label
+    // Trend structure label (price / 50 / 200 stacking).
     let trendLabel: "Bull" | "Caution" | "Bear";
-    if (latest200 != null && latest50 != null) {
-      if (latestClose >= latest50 && latest50 >= latest200) trendLabel = "Bull";
-      else if (latest50 >= latest200) trendLabel = "Caution";
+    if (latest.sma200 != null && latest.sma50 != null) {
+      if (latest.qqq >= latest.sma50 && latest.sma50 >= latest.sma200) trendLabel = "Bull";
+      else if (latest.sma50 >= latest.sma200) trendLabel = "Caution";
       else trendLabel = "Bear";
     } else {
       trendLabel = "Caution";
     }
 
+    // VIX trend label now reflects the 5-day *slope*, not the level.
+    const vixTrend =
+      latest.vixSlope == null
+        ? "Stable"
+        : latest.vixSlope > 1
+          ? "Rising"
+          : latest.vixSlope < -1
+            ? "Falling"
+            : "Stable";
+
+    const m = latest.scores;
+    const termLabel =
+      latest.ratio == null
+        ? "—"
+        : latest.ratio < 0.9
+          ? "Contango"
+          : latest.ratio <= 1.0
+            ? "Normal"
+            : latest.ratio <= 1.05
+              ? "Flattening"
+              : "Backwardation";
+
+    // 1-year chart series, including the regime score line.
+    const history = series.slice(-252).map((d) => ({
+      date: d.date,
+      qqq: d.qqq,
+      sma50: d.sma50,
+      sma200: d.sma200,
+      rsi: d.rsi,
+      vix: d.vix,
+      score: d.total,
+    }));
+
     return Response.json({
-      asOf: latestDate,
-      regime,
-      score: totalScore,
-      action,
+      asOf: latest.date,
+      regime: latest.regime,
+      score: latest.total,
+      action: regimeAction(latest.regime),
+      daysInRegime: heldDays,
       signals: {
         trend: {
           label: trendLabel,
-          qqq: latestClose,
-          sma50: latest50,
-          sma200: latest200,
-          vs50Score,
-          vs200Score,
+          qqq: latest.qqq,
+          sma50: latest.sma50,
+          sma200: latest.sma200,
+          vs50Score: m.vs50,
+          vs200Score: m.vs200,
         },
         volatility: {
-          vix: latestVix,
-          vixSlope,
-          score: vixScore,
-          label: vixScore > 0 ? "Falling" : vixScore === 0 ? "Stable" : "Rising",
+          vix: latest.vix,
+          vixSlope: latest.vixSlope,
+          score: m.vix,
+          label: vixTrend,
         },
         momentum: {
-          rsi: Math.round(latestRsi * 10) / 10,
-          return10d,
-          score: momentumScore,
-          label: momentumScore > 0 ? "Healthy" : momentumScore === 0 ? "Neutral" : "Stressed",
+          rsi: latest.rsi,
+          return10d: latest.return10d,
+          score: m.momentum,
+          label: m.momentum > 0 ? "Healthy" : m.momentum === 0 ? "Neutral" : "Stressed",
         },
         stress: {
-          drawdown20: dd20,
-          score: stressScore,
-          label: stressScore === 0 ? "Low" : stressScore === -1 ? "Caution" : "High",
+          drawdown20: latest.drawdown20,
+          score: m.stress,
+          label: m.stress >= 0 ? "Low" : m.stress === -1 ? "Caution" : "High",
+        },
+        slope: {
+          sma200Slope: latest.sma200Slope,
+          score: m.slope,
+          label:
+            m.slope > 0 ? "Rising" : m.slope === 0 ? "Flat" : m.slope === -1 ? "Slowing" : "Declining",
+        },
+        term: {
+          ratio: latest.ratio,
+          vix3m: latest.vix3m,
+          score: m.term,
+          label: termLabel,
         },
       },
+      backtest,
       history,
     });
   } catch (err) {
