@@ -870,9 +870,11 @@ export default function WorkingOrdersPage() {
                               ? "rgba(250,82,82,0.1)"
                               : bufferMissing
                                 ? "rgba(251,146,60,0.1)"
-                                : isCurrent || priceInRange
-                                  ? "rgba(255,255,255,0.12)"
-                                  : undefined,
+                                : priceInRange
+                                  ? `color-mix(in srgb, var(--mantine-color-${accountColor}-7) 8%, transparent)`
+                                  : isCurrent
+                                    ? "rgba(255,255,255,0.12)"
+                                    : undefined,
                             ...(hasDuplicate
                               ? { borderLeft: "5px solid rgba(250,82,82,0.8)" }
                               : bufferMissing
