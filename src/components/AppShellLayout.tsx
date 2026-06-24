@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, ReactNode } from "react";
+import { useState, useEffect, ReactNode } from "react";
 import { AppShell, Box } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { usePathname } from "next/navigation";
@@ -149,24 +149,9 @@ function AppShellInner({ children }: { children: ReactNode }) {
     return () => clearInterval(id);
   }, [quote.marketState, tickQuoteRefresh]);
 
-  // Refresh when the tab regains focus / the PWA returns to the foreground, so coming back to a
-  // backgrounded app doesn't show stale data. Throttled to avoid hammering on rapid focus changes.
-  const lastForegroundRefresh = useRef(0);
-  useEffect(() => {
-    const onForeground = () => {
-      if (document.visibilityState !== "visible") return;
-      const now = Date.now();
-      if (now - lastForegroundRefresh.current < 15_000) return;
-      lastForegroundRefresh.current = now;
-      tickRefresh({ silent: true });
-    };
-    document.addEventListener("visibilitychange", onForeground);
-    window.addEventListener("focus", onForeground);
-    return () => {
-      document.removeEventListener("visibilitychange", onForeground);
-      window.removeEventListener("focus", onForeground);
-    };
-  }, [tickRefresh]);
+  // No focus/foreground auto-refresh: regaining focus would flip snapshotLoading and blank
+  // data-bound pages (e.g. Working Orders) into their loading state on every return to the tab.
+  // Data refreshes on first load, the market-hours quote poll above, and the explicit Refresh button.
 
   const mainBg = !isAccountsPage && activeAccount
     ? `linear-gradient(135deg, color-mix(in srgb, var(--mantine-color-${activeAccount.color}-7) 10%, var(--mantine-color-dark-9)) 0%, var(--mantine-color-dark-8) 100%)`
