@@ -124,11 +124,11 @@ describe("buildTranchePlan", () => {
 });
 
 describe("classifyTranche by instrument", () => {
-  it("uses TQQQ's deeper boundaries", () => {
-    // QQQ moneyness 0.45 would be 'catastrophe'; for TQQQ it's the crash leg.
-    expect(classifyTranche(0.45, "QQQ")).toBe("catastrophe");
-    expect(classifyTranche(0.45, "TQQQ")).toBe("crash");
-    expect(classifyTranche(0.3, "TQQQ")).toBe("catastrophe");
-    expect(classifyTranche(0.65, "TQQQ")).toBe("workhorse");
+  it("uses TQQQ's shallower boundaries (crash=−30%, catastrophe=−50%)", () => {
+    // 0.60 moneyness is catastrophe on QQQ but crash on TQQQ (crash leg starts at −30%).
+    expect(classifyTranche(0.60, "QQQ")).toBe("catastrophe");
+    expect(classifyTranche(0.60, "TQQQ")).toBe("crash");
+    expect(classifyTranche(0.50, "TQQQ")).toBe("catastrophe");
+    expect(classifyTranche(0.82, "TQQQ")).toBe("workhorse");
   });
 });

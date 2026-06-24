@@ -1,17 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { Outfit } from "next/font/google";
 import {
   Stack,
   Box,
   Text,
   Group,
-  Button,
   SegmentedControl,
-  SimpleGrid,
   Paper,
   Table,
-  ScrollArea,
+  SimpleGrid,
   Alert,
   Center,
   Loader,
@@ -19,38 +18,30 @@ import {
   Badge,
   ThemeIcon,
   NumberInput,
+  Divider,
+  Progress,
 } from "@mantine/core";
+
+const outfit = Outfit({ subsets: ["latin"] });
 import {
   IconAlertTriangle,
   IconInfoCircle,
   IconShield,
   IconShieldOff,
-  IconPlayerPlayFilled,
 } from "@tabler/icons-react";
-import {
-  ResponsiveContainer,
-  ComposedChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip as ChartTooltip,
-} from "recharts";
 import { useApp, type Account } from "@/lib/context/AppContext";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
-import { CARD_RADIUS } from "@/lib/cardStyles";
+import { useCardBg } from "@/lib/hooks/useCardBg";
+import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
 import { fmtDate } from "@/lib/format";
 import type { OptionPosition } from "@/lib/schwab/parse";
 import {
-  TRANCHES,
   TRANCHE_SETS,
-  HEDGE_DTE,
   HEDGE_DTE_BY_INSTRUMENT,
   ROLL_AT_DTE,
   buildTranchePlan,
   classifyTranche,
   type TrancheKey,
-  type ChainResolver,
   type HedgeInstrument,
 } from "@/lib/hedgeTranches";
 
@@ -76,7 +67,11 @@ function daysUntil(expiry: string): number {
 
 const fmtPct = (x: number) => `${(x * 100).toFixed(1)}%`;
 const fmtUsd = (x: number) =>
-  x.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
+  x.toLocaleString("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  });
 /** Currency with cents for small (weekly) amounts, whole dollars otherwise. */
 const fmtMoney = (x: number) =>
   x.toLocaleString("en-US", {
@@ -99,13 +94,29 @@ function closeRec(pos: OptionPosition, currentQqq: number | null): CloseRec {
   const gainPct = costTotal > 0 ? (currentValue - costTotal) / costTotal : 0;
 
   if (dte <= 5)
-    return { action: "expiring", label: `Expires in ${dte}d — roll immediately`, color: "red" };
+    return {
+      action: "expiring",
+      label: `Expires in ${dte}d — roll immediately`,
+      color: "red",
+    };
   if (gainPct >= 0.5)
-    return { action: "close-profit", label: `+${fmtPct(gainPct)} gain — take profit & re-enter`, color: "teal" };
+    return {
+      action: "close-profit",
+      label: `+${fmtPct(gainPct)} gain — take profit & re-enter`,
+      color: "teal",
+    };
   if (currentQqq !== null && currentQqq < pos.strike * 0.9)
-    return { action: "close-profit", label: "Deeply ITM — harvest profit, reset hedge", color: "teal" };
+    return {
+      action: "close-profit",
+      label: "Deeply ITM — harvest profit, reset hedge",
+      color: "teal",
+    };
   if (dte <= 21)
-    return { action: "roll-soon", label: `${dte}d left — prepare to roll`, color: "yellow" };
+    return {
+      action: "roll-soon",
+      label: `${dte}d left — prepare to roll`,
+      color: "yellow",
+    };
   return { action: "hold", label: `${dte}d left — hold`, color: "dimmed" };
 }
 
@@ -114,113 +125,10 @@ function closeRec(pos: OptionPosition, currentQqq: number | null): CloseRec {
 // ---------------------------------------------------------------------------
 
 interface MarketData {
-  qqqPrice: number | null;
   tqqqPrice: number | null;
   vxnPct: number | null;
   asOf: string | null;
   error?: string;
-}
-
-interface ChainQuote {
-  strike: number;
-  mark: number;
-  iv: number | null;
-}
-
-interface ChainData {
-  connected: boolean;
-  expiry: string | null;
-  asOf?: string;
-  quotes: ChainQuote[];
-  error?: string;
-}
-
-interface PutHedgeParams {
-  moneyness: number;
-  dteDays: number;
-  rollEveryDays?: number | null;
-  coverageRatio: number;
-}
-
-interface ResultRow {
-  params: PutHedgeParams;
-  hedgedMaxDD: number;
-  unhedgedMaxDD: number;
-  hedgedCagr: number;
-  unhedgedCagr: number;
-  annualBleed: number;
-  ddReduction: number;
-  premiumPerYear: number;
-  efficiency: number | null;
-  protectionPerPremium: number | null;
-}
-
-interface FullResult extends ResultRow {
-  equity: { date: string; hedged: number; unhedged: number }[];
-}
-
-interface LadderResult {
-  equity: { date: string; hedged: number; unhedged: number }[];
-  hedgedMaxDD: number;
-  unhedgedMaxDD: number;
-  ddReduction: number;
-  annualBleed: number;
-  premiumPerYear: number;
-  hedgedCagr: number;
-}
-
-interface SweepResponse {
-  putUnderlying: "QQQ" | "TQQQ";
-  span: { start: string; end: string };
-  currentMarket?: MarketData;
-  unhedged: { cagr: number; maxDD: number };
-  recommended?: LadderResult;
-  best?: FullResult;
-  table?: ResultRow[];
-  result?: FullResult;
-  error?: string;
-}
-
-/** Human label for the recommended ladder, built from the active tranches. */
-const LADDER_LABEL = TRANCHES.filter((t) => t.budgetShare > 0)
-  .map((t) => `${Math.round((1 - t.moneyness) * 100)}% OTM`)
-  .join(" + ");
-
-const fmtEff = (x: number | null) => (x === null || !isFinite(x) ? "∞" : x.toFixed(2));
-/** Roll rule as "at N DTE" (days remaining when you roll) or "to exp". */
-const fmtRollAt = (p: { dteDays: number; rollEveryDays?: number | null }) =>
-  p.rollEveryDays == null ? "to exp" : `at ${p.dteDays - p.rollEveryDays}d`;
-const otmLabel = (m: number) => `${Math.round((1 - m) * 100)}% OTM`;
-
-/** One-sentence plain-English readout of a backtested configuration. */
-function describeConfig(
-  c: FullResult,
-  unhedgedMaxDD: number,
-  instrument: "QQQ" | "TQQQ",
-): string {
-  const p = c.params;
-  const roll =
-    p.rollEveryDays == null ? "held to expiry" : `rolled at ${p.dteDays - p.rollEveryDays} DTE`;
-  const buy = `${instrument} puts ${otmLabel(p.moneyness)}, ${p.dteDays} days out, ${roll}, sized ${p.coverageRatio}×`;
-  const cut = `cut the worst drop from ${fmtPct(unhedgedMaxDD)} to ${fmtPct(c.hedgedMaxDD)}`;
-  const cost =
-    c.annualBleed > 0
-      ? `cost about ${fmtPct(c.annualBleed)}/yr in returns`
-      : `actually added about ${fmtPct(-c.annualBleed)}/yr over this stretch`;
-  return `Buy ${buy}. Over this window it ${cut} — and ${cost}.`;
-}
-
-/** Header cell with a hover explanation. */
-function HeadCell({ label, tip, right }: { label: string; tip: string; right?: boolean }) {
-  return (
-    <Table.Th ta={right ? "right" : undefined}>
-      <Tooltip label={tip} withArrow multiline w={230}>
-        <Text span fz="xs" fw={600} style={{ cursor: "help", borderBottom: "1px dotted currentColor" }}>
-          {label}
-        </Text>
-      </Tooltip>
-    </Table.Th>
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -237,7 +145,6 @@ function AccountRec({
   buysPerYear,
   cadenceLabel,
   openHedgePuts,
-  resolver,
 }: {
   account: Account;
   tqqqValue: number;
@@ -248,7 +155,6 @@ function AccountRec({
   buysPerYear: number;
   cadenceLabel: string;
   openHedgePuts: OptionPosition[];
-  resolver?: ChainResolver;
 }) {
   const plan = buildTranchePlan({
     tqqqValue,
@@ -256,9 +162,7 @@ function AccountRec({
     vxnPct,
     annualBudgetPct: budgetPct / 100,
     instrument,
-    resolver,
   });
-  const anyLive = plan.some((t) => t.live);
 
   // Open puts currently held in each tranche, by moneyness of the strike.
   const openByTranche = new Map<TrancheKey, number>();
@@ -280,20 +184,32 @@ function AccountRec({
 
   const openTotal = rows.reduce((s, r) => s + r.open, 0);
   const covered = rows.filter((r) => r.open > 0).length;
-  const statusColor = covered === 0 ? "red" : covered < rows.length ? "yellow" : "teal";
+  const statusColor =
+    covered === 0 ? "red" : covered < rows.length ? "yellow" : "teal";
+  const bg = useCardBg(statusColor);
   const perBuyTotal = rows.reduce((s, r) => s + r.perBuy, 0);
-  const soonExpiring = openHedgePuts.some((p) => daysUntil(p.expiry) <= ROLL_AT_DTE);
+  const soonExpiring = openHedgePuts.some(
+    (p) => daysUntil(p.expiry) <= ROLL_AT_DTE,
+  );
 
   return (
-    <Paper withBorder radius={CARD_RADIUS} p="md">
+    <Paper radius={CARD_RADIUS} p="md" style={{ background: bg }}>
       <Group justify="space-between" mb="xs" wrap="nowrap">
         <Group gap="xs">
           <ThemeIcon size="sm" variant="light" color={statusColor} radius="xl">
-            {covered === rows.length ? <IconShield size={12} /> : <IconShieldOff size={12} />}
+            {covered === rows.length ? (
+              <IconShield size={12} />
+            ) : (
+              <IconShieldOff size={12} />
+            )}
           </ThemeIcon>
           <Box>
-            <Text size="sm" fw={600} lineClamp={1}>{account.accountName}</Text>
-            <Text size="xs" c="dimmed">{fmtUsd(tqqqValue)} TQQQ</Text>
+            <Text size="sm" fw={600} lineClamp={1}>
+              {account.accountName}
+            </Text>
+            <Text size="xs" c="dimmed">
+              {fmtUsd(tqqqValue)} TQQQ
+            </Text>
           </Box>
         </Group>
         <Badge color={statusColor} variant="light" size="sm">
@@ -310,10 +226,14 @@ function AccountRec({
       <Table fz="xs" verticalSpacing={6} withRowBorders={false}>
         <Table.Thead>
           <Table.Tr>
-            <Table.Th>Tranche</Table.Th>
-            <Table.Th>Suggested put</Table.Th>
-            <Table.Th ta="right">Open</Table.Th>
-            <Table.Th ta="right">Buy / {cadenceLabel}</Table.Th>
+            <Table.Th style={CARD_LABEL_STYLE}>Tranche</Table.Th>
+            <Table.Th style={CARD_LABEL_STYLE}>Suggested put</Table.Th>
+            <Table.Th ta="right" style={CARD_LABEL_STYLE}>
+              Open
+            </Table.Th>
+            <Table.Th ta="right" style={CARD_LABEL_STYLE}>
+              Buy / {cadenceLabel}
+            </Table.Th>
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
@@ -321,115 +241,517 @@ function AccountRec({
             <Table.Tr key={t.def.key}>
               <Table.Td>
                 <Tooltip label={t.def.desc} withArrow multiline w={200}>
-                  <Text size="xs" c={`${t.def.color}.4`} fw={600} span>{t.def.label}</Text>
+                  <Text size="xs" c={`${t.def.color}.4`} fw={600} span>
+                    {t.def.label}
+                  </Text>
                 </Tooltip>
-                <Text size="9px" c="dimmed">{otmPct}% OTM</Text>
+                <Text size="9px" c="dimmed">
+                  {otmPct}% OTM
+                </Text>
               </Table.Td>
               <Table.Td>
-                <Text size="xs">{instrument} ~${t.strike} P</Text>
-                <Text size="9px" c="dimmed">≈ ${t.estPremiumPerContract.toFixed(0)}/ct @ {suggestedDte}d</Text>
+                <Text size="xs">
+                  {instrument} ~${t.strike} P
+                </Text>
+                <Text size="9px" c="dimmed">
+                  ≈ ${t.estPremiumPerContract.toFixed(0)}/ct @ {suggestedDte}d
+                </Text>
               </Table.Td>
-              <Table.Td ta="right" c={open > 0 ? undefined : "dimmed"}>{open}</Table.Td>
-              <Table.Td ta="right" fw={700} c={`${t.def.color}.4`}>{fmtMoney(perBuy)}</Table.Td>
+              <Table.Td ta="right" c={open > 0 ? undefined : "dimmed"}>
+                {open}
+              </Table.Td>
+              <Table.Td ta="right" fw={700} c={`${t.def.color}.4`}>
+                {fmtMoney(perBuy)}
+              </Table.Td>
             </Table.Tr>
           ))}
         </Table.Tbody>
       </Table>
 
-      <Text size="9px" c="dimmed" mt={6}>
-        Each {cadenceLabel} go to your preferred DTE (~{suggestedDte} suggested) and buy as many {instrument}
-        puts at each depth as the amount covers; roll at {ROLL_AT_DTE}d. Strikes/prices move with {instrument} —
-        the % OTM is what stays fixed. {anyLive ? "Live marks" : "Modeled prices"} · ~{fmtMoney(perBuyTotal)}/{cadenceLabel}
-        ({budgetPct}%/yr).
+      <Divider my={6} opacity={0.15} />
+      <Text size="9px" c="dimmed">
+        Each {cadenceLabel} go to your preferred DTE (~{suggestedDte} suggested)
+        and buy as many {instrument}
+        puts at each depth as the amount covers; roll at {ROLL_AT_DTE}d.
+        Strikes/prices move with {instrument} — the % OTM is what stays fixed.
+        Modeled prices · ~{fmtMoney(perBuyTotal)}/{cadenceLabel}({budgetPct}
+        %/yr).
       </Text>
     </Paper>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Open hedge puts table
+// Individual put card
 // ---------------------------------------------------------------------------
+
+function PutCard({
+  pos,
+  instrument,
+  spot,
+}: {
+  pos: OptionPosition;
+  instrument: HedgeInstrument;
+  spot: number | null;
+}) {
+  const dte = daysUntil(pos.expiry);
+  const costTotal = Math.abs(pos.averagePrice) * pos.longQty * 100;
+  const currentValue = pos.marketValue;
+  const pnl = currentValue - costTotal;
+  const pnlPct = costTotal > 0 ? pnl / costTotal : 0;
+  const rec = closeRec(pos, spot);
+  const trKey = spot ? classifyTranche(pos.strike / spot, instrument) : null;
+  const tr = trKey
+    ? TRANCHE_SETS[instrument].find((t) => t.key === trKey)
+    : null;
+
+  const urgencyColor =
+    rec.action === "expiring"
+      ? "red"
+      : rec.action === "close-profit"
+        ? "teal"
+        : rec.action === "roll-soon"
+          ? "yellow"
+          : (tr?.color ?? "violet");
+
+  const bg = useCardBg(urgencyColor);
+
+  const dteColor =
+    dte <= 5
+      ? "var(--mantine-color-red-4)"
+      : dte <= 21
+        ? "var(--mantine-color-yellow-4)"
+        : "white";
+
+  return (
+    <Paper
+      radius={CARD_RADIUS}
+      p="md"
+      style={{
+        background: bg,
+        position: "relative",
+        overflow: "hidden",
+        border: `1.5px solid color-mix(in srgb, var(--mantine-color-${urgencyColor}-9) 30%, transparent)`,
+      }}
+    >
+      {/* Watermark strike in background */}
+      <Box
+        aria-hidden
+        style={{
+          position: "absolute",
+          right: -8,
+          top: -8,
+          fontSize: "6rem",
+          fontWeight: 900,
+          lineHeight: 1,
+          color: "rgba(255,255,255,0.04)",
+          fontFamily: outfit.style.fontFamily,
+          pointerEvents: "none",
+          userSelect: "none",
+        }}
+      >
+        ${pos.strike.toFixed(0)}
+      </Box>
+
+      {/* Strike + DTE hero */}
+      <Group justify="space-between" align="flex-end" mb="md" wrap="nowrap">
+        <Box>
+          <Text size="xs" c="dimmed" style={CARD_LABEL_STYLE}>
+            Strike
+          </Text>
+          <Text
+            className={outfit.className}
+            style={{
+              fontSize: "2.4rem",
+              fontWeight: 700,
+              lineHeight: 1,
+              color: "white",
+            }}
+          >
+            ${pos.strike.toFixed(0)}
+          </Text>
+          <Text size="xs" c="dimmed" mt={2}>
+            {pos.symbol} · {pos.longQty} ct
+          </Text>
+        </Box>
+        <Box ta="right">
+          <Text
+            className={outfit.className}
+            style={{
+              fontSize: "2rem",
+              fontWeight: 700,
+              lineHeight: 1,
+              color: dteColor,
+            }}
+          >
+            {dte}
+          </Text>
+          <Text size="xs" c="dimmed">
+            days left
+          </Text>
+          <Text size="9px" c="dimmed" mt={2}>
+            {fmtDate(pos.expiry)}
+          </Text>
+        </Box>
+      </Group>
+
+      <Divider opacity={0.12} mb="sm" />
+
+      {/* Stats row */}
+      <Group grow gap="xs" mb="sm">
+        <Box>
+          <Text size="9px" c="dimmed" style={CARD_LABEL_STYLE}>
+            Cost
+          </Text>
+          <Text size="sm" fw={600}>
+            {fmtMoney(costTotal)}
+          </Text>
+        </Box>
+        <Box>
+          <Text size="9px" c="dimmed" style={CARD_LABEL_STYLE}>
+            Value
+          </Text>
+          <Text size="sm" fw={600}>
+            {fmtMoney(currentValue)}
+          </Text>
+        </Box>
+        <Box ta="right">
+          <Text size="9px" c="dimmed" style={CARD_LABEL_STYLE}>
+            P&amp;L
+          </Text>
+          <Text size="sm" fw={700} c={pnl >= 0 ? "teal.4" : "red.4"}>
+            {pnl >= 0 ? "+" : ""}
+            {fmtMoney(pnl)}
+          </Text>
+          <Text size="9px" c={pnl >= 0 ? "teal.6" : "red.6"}>
+            {pnl >= 0 ? "+" : ""}
+            {fmtPct(pnlPct)}
+          </Text>
+        </Box>
+      </Group>
+
+      {/* Recommendation */}
+      <Badge
+        color={rec.color === "dimmed" ? "gray" : rec.color}
+        variant="light"
+        size="xs"
+        style={{
+          maxWidth: "100%",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+        }}
+      >
+        {rec.label}
+      </Badge>
+    </Paper>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Empty slot card (tranche with no position yet)
+// ---------------------------------------------------------------------------
+
+type TranchePlan = ReturnType<typeof buildTranchePlan>;
+
+function EmptyPutCard({
+  tranche,
+  instrument,
+  perBuy,
+  cadenceLabel,
+}: {
+  tranche: TranchePlan[number];
+  instrument: HedgeInstrument;
+  perBuy: number;
+  cadenceLabel: string;
+}) {
+  const suggestedDte = HEDGE_DTE_BY_INSTRUMENT[instrument];
+  const otmPct = Math.round((1 - tranche.def.moneyness) * 100);
+
+  return (
+    <Paper
+      radius={CARD_RADIUS}
+      p="md"
+      style={{
+        border: `1px dashed var(--mantine-color-dark-4)`,
+        background: "var(--mantine-color-dark-8)",
+        position: "relative",
+        overflow: "hidden",
+        opacity: 0.7,
+      }}
+    >
+      {/* Header */}
+      <Group justify="space-between" mb="sm" wrap="nowrap">
+        <Badge
+          color="gray"
+          variant="outline"
+          size="xs"
+          style={{ opacity: 0.6 }}
+        >
+          {tranche.def.label}
+        </Badge>
+        <Text size="9px" c="dimmed">
+          unfilled
+        </Text>
+      </Group>
+
+      {/* Ghost strike hero */}
+      <Group justify="space-between" align="flex-end" mb="md" wrap="nowrap">
+        <Box>
+          <Text size="xs" c="dimmed" style={CARD_LABEL_STYLE}>
+            Suggested strike
+          </Text>
+          <Text
+            className={outfit.className}
+            style={{
+              fontSize: "2.4rem",
+              fontWeight: 700,
+              lineHeight: 1,
+              color: "var(--mantine-color-dark-2)",
+            }}
+          >
+            ~${tranche.strike}
+          </Text>
+          <Text size="xs" c="dimmed" mt={2}>
+            {instrument} · {otmPct}% OTM
+          </Text>
+        </Box>
+        <Box ta="right">
+          <Text size="xs" c="dimmed" style={CARD_LABEL_STYLE}>
+            Target DTE
+          </Text>
+          <Text
+            className={outfit.className}
+            style={{
+              fontSize: "2rem",
+              fontWeight: 700,
+              lineHeight: 1,
+              color: "var(--mantine-color-dark-2)",
+            }}
+          >
+            {suggestedDte}
+          </Text>
+          <Text size="xs" c="dimmed">
+            days
+          </Text>
+        </Box>
+      </Group>
+
+      <Divider opacity={0.08} mb="sm" />
+
+      {/* Budget */}
+      <Group grow gap="xs">
+        <Box>
+          <Text size="9px" c="dimmed" style={CARD_LABEL_STYLE}>
+            Buy / {cadenceLabel}
+          </Text>
+          <Text size="sm" fw={600} c="dark.2">
+            {fmtMoney(perBuy)}
+          </Text>
+        </Box>
+        <Box ta="right">
+          <Text size="9px" c="dimmed" style={CARD_LABEL_STYLE}>
+            Est. premium
+          </Text>
+          <Text size="sm" fw={600} c="dimmed">
+            ~${tranche.estPremiumPerContract.toFixed(0)}/ct
+          </Text>
+        </Box>
+      </Group>
+    </Paper>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Open hedge puts section
+// ---------------------------------------------------------------------------
+
+type GridItem =
+  | { type: "real"; pos: OptionPosition }
+  | { type: "empty"; tranche: TranchePlan[number] };
+
+type TrancheGroup = {
+  tranche: TranchePlan[number];
+  items: GridItem[];
+};
 
 function OpenHedgePuts({
   puts,
   instrument,
   spot,
+  plan,
+  buysPerYear,
+  cadenceLabel,
+  monthlySpend,
 }: {
   puts: OptionPosition[];
   instrument: HedgeInstrument;
   spot: number | null;
+  plan: TranchePlan | null;
+  buysPerYear: number;
+  cadenceLabel: string;
+  monthlySpend: Map<TrancheKey, number>;
 }) {
-  if (puts.length === 0) {
-    return (
-      <Alert icon={<IconInfoCircle size={16} />} color="gray" radius={CARD_RADIUS}>
-        No open long put positions found. Buy protective puts through your broker and they will appear here.
-      </Alert>
-    );
+  // Build groups — one per tranche in plan order, then an optional overflow group
+  // for positions that don't classify into any known tranche.
+  const groups: TrancheGroup[] = [];
+  const unclassified: OptionPosition[] = [];
+
+  if (plan) {
+    for (const tranche of plan) {
+      const tranchePuts = puts.filter((p) => {
+        const key = spot ? classifyTranche(p.strike / spot, instrument) : null;
+        return key === tranche.def.key;
+      });
+      const items: GridItem[] =
+        tranchePuts.length > 0
+          ? tranchePuts.map((pos) => ({ type: "real", pos }))
+          : [{ type: "empty", tranche }];
+      groups.push({ tranche, items });
+    }
+    for (const pos of puts) {
+      const key = spot ? classifyTranche(pos.strike / spot, instrument) : null;
+      if (!plan.some((t) => t.def.key === key)) unclassified.push(pos);
+    }
   }
 
+  const hasContent = groups.length > 0 || puts.length > 0;
+
   return (
-    <Paper withBorder radius={CARD_RADIUS} p="md">
-      <Text size="sm" fw={600} mb="xs">Open hedge puts</Text>
-      <ScrollArea>
-        <Table fz="xs" verticalSpacing="xs">
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Account</Table.Th>
-              <Table.Th>Symbol</Table.Th>
-              <Table.Th>Tranche</Table.Th>
-              <Table.Th ta="right">Strike</Table.Th>
-              <Table.Th>Expiry</Table.Th>
-              <Table.Th ta="right">DTE</Table.Th>
-              <Table.Th ta="right">Qty</Table.Th>
-              <Table.Th ta="right">Cost</Table.Th>
-              <Table.Th ta="right">Value</Table.Th>
-              <Table.Th ta="right">P&amp;L</Table.Th>
-              <Table.Th>Recommendation</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {puts.map((pos, i) => {
-              const dte = daysUntil(pos.expiry);
-              const costTotal = Math.abs(pos.averagePrice) * pos.longQty * 100;
-              const currentValue = pos.marketValue;
-              const pnl = currentValue - costTotal;
-              const rec = closeRec(pos, spot);
-              const trKey = spot ? classifyTranche(pos.strike / spot, instrument) : null;
-              const tr = trKey ? TRANCHE_SETS[instrument].find((t) => t.key === trKey) : null;
-              return (
-                <Table.Tr key={i}>
-                  <Table.Td>{pos.accountNumber.slice(-4)}</Table.Td>
-                  <Table.Td>{pos.symbol}</Table.Td>
-                  <Table.Td>
-                    {tr ? (
-                      <Badge color={tr.color} variant="light" size="xs">{tr.label}</Badge>
-                    ) : (
-                      <Text size="xs" c="dimmed">—</Text>
-                    )}
-                  </Table.Td>
-                  <Table.Td ta="right">${pos.strike.toFixed(0)}</Table.Td>
-                  <Table.Td>{fmtDate(pos.expiry)}</Table.Td>
-                  <Table.Td ta="right" c={dte <= 5 ? "red" : dte <= 21 ? "yellow" : undefined}>
-                    {dte}
-                  </Table.Td>
-                  <Table.Td ta="right">{pos.longQty}</Table.Td>
-                  <Table.Td ta="right">${costTotal.toFixed(0)}</Table.Td>
-                  <Table.Td ta="right">${currentValue.toFixed(0)}</Table.Td>
-                  <Table.Td ta="right" c={pnl >= 0 ? "teal" : "red"}>
-                    {pnl >= 0 ? "+" : ""}${pnl.toFixed(0)}
-                  </Table.Td>
-                  <Table.Td>
-                    <Badge color={rec.color === "dimmed" ? "gray" : rec.color} variant="light" size="xs">
-                      {rec.label}
+    <Stack gap="md">
+      <Text tt="uppercase" fw={600} style={CARD_LABEL_STYLE}>
+        Open hedge puts
+      </Text>
+
+      {!hasContent && (
+        <Alert
+          icon={<IconInfoCircle size={16} />}
+          color="gray"
+          radius={CARD_RADIUS}
+        >
+          No open long put positions found. Buy protective puts through your
+          broker and they will appear here.
+        </Alert>
+      )}
+
+      {/* Grouped by tranche when plan is available */}
+      {groups.map(({ tranche, items }) => {
+        const monthlyBudget = tranche.annualBudget / 12;
+        const spent = monthlySpend.get(tranche.def.key) ?? 0;
+        const spentPct =
+          monthlyBudget > 0 ? Math.min(100, (spent / monthlyBudget) * 100) : 0;
+        const remaining = Math.max(0, monthlyBudget - spent);
+        const over = spent > monthlyBudget;
+        const barColor = over
+          ? "red"
+          : spentPct > 80
+            ? "yellow"
+            : tranche.def.color;
+
+        return (
+          <Box key={tranche.def.key}>
+            <Paper
+              radius={CARD_RADIUS}
+              p="md"
+              style={{
+                background: `color-mix(in srgb, var(--mantine-color-${tranche.def.color}-9) 12%, var(--mantine-color-dark-8))`,
+                borderLeft: `3px solid var(--mantine-color-${tranche.def.color}-7)`,
+              }}
+            >
+              <Group
+                justify="space-between"
+                align="flex-start"
+                mb={6}
+                wrap="wrap"
+                gap="xs"
+              >
+                <Group gap="xs" align="center">
+                  <Badge color={tranche.def.color} variant="light" size="sm">
+                    {tranche.def.label}
+                  </Badge>
+                  <Tooltip label={tranche.def.desc} withArrow multiline w={220}>
+                    <Text size="xs" c="dimmed" style={{ cursor: "help" }}>
+                      {tranche.def.desc}
+                    </Text>
+                  </Tooltip>
+                </Group>
+                <Group gap={6} align="baseline">
+                  <Text size="xs" fw={600} c={over ? "red.4" : "dimmed"}>
+                    {fmtMoney(spent)}
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    of {fmtMoney(monthlyBudget)}/mo
+                  </Text>
+                  {over ? (
+                    <Badge color="red" variant="light" size="xs">
+                      over
                     </Badge>
-                  </Table.Td>
-                </Table.Tr>
-              );
-            })}
-          </Table.Tbody>
-        </Table>
-      </ScrollArea>
-    </Paper>
+                  ) : remaining < monthlyBudget * 0.15 ? (
+                    <Badge color="yellow" variant="light" size="xs">
+                      {fmtMoney(remaining)} left
+                    </Badge>
+                  ) : (
+                    <Text size="xs" c="dimmed">
+                      {fmtMoney(remaining)} left
+                    </Text>
+                  )}
+                </Group>
+              </Group>
+              <Progress
+                value={spentPct}
+                color={barColor}
+                size={3}
+                radius="xl"
+                mb="md"
+              />
+
+              <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+                {items.map((item, i) =>
+                  item.type === "real" ? (
+                    <PutCard
+                      key={i}
+                      pos={item.pos}
+                      instrument={instrument}
+                      spot={spot}
+                    />
+                  ) : (
+                    <EmptyPutCard
+                      key={i}
+                      tranche={item.tranche}
+                      instrument={instrument}
+                      perBuy={item.tranche.annualBudget / buysPerYear}
+                      cadenceLabel={cadenceLabel}
+                    />
+                  ),
+                )}
+              </SimpleGrid>
+            </Paper>
+          </Box>
+        );
+      })}
+
+      {/* Positions that don't match any plan tranche (e.g. old strikes) */}
+      {unclassified.length > 0 && (
+        <Box>
+          <Text size="xs" c="dimmed" mb="xs" style={CARD_LABEL_STYLE}>
+            Other
+          </Text>
+          <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+            {unclassified.map((pos, i) => (
+              <PutCard key={i} pos={pos} instrument={instrument} spot={spot} />
+            ))}
+          </SimpleGrid>
+        </Box>
+      )}
+
+      {/* No plan yet — just show flat list of real cards */}
+      {!plan && puts.length > 0 && (
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+          {puts.map((pos, i) => (
+            <PutCard key={i} pos={pos} instrument={instrument} spot={spot} />
+          ))}
+        </SimpleGrid>
+      )}
+    </Stack>
   );
 }
 
@@ -439,7 +761,8 @@ function OpenHedgePuts({
 
 export default function PutHedgePanel() {
   const color = useAccountColor();
-  const { activeAccount, balances, allOptionPositions } = useApp();
+  const { activeAccount, balances, allOptionPositions, filledOptionOrders } =
+    useApp();
 
   // Live market data — load on mount for instant recommendations
   const [market, setMarket] = useState<MarketData | null>(null);
@@ -448,54 +771,36 @@ export default function PutHedgePanel() {
   useEffect(() => {
     fetch("/api/put-hedge")
       .then((r) => r.json())
-      .then((d: MarketData) => { if (!d.error) setMarket(d); })
+      .then((d: MarketData) => {
+        if (!d.error) setMarket(d);
+      })
       .catch(() => {})
       .finally(() => setMarketLoading(false));
   }, []);
 
-  // Live option chain (Schwab). Silently absent → tranche sizing uses the model.
-  const [chain, setChain] = useState<ChainData | null>(null);
+  // The hedge is bought as TQQQ puts (smaller units that fit a weekly budget;
+  // priced off the Black-Scholes model at ~3× index IV).
+  const instrument: HedgeInstrument = "TQQQ";
 
-  useEffect(() => {
-    fetch("/api/put-hedge/chain")
-      .then((r) => r.json())
-      .then((d: ChainData) => { if (d.connected && d.quotes?.length) setChain(d); })
-      .catch(() => {});
-  }, []);
-
-  // Resolve a tranche's ideal strike to the nearest live, quotable contract.
-  const resolver = useMemo<ChainResolver | undefined>(() => {
-    const quotes = chain?.quotes;
-    if (!quotes?.length) return undefined;
-    return (ideal: number) => {
-      let best: ChainQuote | null = null;
-      let gap = Infinity;
-      for (const q of quotes) {
-        const g = Math.abs(q.strike - ideal);
-        if (g < gap) { gap = g; best = q; }
-      }
-      return best ? { strike: best.strike, mark: best.mark, iv: best.iv } : null;
-    };
-  }, [chain]);
-
-  // Hedge instrument: QQQ puts (live marks, big units) or TQQQ puts (modeled,
-  // smaller units that fit a small weekly budget).
-  const [instrument, setInstrument] = useState<HedgeInstrument>("QQQ");
-
-  // Long put positions in the selected hedge instrument, across every account.
+  // Long TQQQ put positions across every account.
   const hedgePuts = useMemo(
     () =>
       allOptionPositions.filter(
-        (p) => p.underlyingSymbol === instrument && p.putCall === "PUT" && p.longQty > 0,
+        (p) =>
+          p.underlyingSymbol === instrument &&
+          p.putCall === "PUT" &&
+          p.longQty > 0,
       ),
-    [allOptionPositions, instrument],
+    [allOptionPositions],
   );
 
   // Recommendations are scoped to the account selected app-wide.
   const activeTqqqValue =
-    balances.find((b) => b.accountNumber === activeAccount?.accountNumber)?.tqqqValue ?? 0;
+    balances.find((b) => b.accountNumber === activeAccount?.accountNumber)
+      ?.tqqqValue ?? 0;
   const activePuts = useMemo(
-    () => hedgePuts.filter((p) => p.accountNumber === activeAccount?.accountNumber),
+    () =>
+      hedgePuts.filter((p) => p.accountNumber === activeAccount?.accountNumber),
     [hedgePuts, activeAccount],
   );
 
@@ -504,75 +809,58 @@ export default function PutHedgePanel() {
   // How often you buy clips — the per-buy budget is the annual budget / buysPerYear.
   const [buysPerYear, setBuysPerYear] = useState<number>(52);
 
-  // Backtest sweep state
-  const [years, setYears] = useState("10");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [sweepData, setSweepData] = useState<SweepResponse | null>(null);
-  const [curve, setCurve] = useState<FullResult | null>(null);
-  // Headline shows the recommended ladder by default; a clicked sweep row
-  // switches to that single config until "Recommended ladder" is clicked.
-  const [showRec, setShowRec] = useState(true);
+  const spot = market?.tqqqPrice ?? null;
+  const cadenceLabel = cadenceLabelOf(buysPerYear);
 
-  const runSweep = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/put-hedge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ years: Number(years) }),
-      });
-      const json: SweepResponse = await res.json();
-      if (!res.ok || json.error) throw new Error(json.error ?? `Request failed (${res.status})`);
-      setSweepData(json);
-      setCurve(json.best ?? null);
-      setShowRec(true);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Backtest failed");
-      setSweepData(null);
-      setCurve(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [years]);
-
-  const selectRow = useCallback(
-    async (params: PutHedgeParams) => {
-      try {
-        const res = await fetch("/api/put-hedge", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ years: Number(years), params }),
-        });
-        const json: SweepResponse = await res.json();
-        if (res.ok && json.result) { setCurve(json.result); setShowRec(false); }
-      } catch { /* keep current */ }
-    },
-    [years],
+  const plan = useMemo(
+    () =>
+      spot !== null && activeTqqqValue > 0
+        ? buildTranchePlan({
+            tqqqValue: activeTqqqValue,
+            spot,
+            vxnPct: market?.vxnPct ?? null,
+            annualBudgetPct: budgetPct / 100,
+            instrument,
+          })
+        : null,
+    [spot, activeTqqqValue, market?.vxnPct, budgetPct, instrument],
   );
 
-  const qqqPrice = market?.qqqPrice ?? sweepData?.currentMarket?.qqqPrice ?? null;
-  const tqqqPrice = market?.tqqqPrice ?? null;
-  // Spot of the selected put underlying; live chain only exists for QQQ.
-  const spot = instrument === "TQQQ" ? tqqqPrice : qqqPrice;
-  const instrumentResolver = instrument === "QQQ" ? resolver : undefined;
-
-  // Headline reads from the recommended ladder by default, or the clicked config.
-  const recLadder = sweepData?.recommended ?? null;
-  const display = showRec && recLadder ? recLadder : curve;
-  const isLadder = !!(showRec && recLadder);
+  // Sum BUY_TO_OPEN put premiums paid per tranche in the current calendar month.
+  const monthlySpend = useMemo(() => {
+    const now = new Date();
+    const spendMap = new Map<TrancheKey, number>();
+    for (const order of filledOptionOrders) {
+      if (order.instruction !== "BUY_TO_OPEN") continue;
+      const d = new Date(order.time);
+      if (
+        d.getFullYear() !== now.getFullYear() ||
+        d.getMonth() !== now.getMonth()
+      )
+        continue;
+      const m = order.symbol.match(/(\d{6})([CP])(\d{8})$/);
+      if (!m || m[2] !== "P") continue;
+      const strike = parseInt(m[3], 10) / 1000;
+      if (spot === null) continue;
+      const key = classifyTranche(strike / spot, instrument);
+      if (!key) continue;
+      spendMap.set(key, (spendMap.get(key) ?? 0) + Math.abs(order.total));
+    }
+    return spendMap;
+  }, [filledOptionOrders, spot, instrument]);
 
   return (
     <Stack gap="lg">
       <Box>
-        <Text size="xl" fw={700}>Put hedge</Text>
+        <Text size="xl" fw={700}>
+          Put hedge
+        </Text>
         <Text size="sm" c="dimmed">
-          Laddered protective-put overlay for TQQQ, tuned for buying dips — it spends on the
-          long-bear (crash) and tail (catastrophe) legs rather than insuring the ordinary dips you
-          buy. Hedge with QQQ puts (cheap IV, big units) or TQQQ puts (smaller units that fit a
-          small weekly budget). Each account gets a weekly dollar budget per leg; go to your
-          preferred DTE, buy what fits, and roll at {ROLL_AT_DTE} days. Monetize on spikes.
+          Laddered TQQQ-put overlay, tuned for buying dips — it spends on the
+          long-bear (crash) and tail (catastrophe) legs rather than insuring the
+          ordinary dips you buy. Each account gets a per-buy dollar budget per
+          leg; go to your preferred DTE, buy what fits, and roll at{" "}
+          {ROLL_AT_DTE} days. Monetize on spikes.
         </Text>
       </Box>
 
@@ -581,287 +869,138 @@ export default function PutHedgePanel() {
         <Center py="md">
           <Group gap="xs">
             <Loader size="xs" color={color} />
-            <Text size="sm" c="dimmed">Loading market data…</Text>
+            <Text size="sm" c="dimmed">
+              Loading market data…
+            </Text>
           </Group>
         </Center>
       ) : spot === null ? (
-        <Alert color="yellow" icon={<IconAlertTriangle size={16} />} radius={CARD_RADIUS}>
+        <Alert
+          color="yellow"
+          icon={<IconAlertTriangle size={16} />}
+          radius={CARD_RADIUS}
+        >
           Could not fetch the current {instrument} price. Reload to retry.
         </Alert>
       ) : (
         <>
-          <Group justify="space-between" align="flex-end" wrap="wrap" gap="sm">
-            <Group gap={6} align="center">
-              <Text size="xs" c="dimmed">
-                {instrument} ${spot.toFixed(2)}{market?.vxnPct != null ? ` · ^VXN ${market.vxnPct.toFixed(1)}%` : ""}
-                {market?.asOf ? ` · as of ${fmtDate(market.asOf)}` : ""}
-              </Text>
-              <Tooltip
-                label={
-                  instrumentResolver
-                    ? "Premiums priced off live Schwab option marks."
-                    : instrument === "TQQQ"
-                      ? "TQQQ premiums use the Black-Scholes model at ~3× index IV (live chain wired for QQQ only)."
-                      : "Schwab not connected — premiums use the Black-Scholes model off ^VXN. Connect Schwab for live marks."
-                }
-                withArrow
-                multiline
-                w={250}
-              >
-                <Badge color={instrumentResolver ? "teal" : "gray"} variant="light" size="xs">
-                  {instrumentResolver ? "live marks" : "modeled"}
-                </Badge>
-              </Tooltip>
-            </Group>
-            <Group gap="md" align="center">
-              <Group gap="xs" align="center">
-                <Text size="xs" c="dimmed">Instrument</Text>
-                <SegmentedControl
-                  size="xs"
-                  value={instrument}
-                  onChange={(v) => setInstrument(v as HedgeInstrument)}
-                  color={color}
-                  data={[
-                    { label: "QQQ", value: "QQQ" },
-                    { label: "TQQQ", value: "TQQQ" },
-                  ]}
-                />
+          <Paper
+            radius={CARD_RADIUS}
+            p="sm"
+            style={{
+              background:
+                "color-mix(in srgb, var(--mantine-color-dark-7) 60%, transparent)",
+            }}
+          >
+            <Group justify="space-between" align="center" wrap="wrap" gap="sm">
+              <Group gap={6} align="center">
+                <Group gap="xs">
+                  <Badge color="blue" variant="light" size="sm">
+                    TQQQ ${spot.toFixed(2)}
+                  </Badge>
+                  {market?.vxnPct != null && (
+                    <Badge color="grape" variant="light" size="sm">
+                      ^VXN {market.vxnPct.toFixed(1)}%
+                    </Badge>
+                  )}
+                  {market?.asOf && (
+                    <Text size="xs" c="dimmed">
+                      as of {fmtDate(market.asOf)}
+                    </Text>
+                  )}
+                </Group>
+                <Tooltip
+                  label="TQQQ premiums are estimated with Black-Scholes at ~3× index IV — treat the ≈$/contract figures as a guide; your broker quote is the truth."
+                  withArrow
+                  multiline
+                  w={250}
+                >
+                  <Badge color="gray" variant="dot" size="xs">
+                    modeled
+                  </Badge>
+                </Tooltip>
               </Group>
-              <Group gap="xs" align="center">
-                <Text size="xs" c="dimmed">Buy every</Text>
-                <SegmentedControl
-                  size="xs"
-                  value={String(buysPerYear)}
-                  onChange={(v) => setBuysPerYear(Number(v))}
-                  color={color}
-                  data={CADENCES.map((c) => ({ label: c.short, value: c.value }))}
-                />
+              <Group gap="md" align="center">
+                <Group gap="xs" align="center">
+                  <Text size="xs" c="dimmed">
+                    Buy every
+                  </Text>
+                  <SegmentedControl
+                    size="xs"
+                    value={String(buysPerYear)}
+                    onChange={(v) => setBuysPerYear(Number(v))}
+                    color={color}
+                    data={CADENCES.map((c) => ({
+                      label: c.short,
+                      value: c.value,
+                    }))}
+                  />
+                </Group>
+                <Group gap="xs" align="center">
+                  <Text size="xs" c="dimmed">
+                    Budget
+                  </Text>
+                  <Tooltip
+                    label="Annual premium you're willing to bleed, as a % of TQQQ value. Split 60/40 across the crash and catastrophe legs and divided into a per-buy dollar budget per leg."
+                    withArrow
+                    multiline
+                    w={240}
+                  >
+                    <NumberInput
+                      value={budgetPct}
+                      onChange={(v) =>
+                        setBudgetPct(
+                          typeof v === "number" ? v : DEFAULT_BUDGET_PCT,
+                        )
+                      }
+                      min={0.5}
+                      max={8}
+                      step={0.5}
+                      suffix="%/yr"
+                      size="xs"
+                      w={110}
+                      decimalScale={1}
+                    />
+                  </Tooltip>
+                </Group>
               </Group>
-              <Group gap="xs" align="center">
-              <Text size="xs" c="dimmed">Premium budget</Text>
-              <Tooltip
-                label="Annual premium you're willing to bleed, as a % of TQQQ value. Split 60/40 across the crash and catastrophe legs and divided into a weekly dollar budget per leg."
-                withArrow
-                multiline
-                w={240}
-              >
-                <NumberInput
-                  value={budgetPct}
-                  onChange={(v) => setBudgetPct(typeof v === "number" ? v : DEFAULT_BUDGET_PCT)}
-                  min={0.5}
-                  max={8}
-                  step={0.5}
-                  suffix="%/yr"
-                  size="xs"
-                  w={110}
-                  decimalScale={1}
-                />
-              </Tooltip>
             </Group>
-            </Group>
-          </Group>
+          </Paper>
           {activeAccount && activeTqqqValue > 0 ? (
             <AccountRec
               account={activeAccount}
               tqqqValue={activeTqqqValue}
               instrument={instrument}
               spot={spot}
-              vxnPct={market?.vxnPct ?? sweepData?.currentMarket?.vxnPct ?? null}
+              vxnPct={market?.vxnPct ?? null}
               budgetPct={budgetPct}
               buysPerYear={buysPerYear}
-              cadenceLabel={cadenceLabelOf(buysPerYear)}
+              cadenceLabel={cadenceLabel}
               openHedgePuts={activePuts}
-              resolver={instrumentResolver}
             />
           ) : (
-            <Alert color="gray" icon={<IconInfoCircle size={16} />} radius={CARD_RADIUS}>
-              No TQQQ holdings in {activeAccount?.accountName ?? "this account"}. Switch accounts to
-              size a hedge.
+            <Alert
+              color="gray"
+              icon={<IconInfoCircle size={16} />}
+              radius={CARD_RADIUS}
+            >
+              No TQQQ holdings in {activeAccount?.accountName ?? "this account"}
+              . Switch accounts to size a hedge.
             </Alert>
           )}
         </>
       )}
 
       {/* ── Open hedge puts with close/roll guidance ── */}
-      <OpenHedgePuts puts={activePuts} instrument={instrument} spot={spot} />
-
-      {/* ── Parameter sweep ── */}
-      <Box>
-        <Text size="sm" fw={600} mb={4}>Parameter sweep</Text>
-        <Text size="xs" c="dimmed" mb="md">
-          Backtests QQQ-put hedges across strike depth / DTE (45–90) / roll-at-DTE / size — rolling
-          the way the strategy does (at N days remaining) — and ranks them by drawdown avoided per
-          dollar of annual premium. Click a row to chart that config.
-        </Text>
-        <Group gap="lg" align="flex-end" wrap="wrap">
-          <Box>
-            <Text size="xs" c="dimmed" mb={6}>Lookback</Text>
-            <SegmentedControl
-              value={years}
-              onChange={setYears}
-              color={color}
-              data={[
-                { label: "3y", value: "3" },
-                { label: "5y", value: "5" },
-                { label: "10y", value: "10" },
-              ]}
-            />
-          </Box>
-          <Button
-            leftSection={<IconPlayerPlayFilled size={14} />}
-            onClick={runSweep}
-            loading={loading}
-            color={color}
-          >
-            Run sweep
-          </Button>
-        </Group>
-      </Box>
-
-      {error && (
-        <Alert color="red" icon={<IconAlertTriangle size={16} />} radius={CARD_RADIUS}>
-          {error}
-        </Alert>
-      )}
-
-      {loading && !sweepData && (
-        <Center py="xl">
-          <Loader color={color} />
-        </Center>
-      )}
-
-      {sweepData?.best && display && (
-        <>
-          <Group justify="space-between" align="center">
-            <Text size="sm" fw={600} c={isLadder ? color : undefined}>
-              {isLadder
-                ? `Recommended ladder · QQQ puts ${LADDER_LABEL} · ${HEDGE_DTE} DTE · roll ${ROLL_AT_DTE}d`
-                : "Selected configuration"}
-            </Text>
-            {!isLadder && recLadder && (
-              <Button size="xs" variant="subtle" color={color} onClick={() => setShowRec(true)}>
-                ← Recommended ladder
-              </Button>
-            )}
-          </Group>
-
-          <Alert color={color} variant="light" icon={<IconInfoCircle size={16} />} radius={CARD_RADIUS}>
-            <Text size="sm">
-              {isLadder
-                ? `Over this window the ladder ${display.ddReduction > 0.005 ? `cut the worst drop from ${fmtPct(sweepData.unhedged.maxDD)} to ${fmtPct(display.hedgedMaxDD)}` : `barely moved the worst drop (${fmtPct(sweepData.unhedged.maxDD)} → ${fmtPct(display.hedgedMaxDD)})`} — ${display.annualBleed > 0 ? `costing about ${fmtPct(display.annualBleed)}/yr in returns` : `actually adding about ${fmtPct(-display.annualBleed)}/yr over this stretch`}. Deep-OTM legs barely cap the trough; their value is crash payoffs you can monetize into dip-buys. Click any row below to compare a single config.`
-                : describeConfig(curve!, sweepData.unhedged.maxDD, sweepData.putUnderlying)}
-            </Text>
-          </Alert>
-
-          <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="md">
-            <Metric label="Worst drop, no hedge" value={fmtPct(sweepData.unhedged.maxDD)} />
-            <Metric label="Worst drop, hedged" value={fmtPct(display.hedgedMaxDD)} accent={color} />
-            <Metric label="Drop avoided" value={fmtPct(display.ddReduction)} accent={color} />
-            <Metric label="Cost to returns / yr" value={fmtPct(display.annualBleed)} />
-          </SimpleGrid>
-
-          <Paper withBorder radius={CARD_RADIUS} p="md">
-            <Text size="sm" fw={600} mb={4}>
-              Hedged vs buy &amp; hold — growth of $1 ({fmtDate(sweepData.span.start)} →{" "}
-              {fmtDate(sweepData.span.end)})
-            </Text>
-            <Box h={300}>
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={display.equity} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} minTickGap={48} />
-                  <YAxis scale="log" domain={["auto", "auto"]} tick={{ fontSize: 11 }} width={48} />
-                  <ChartTooltip
-                    formatter={(v) => `$${Number(v).toFixed(2)}`}
-                    labelFormatter={(l) => fmtDate(String(l))}
-                  />
-                  <Line type="monotone" dataKey="unhedged" stroke="#888" dot={false} name="Buy & hold" />
-                  <Line
-                    type="monotone"
-                    dataKey="hedged"
-                    stroke={`var(--mantine-color-${color}-6)`}
-                    dot={false}
-                    name="Hedged"
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </Box>
-          </Paper>
-
-          <Paper withBorder radius={CARD_RADIUS} p="md">
-            <Group justify="space-between" mb="xs">
-              <Text size="sm" fw={600}>Ranked configurations</Text>
-              <Text size="xs" c="dimmed">click a row to chart it</Text>
-            </Group>
-            <ScrollArea>
-              <Table highlightOnHover striped withTableBorder verticalSpacing="xs" fz="xs">
-                <Table.Thead>
-                  <Table.Tr>
-                    <HeadCell label="Strike" tip="How far below today's price the put strike sits. 15% OTM = strike 15% under spot. Deeper is cheaper but only pays in a bigger drop." />
-                    <HeadCell label="Days out" tip="Days to expiration when you buy the put." />
-                    <HeadCell label="Roll" tip="When you replace the put. 'at 21d' = roll once 21 days remain (avoids the gamma cliff); 'to exp' = hold to expiration." />
-                    <HeadCell label="Size" tip="How much protection you buy — QQQ notional as a multiple of your TQQQ. Higher = more cover and more cost." />
-                    <HeadCell right label="Worst drop" tip="The worst peak-to-trough loss with this hedge on, over the backtest window. Closer to 0 is better." />
-                    <HeadCell right label="Drop avoided" tip="How much shallower the worst drop became versus unhedged buy & hold." />
-                    <HeadCell right label="Cost/yr" tip="Annual return given up to run the hedge. Negative means it added return over this path." />
-                    <HeadCell right label="Premium/yr" tip="Cash spent on puts per year, as a % of the portfolio." />
-                    <HeadCell right label="Score" tip="Protection score: drop avoided per 1% of return given up. Higher is better. ∞ = the hedge also added return on this path." />
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {sweepData.table?.map((r, i) => {
-                    const active =
-                      !showRec &&
-                      curve?.params.moneyness === r.params.moneyness &&
-                      curve?.params.dteDays === r.params.dteDays &&
-                      curve?.params.rollEveryDays === r.params.rollEveryDays &&
-                      curve?.params.coverageRatio === r.params.coverageRatio;
-                    return (
-                      <Table.Tr
-                        key={i}
-                        onClick={() => selectRow(r.params)}
-                        style={{
-                          cursor: "pointer",
-                          background: active ? `var(--mantine-color-${color}-light)` : undefined,
-                        }}
-                      >
-                        <Table.Td>{otmLabel(r.params.moneyness)}</Table.Td>
-                        <Table.Td>{r.params.dteDays}d</Table.Td>
-                        <Table.Td>{fmtRollAt(r.params)}</Table.Td>
-                        <Table.Td>{r.params.coverageRatio}×</Table.Td>
-                        <Table.Td ta="right">{fmtPct(r.hedgedMaxDD)}</Table.Td>
-                        <Table.Td ta="right">{fmtPct(r.ddReduction)}</Table.Td>
-                        <Table.Td ta="right">{fmtPct(r.annualBleed)}</Table.Td>
-                        <Table.Td ta="right">{fmtPct(r.premiumPerYear)}</Table.Td>
-                        <Table.Td ta="right">{fmtEff(r.efficiency)}</Table.Td>
-                      </Table.Tr>
-                    );
-                  })}
-                </Table.Tbody>
-              </Table>
-            </ScrollArea>
-          </Paper>
-
-          <Alert color="gray" icon={<IconInfoCircle size={16} />} radius={CARD_RADIUS}>
-            <Text size="xs">
-              This backtest always prices premiums with Black-Scholes off ^VXN — there is no
-              historical option-chain data, so even when the buy recommendation above uses live
-              Schwab marks, these results do not. VXN is 30-day index IV; pricing 60–90d puts ignores
-              vol term structure, and TQQQ IV is a 3× proxy (real costs usually higher). A ∞ score
-              means the hedge added return over this specific path — regime-dependent, not a guarantee.
-            </Text>
-          </Alert>
-        </>
-      )}
+      <OpenHedgePuts
+        puts={activePuts}
+        instrument={instrument}
+        spot={spot}
+        plan={plan}
+        buysPerYear={buysPerYear}
+        cadenceLabel={cadenceLabel}
+        monthlySpend={monthlySpend}
+      />
     </Stack>
-  );
-}
-
-function Metric({ label, value, accent }: { label: string; value: string; accent?: string }) {
-  return (
-    <Paper withBorder radius={CARD_RADIUS} p="sm">
-      <Text size="xs" c="dimmed">{label}</Text>
-      <Text size="lg" fw={700} c={accent}>{value}</Text>
-    </Paper>
   );
 }

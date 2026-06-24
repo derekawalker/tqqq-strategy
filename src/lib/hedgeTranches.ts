@@ -3,10 +3,10 @@
  * strategy: don't pay up to insure ordinary 10–15% dips (you're busy buying
  * those) — spend on the long-bear and catastrophe tail instead.
  *
- *   - Crash       (~25% OTM) — the core long-bear / fast-crash cover.
- *   - Catastrophe (~35% OTM) — cheap, highly convex tail insurance for a
- *                              2008/2020-style event.
- *   - Workhorse   (~12% OTM) — near-the-money cover for ordinary drawdowns.
+ *   - Crash       (−30% OTM on TQQQ) — liquid strikes, core long-bear cover.
+ *   - Catastrophe (−50% OTM on TQQQ) — deep tail insurance; big payoff in a
+ *                              2008/2020-style crash, still listed/tradeable.
+ *   - Workhorse   (~20% OTM on TQQQ) — shallow cover for ordinary drawdowns.
  *                              Off by default (budgetShare 0); kept here so open
  *                              positions at that depth still classify/display.
  *
@@ -87,28 +87,28 @@ export const TRANCHE_SETS: Record<HedgeInstrument, TrancheDef[]> = {
     {
       key: "crash",
       label: "Crash",
-      desc: "Core long-bear / fast-crash cover (TQQQ ≈ −55%, the QQQ −25% scenario).",
-      moneyness: 0.45,
+      desc: "Core long-bear cover — TQQQ −30% OTM. Liquid strikes, activates in a serious correction.",
+      moneyness: 0.70,
       budgetShare: 0.6,
-      maxCoverage: 1,
+      maxCoverage: 1.5,
       color: "orange",
     },
     {
       key: "catastrophe",
       label: "Catastrophe",
-      desc: "Deep tail insurance (TQQQ ≈ −70%, the QQQ −35% scenario) — explosive convexity.",
-      moneyness: 0.3,
+      desc: "Deep tail insurance — TQQQ −50% OTM. High convexity in a 2008/2020-style crash.",
+      moneyness: 0.50,
       budgetShare: 0.4,
-      maxCoverage: 0.7,
+      maxCoverage: 1.0,
       color: "red",
     },
     {
       key: "workhorse",
       label: "Workhorse",
-      desc: "Shallower TQQQ cover for ordinary dips. Off by default — you buy those dips.",
-      moneyness: 0.65,
+      desc: "Shallow TQQQ cover for ordinary dips. Off by default — you buy those dips.",
+      moneyness: 0.82,
       budgetShare: 0,
-      maxCoverage: 1,
+      maxCoverage: 1.5,
       color: "teal",
     },
   ],
