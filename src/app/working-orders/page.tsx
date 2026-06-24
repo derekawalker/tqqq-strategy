@@ -36,12 +36,14 @@ import { fmt, createMask } from "@/lib/format";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
 
 
-function ProgressRow({ progress, color }: { progress: number; color: string }) {
+function ProgressRow({ progress, color, paddingTop, paddingBottom }: {
+  progress: number; color: string; paddingTop: number; paddingBottom: number;
+}) {
   return (
     <Table.Tr style={{ background: "transparent" }}>
       <Table.Td
         colSpan={7}
-        style={{ padding: 0, border: "none", lineHeight: 0, fontSize: 0 }}
+        style={{ paddingTop, paddingBottom, paddingInline: 0, border: "none", lineHeight: 0, fontSize: 0 }}
       >
         <Progress
           value={progress}
@@ -860,7 +862,7 @@ export default function WorkingOrdersPage() {
 
                       return (
                         <Fragment key={`${row.shares}-${row.levelIndex}`}>
-                        {priceInRange && <ProgressRow progress={progress} color={progressColor} />}
+                        {priceInRange && <ProgressRow progress={progress} color={progressColor} paddingTop={4} paddingBottom={2} />}
                         <Table.Tr
                           bg={
                             hasDuplicate
@@ -1214,7 +1216,7 @@ export default function WorkingOrdersPage() {
                             </Text>
                           </Table.Td>
                         </Table.Tr>
-                        {priceInRange && <ProgressRow progress={progress} color={progressColor} />}
+                        {priceInRange && <ProgressRow progress={progress} color={progressColor} paddingTop={2} paddingBottom={4} />}
                         </Fragment>
                       );
                     })}
