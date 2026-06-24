@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { Fragment, useMemo, useState, useEffect } from "react";
 import { useMediaQuery } from "@mantine/hooks";
 import {
   Table,
@@ -20,6 +20,7 @@ import {
   CopyButton,
   Alert,
   Switch,
+  Progress,
 } from "@mantine/core";
 import {
   IconCheck,
@@ -33,6 +34,29 @@ import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
 import { fmt, createMask } from "@/lib/format";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
+
+
+function ProgressRow({ progress, color }: { progress: number; color: string }) {
+  return (
+    <Table.Tr style={{ background: "transparent" }}>
+      <Table.Td
+        colSpan={7}
+        style={{ padding: 0, border: "none", lineHeight: 0, fontSize: 0 }}
+      >
+        <Progress
+          value={progress}
+          size={2}
+          radius={0}
+          styles={{
+            section: {
+              background: `color-mix(in srgb, var(--mantine-color-${color}-7) ${progress}%, var(--mantine-color-gray-7))`,
+            },
+          }}
+        />
+      </Table.Td>
+    </Table.Tr>
+  );
+}
 
 interface LevelRow {
   levelIndex: number;
@@ -823,15 +847,21 @@ export default function WorkingOrdersPage() {
                         row.sellPrice != null &&
                         quote.price >= row.buyPrice &&
                         quote.price <= row.sellPrice;
+                      const progress = priceInRange && row.buyPrice != null && row.sellPrice != null
+                        ? ((quote.price - row.buyPrice) / (row.sellPrice - row.buyPrice)) * 100
+                        : 0;
                       const isOwned =
                         row.levelIndex >= 0 &&
                         currentLevel >= 0 &&
                         row.levelIndex <= currentLevel;
                       const hasDuplicate = duplicateShares.has(row.shares);
 
+                      const progressColor = bufferMissing ? "orange" : accountColor;
+
                       return (
+                        <Fragment key={`${row.shares}-${row.levelIndex}`}>
+                        {priceInRange && <ProgressRow progress={progress} color={progressColor} />}
                         <Table.Tr
-                          key={`${row.shares}-${row.levelIndex}`}
                           bg={
                             hasDuplicate
                               ? "rgba(250,82,82,0.1)"
@@ -846,10 +876,7 @@ export default function WorkingOrdersPage() {
                             ...(hasDuplicate
                               ? { borderLeft: "5px solid rgba(250,82,82,0.8)" }
                               : bufferMissing
-                                ? {
-                                    borderLeft:
-                                      "5px solid rgba(251,146,60,0.8)",
-                                  }
+                                ? { borderLeft: "5px solid rgba(251,146,60,0.8)" }
                                 : {}),
                           }}
                         >
@@ -1187,6 +1214,8 @@ export default function WorkingOrdersPage() {
                             </Text>
                           </Table.Td>
                         </Table.Tr>
+                        {priceInRange && <ProgressRow progress={progress} color={progressColor} />}
+                        </Fragment>
                       );
                     })}
                   </>

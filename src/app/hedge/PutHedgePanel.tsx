@@ -640,12 +640,8 @@ function OpenHedgePuts({
         const spentPct =
           monthlyBudget > 0 ? Math.min(100, (spent / monthlyBudget) * 100) : 0;
         const remaining = Math.max(0, monthlyBudget - spent);
-        const over = spent > monthlyBudget;
-        const barColor = over
-          ? "red"
-          : spentPct > 80
-            ? "yellow"
-            : tranche.def.color;
+        const over = spent > monthlyBudget;  // used for badge/text below
+        const barColor = tranche.def.color;
 
         return (
           <Box key={tranche.def.key}>
@@ -702,6 +698,7 @@ function OpenHedgePuts({
                 size={3}
                 radius="xl"
                 mb="md"
+                style={{ opacity: 0.4 }}
               />
 
               <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
