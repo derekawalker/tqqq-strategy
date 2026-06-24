@@ -862,19 +862,17 @@ export default function WorkingOrdersPage() {
 
                       return (
                         <Fragment key={`${row.shares}-${row.levelIndex}`}>
-                        {priceInRange && <ProgressRow progress={progress} color={progressColor} paddingTop={4} paddingBottom={2} />}
+                        {priceInRange && <ProgressRow progress={progress} color={progressColor} paddingTop={6} paddingBottom={0} />}
                         <Table.Tr
-                          bg={
-                            hasDuplicate
-                              ? "rgba(250,82,82,0.1)"
-                              : isCurrent
-                                ? "rgba(255,255,255,0.12)"
-                                : bufferMissing
-                                  ? "rgba(251,146,60,0.1)"
-                                  : undefined
-                          }
                           style={{
                             opacity: 1,
+                            background: hasDuplicate
+                              ? "rgba(250,82,82,0.1)"
+                              : bufferMissing
+                                ? "rgba(251,146,60,0.1)"
+                                : isCurrent || priceInRange
+                                  ? "rgba(255,255,255,0.12)"
+                                  : undefined,
                             ...(hasDuplicate
                               ? { borderLeft: "5px solid rgba(250,82,82,0.8)" }
                               : bufferMissing
@@ -1216,7 +1214,7 @@ export default function WorkingOrdersPage() {
                             </Text>
                           </Table.Td>
                         </Table.Tr>
-                        {priceInRange && <ProgressRow progress={progress} color={progressColor} paddingTop={2} paddingBottom={4} />}
+                        {priceInRange && <ProgressRow progress={progress} color={progressColor} paddingTop={0} paddingBottom={6} />}
                         </Fragment>
                       );
                     })}
