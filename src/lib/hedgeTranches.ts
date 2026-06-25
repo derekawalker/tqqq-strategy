@@ -148,8 +148,14 @@ export const WEEKS_PER_CYCLE = 3;
 export const DCA_WEEKS = 3;
 /** Calendar days in a DCA window (first ~3 weeks of the buy month). */
 export const DCA_WINDOW_DAYS = 21;
-/** Pause buying when ^VXN is above this threshold — IV too expensive. */
-export const VIX_PAUSE_THRESHOLD = 25;
+/**
+ * Pause buying the *crash* leg only when ^VXN is above this — and only on a
+ * genuine panic spike, not ordinary bear-market vol. Backtests showed a 25
+ * threshold left you nearly unhedged through the 2022 slow grind (VXN lived in
+ * the 25–40 band the whole way down); 50 blocks only true spikes. The cheap
+ * catastrophe leg is exempt entirely — it's a lottery ticket you always keep on.
+ */
+export const VIX_PAUSE_THRESHOLD = 50;
 /** Close half a position when it has gained this fraction of its cost basis. */
 export const PROFIT_TAKE_PCT = 1.5;
 /** Monetize a put once its |delta| reaches this — the crash harvest trigger. */

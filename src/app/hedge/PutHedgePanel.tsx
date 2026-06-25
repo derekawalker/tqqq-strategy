@@ -188,7 +188,7 @@ function TodayPanel({
 
   // --- Buy window actions ---
   if (plan) {
-    const vxnElevated = vxnPct !== null && vxnPct > VIX_PAUSE_THRESHOLD;
+    const vxnSpiking = vxnPct !== null && vxnPct > VIX_PAUSE_THRESHOLD;
 
     for (const t of plan) {
       const ws = buyWindowStatus(t.def, today);
@@ -197,13 +197,17 @@ function TodayPanel({
       const strike = qqqSpot !== null ? Math.round(qqqSpot * t.def.moneyness) : t.strike;
       const detail = `QQQ ~$${strike} put · ${t.dte}-day DTE · spend ~${fmtMoney(t.perClipBudget)} this clip`;
 
-      if (vxnElevated) {
+      // Soft gate: only the crash leg defers, and only on a true panic spike.
+      // The catastrophe leg is a cheap lottery ticket — always keep buying it.
+      const gated = vxnSpiking && t.def.key !== "catastrophe";
+
+      if (gated) {
         actions.push({
           priority: 3,
           color: "yellow",
           icon: <IconAlertTriangle size={14} />,
-          title: `${t.def.label}: clip ${ws.clip}/${DCA_WEEKS} — VXN elevated, defer`,
-          detail: `^VXN at ${vxnPct!.toFixed(1)}% (threshold ${VIX_PAUSE_THRESHOLD}%). Wait for vol to settle before buying. ${detail}`,
+          title: `${t.def.label}: clip ${ws.clip}/${DCA_WEEKS} — VXN spiking, defer`,
+          detail: `^VXN at ${vxnPct!.toFixed(1)}% (above ${VIX_PAUSE_THRESHOLD}% panic line). Let the spike settle before adding the crash leg. ${detail}`,
         });
       } else {
         actions.push({
@@ -232,7 +236,7 @@ function TodayPanel({
         color: "gray",
         icon: <IconClock size={14} />,
         title: `${t.def.label}: next buy ${ws.periodLabel} 1 (${ws.daysUntilNext}d)`,
-        detail: `QQQ ~$${strike} put · ${t.dte}-day DTE · ~${fmtMoney(t.perClipBudget)}/clip over ${DCA_WEEKS} weeks`,
+        detail: `QQQ ~$${strike} put · ${t.dte}-day DTE · buy ~${fmtMoney(t.perClipBudget)} of puts each week for ${DCA_WEEKS} weeks (≈${fmtMoney(t.perClipBudget * DCA_WEEKS)} total)`,
       });
     }
   }
@@ -668,11 +672,12 @@ export default function PutHedgePanel() {
         </Text>
       </Box>
 
-      {/* VXN elevated warning */}
+      {/* VXN panic-spike warning */}
       {market?.vxnPct != null && market.vxnPct > VIX_PAUSE_THRESHOLD && (
         <Alert color="yellow" icon={<IconAlertTriangle size={16} />} radius={CARD_RADIUS}>
-          ^VXN at {market.vxnPct.toFixed(1)}% — above the {VIX_PAUSE_THRESHOLD}% pause threshold.
-          Defer new clips until vol settles; existing positions are fine to hold.
+          ^VXN at {market.vxnPct.toFixed(1)}% — above the {VIX_PAUSE_THRESHOLD}% panic line. Defer the
+          crash leg until the spike settles, but keep buying the cheap catastrophe leg. Existing
+          positions are fine to hold.
         </Alert>
       )}
 
@@ -791,7 +796,8 @@ export default function PutHedgePanel() {
               <Table.Td colSpan={6} style={{ paddingTop: 8, paddingBottom: 8 }}>
                 <Text size="9px" c="dimmed">
                   Roll at {ROLL_AT_DTE}d DTE · Take half profit at +{Math.round(PROFIT_TAKE_PCT * 100)}% gain ·
-                  Defer new clips when ^VXN &gt; {VIX_PAUSE_THRESHOLD}% · Modeled with Black-Scholes at VXN-implied vol + linear skew
+                  Defer only the crash leg when ^VXN &gt; {VIX_PAUSE_THRESHOLD}% (catastrophe leg always buys) ·
+                  Modeled with Black-Scholes at VXN-implied vol + linear skew
                 </Text>
               </Table.Td>
             </Table.Tr>

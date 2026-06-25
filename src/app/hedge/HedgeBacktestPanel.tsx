@@ -95,7 +95,7 @@ export default function HedgeBacktestPanel() {
   const [tqqqValue, setTqqqValue] = useState<number>(activeTqqqValue > 0 ? Math.round(activeTqqqValue) : 300_000);
   const [budgetPct, setBudgetPct] = useState<number>(3);
   const [gateEnabled, setGateEnabled] = useState<boolean>(true);
-  const [vxnGate, setVxnGate] = useState<number>(25);
+  const [vxnGate, setVxnGate] = useState<number>(50);
   const [activeCrisis, setActiveCrisis] = useState<CrisisPreset>(CRISES[1]);
 
   const [loading, setLoading] = useState(false);

@@ -36,6 +36,7 @@ interface ChartPoint {
   price: number;
   side: "BUY" | "SELL";
   sellIndex?: number;
+  buyIndex?: number;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -51,6 +52,7 @@ function CustomDot(props: any) {
         fill={isSell ? "var(--mantine-color-red-6)" : "var(--mantine-color-teal-6)"}
         stroke="none"
       />
+      {/* Sells numbered above the dot, buys below — so they never collide. */}
       {isSell && payload.sellIndex != null && (
         <text
           x={cx}
@@ -63,6 +65,18 @@ function CustomDot(props: any) {
           {payload.sellIndex}
         </text>
       )}
+      {!isSell && payload.buyIndex != null && (
+        <text
+          x={cx}
+          y={cy + 15}
+          fontSize={12}
+          fontWeight={700}
+          textAnchor="middle"
+          fill="var(--mantine-color-teal-4)"
+        >
+          {payload.buyIndex}
+        </text>
+      )}
     </g>
   );
 }
@@ -73,6 +87,7 @@ function DayChart({ dayOrders, color }: { dayOrders: FilledOrder[]; color: strin
   const gridColor = "var(--mantine-color-dark-4)";
 
   let sellCount = 0;
+  let buyCount = 0;
   const chartData: ChartPoint[] = [...dayOrders]
     .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
     .map((o) => ({
@@ -80,6 +95,7 @@ function DayChart({ dayOrders, color }: { dayOrders: FilledOrder[]; color: strin
       price: o.fillPrice,
       side: o.side,
       sellIndex: o.side === "SELL" ? ++sellCount : undefined,
+      buyIndex: o.side === "BUY" ? ++buyCount : undefined,
     }));
 
   if (chartData.length === 0) {
@@ -92,7 +108,7 @@ function DayChart({ dayOrders, color }: { dayOrders: FilledOrder[]; color: strin
 
   return (
     <ResponsiveContainer width="100%" height={160}>
-      <LineChart data={chartData} margin={{ top: 16, right: 24, left: 8, bottom: 4 }}>
+      <LineChart data={chartData} margin={{ top: 16, right: 24, left: 8, bottom: 18 }}>
         <XAxis
           dataKey="timeMs"
           type="number"
