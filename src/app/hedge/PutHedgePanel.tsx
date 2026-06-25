@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { Outfit } from "next/font/google";
 import {
   Stack,
@@ -21,6 +21,7 @@ import {
   Collapse,
   UnstyledButton,
   Progress,
+  Checkbox,
 } from "@mantine/core";
 
 const outfit = Outfit({ subsets: ["latin"] });
@@ -67,6 +68,13 @@ function daysUntil(expiry: string): number {
   return Math.max(0, Math.ceil(ms / 86_400_000));
 }
 
+/** ISO date (YYYY-MM-DD) `days` from today, for formatting a scheduled event. */
+function isoInDays(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + Math.max(0, Math.round(days)));
+  return d.toISOString().slice(0, 10);
+}
+
 const fmtPct = (x: number) => `${(x * 100).toFixed(1)}%`;
 const fmtUsd = (x: number) =>
   x.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -76,6 +84,23 @@ const fmtMoney = (x: number) =>
     currency: "USD",
     maximumFractionDigits: x < 100 ? 2 : 0,
   });
+
+/** Buys opened with fewer DTE than this default to *excluded* — they're short-term
+ *  trades, not the long-dated hedge. */
+const HEDGE_MIN_DTE = 45;
+
+/** Days-to-expiry at purchase: expiry (parsed from the OCC symbol) minus the fill date. */
+function dteAtPurchase(symbol: string, time: string): number | null {
+  const m = symbol.match(/(\d{2})(\d{2})(\d{2})[CP]\d{8}$/);
+  if (!m) return null;
+  const expiry = Date.UTC(2000 + +m[1], +m[2] - 1, +m[3], 23, 59, 59);
+  return Math.round((expiry - new Date(time).getTime()) / 86_400_000);
+}
+
+/** Default include state: count it as the hedge only if opened long-dated (≥ HEDGE_MIN_DTE). */
+function autoIncluded(dte: number | null): boolean {
+  return dte === null ? true : dte >= HEDGE_MIN_DTE;
+}
 
 // ---------------------------------------------------------------------------
 // Live greeks — modeled off QQQ spot + ^VXN, matching the backtest's pricing.
@@ -255,7 +280,7 @@ function buildHedgeActions(
           priority: 3,
           color: "teal",
           icon: <IconArrowDown size={14} />,
-          title: `Buy ${t.def.label} — ${haveLabel}`,
+          title: `Buy ${t.def.label} now — ${haveLabel}`,
           detail,
           daysAway: 0,
         });
@@ -265,7 +290,7 @@ function buildHedgeActions(
           priority: 4,
           color: "gray",
           icon: <IconClock size={14} />,
-          title: `${t.def.label}: next rung (${haveLabel})`,
+          title: `${t.def.label}: next buy ${fmtDate(isoInDays(waitDays))} (${haveLabel})`,
           detail: `${detail} · stagger ${spacingLabel(t.spacingDays)}`,
           daysAway: waitDays,
         });
@@ -275,16 +300,17 @@ function buildHedgeActions(
 
   const sorted = [...actions].sort((a, b) => a.priority - b.priority || a.daysAway - b.daysAway);
 
-  // Ladder full and nothing due — surface the soonest roll so there's always a next step.
+  // Ladder full and nothing due — the next buy is the soonest roll-and-replace.
   if (sorted.length === 0 && openPuts.length > 0) {
     const soonest = openPuts.reduce((m, p) => Math.min(m, daysUntil(p.expiry)), Infinity);
+    const rollIn = Math.max(0, soonest - ROLL_AT_DTE);
     sorted.push({
       priority: 6,
       color: "gray",
       icon: <IconShield size={14} />,
-      title: "Hedge ladder complete — nothing to buy",
-      detail: `Soonest put expires in ${soonest}d; roll it at ${ROLL_AT_DTE}d left.`,
-      daysAway: Math.max(0, soonest - ROLL_AT_DTE),
+      title: `Hedge ladder complete — next buy ${fmtDate(isoInDays(rollIn))}`,
+      detail: `Soonest put expires in ${soonest}d; roll-and-replace it at ${ROLL_AT_DTE}d left.`,
+      daysAway: rollIn,
     });
   }
 
@@ -735,12 +761,114 @@ function BudgetRow({
 }
 
 // ---------------------------------------------------------------------------
+// Budget orders — pick which QQQ-put buys count toward the budget
+// ---------------------------------------------------------------------------
+
+interface BudgetOrder {
+  id: number;
+  time: string;
+  symbol: string;
+  strike: number;
+  contracts: number;
+  premium: number;
+  dteAtPurchase: number | null;
+  /** True when the DTE rule auto-excludes this buy (short-dated, non-hedge). */
+  autoExcluded: boolean;
+  included: boolean;
+}
+
+/** One selectable buy row (checkbox + details + premium). */
+function BudgetOrderRow({ o, onToggle }: { o: BudgetOrder; onToggle: (id: number) => void }) {
+  return (
+    <Group justify="space-between" wrap="nowrap" gap="xs">
+      <Checkbox
+        size="xs"
+        checked={o.included}
+        onChange={() => onToggle(o.id)}
+        label={
+          <Text size="xs" c={o.included ? undefined : "dimmed"}>
+            {fmtDate(o.time)} · ${o.strike.toFixed(0)} P ×{o.contracts}
+            {o.dteAtPurchase !== null && (
+              <Text span size="9px" c="dimmed"> · {o.dteAtPurchase}d DTE at buy</Text>
+            )}
+          </Text>
+        }
+      />
+      <Text size="xs" fw={600} c={o.included ? undefined : "dimmed"} td={o.included ? undefined : "line-through"}>
+        {fmtMoney(o.premium)}
+      </Text>
+    </Group>
+  );
+}
+
+function BudgetOrdersPanel({ orders, onToggle }: { orders: BudgetOrder[]; onToggle: (id: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const [autoOpen, setAutoOpen] = useState(false);
+  if (orders.length === 0) return null;
+  const includedCount = orders.filter((o) => o.included).length;
+  const hedgeBuys = orders.filter((o) => !o.autoExcluded);
+  const autoExcluded = orders.filter((o) => o.autoExcluded);
+  return (
+    <Paper radius={CARD_RADIUS} p="sm" withBorder>
+      <UnstyledButton onClick={() => setOpen((s) => !s)} style={{ width: "100%" }}>
+        <Group justify="space-between" wrap="nowrap" gap="xs">
+          <Text size="xs" fw={700} tt="uppercase" style={CARD_LABEL_STYLE}>
+            QQQ put buys in budget ({includedCount}/{orders.length})
+          </Text>
+          <IconChevronDown
+            size={14}
+            style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s", color: "var(--mantine-color-dimmed)" }}
+          />
+        </Group>
+      </UnstyledButton>
+      <Collapse in={open}>
+        <Stack gap={6} mt="xs">
+          <Text size="9px" c="dimmed">
+            Short-dated buys (under {HEDGE_MIN_DTE}d to expiry) are auto-excluded as non-hedge; check or
+            uncheck any to override what counts against this year&apos;s hedge budget.
+          </Text>
+
+          {hedgeBuys.length === 0 ? (
+            <Text size="xs" c="dimmed">No long-dated hedge buys yet.</Text>
+          ) : (
+            hedgeBuys.map((o) => <BudgetOrderRow key={o.id} o={o} onToggle={onToggle} />)
+          )}
+
+          {/* Auto-excluded short-dated buys — nested accordion under the list */}
+          {autoExcluded.length > 0 && (
+            <Box mt={4}>
+              <Divider mb={6} opacity={0.4} />
+              <UnstyledButton onClick={() => setAutoOpen((s) => !s)} style={{ width: "100%" }}>
+                <Group justify="space-between" wrap="nowrap" gap="xs">
+                  <Text size="9px" tt="uppercase" c="dimmed" style={CARD_LABEL_STYLE}>
+                    Auto-excluded · short-dated ({autoExcluded.length})
+                  </Text>
+                  <IconChevronDown
+                    size={12}
+                    style={{ transform: autoOpen ? "rotate(180deg)" : "none", transition: "transform .15s", color: "var(--mantine-color-dimmed)" }}
+                  />
+                </Group>
+              </UnstyledButton>
+              <Collapse in={autoOpen}>
+                <Stack gap={6} mt={6}>
+                  {autoExcluded.map((o) => <BudgetOrderRow key={o.id} o={o} onToggle={onToggle} />)}
+                </Stack>
+              </Collapse>
+            </Box>
+          )}
+        </Stack>
+      </Collapse>
+    </Paper>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 export default function PutHedgePanel() {
   const color = useAccountColor();
-  const { activeAccount, balances, allOptionPositions, filledOptionOrders } = useApp();
+  const { activeAccount, balances, allOptionPositions, filledOptionOrders, updateAccountSettings } = useApp();
 
   const [market, setMarket] = useState<MarketData | null>(null);
   const [marketLoading, setMarketLoading] = useState(true);
@@ -815,21 +943,69 @@ export default function PutHedgePanel() {
     [plan, activePuts, qqqSpot, market?.vxnPct],
   );
 
-  // YTD hedge spend: premium paid on QQQ-put opens this calendar year, less any
-  // recovered by monetizing. OCC symbol = 6-char root + 6-digit date + C/P + strike.
+  // Order IDs the user has manually flipped away from their DTE-based default.
+  const flippedBudgetIds = useMemo(
+    () => new Set(activeAccount?.settings.hedgeBudgetFlippedOrderIds ?? []),
+    [activeAccount?.settings.hedgeBudgetFlippedOrderIds],
+  );
+
+  // This year's QQQ-put buys, with include state = DTE default XOR manual flip.
+  const budgetOrders = useMemo<BudgetOrder[]>(() => {
+    const year = new Date().getFullYear();
+    return filledOptionOrders
+      .filter(
+        (o) =>
+          o.underlyingSymbol === INSTRUMENT &&
+          o.instruction === "BUY_TO_OPEN" &&
+          /P\d{8}$/.test(o.symbol) &&
+          new Date(o.time).getFullYear() === year,
+      )
+      .map((o) => {
+        const m = o.symbol.match(/P(\d{8})$/);
+        const dte = dteAtPurchase(o.symbol, o.time);
+        const auto = autoIncluded(dte);
+        const included = auto !== flippedBudgetIds.has(o.orderId); // XOR with manual flip
+        return {
+          id: o.orderId,
+          time: o.time,
+          symbol: o.symbol,
+          strike: m ? parseInt(m[1], 10) / 1000 : 0,
+          contracts: o.contracts,
+          premium: Math.abs(o.total),
+          dteAtPurchase: dte,
+          autoExcluded: !auto,
+          included,
+        };
+      })
+      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+  }, [filledOptionOrders, flippedBudgetIds]);
+
+  // YTD hedge spend: premium paid on the *included* buys, less premium recovered
+  // by closing those same contracts (matched by OCC symbol).
   const budgetSpent = useMemo(() => {
     const year = new Date().getFullYear();
-    let paid = 0;
+    const includedSymbols = new Set(budgetOrders.filter((o) => o.included).map((o) => o.symbol));
+    const paid = budgetOrders.filter((o) => o.included).reduce((s, o) => s + o.premium, 0);
     let recovered = 0;
     for (const o of filledOptionOrders) {
-      if (o.symbol.slice(0, 6).trim() !== INSTRUMENT) continue;
-      if (!/P\d{8}$/.test(o.symbol)) continue; // puts only
+      if (o.instruction !== "SELL_TO_CLOSE") continue;
+      if (!includedSymbols.has(o.symbol)) continue;
       if (new Date(o.time).getFullYear() !== year) continue;
-      if (o.instruction === "BUY_TO_OPEN") paid += Math.abs(o.total);
-      else if (o.instruction === "SELL_TO_CLOSE") recovered += Math.abs(o.total);
+      recovered += Math.abs(o.total);
     }
     return { paid, recovered };
-  }, [filledOptionOrders]);
+  }, [filledOptionOrders, budgetOrders]);
+
+  const toggleBudgetOrder = useCallback(
+    (id: number) => {
+      if (!activeAccount) return;
+      const cur = new Set(activeAccount.settings.hedgeBudgetFlippedOrderIds ?? []);
+      if (cur.has(id)) cur.delete(id);
+      else cur.add(id);
+      updateAccountSettings(activeAccount.accountNumber, { hedgeBudgetFlippedOrderIds: [...cur] });
+    },
+    [activeAccount, updateAccountSettings],
+  );
 
   return (
     <Stack gap="lg">
@@ -881,6 +1057,7 @@ export default function PutHedgePanel() {
             recovered={budgetSpent.recovered}
           />
 
+          <BudgetOrdersPanel orders={budgetOrders} onToggle={toggleBudgetOrder} />
 
           {activeTqqqValue === 0 && (
             <Alert color="gray" icon={<IconInfoCircle size={16} />} radius={CARD_RADIUS}>

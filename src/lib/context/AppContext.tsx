@@ -19,6 +19,8 @@ export interface AccountSettings {
   callSafetyLevels: number | null;
   putSafetyLevels: number | null;
   levelResetDate: Date | null;
+  /** QQQ-put order IDs the user manually flipped from their DTE-based budget default. */
+  hedgeBudgetFlippedOrderIds: number[] | null;
 }
 
 export interface Account {
@@ -41,6 +43,7 @@ const DEFAULT_SETTINGS: AccountSettings = {
   callSafetyLevels: 8,
   putSafetyLevels: 8,
   levelResetDate: null,
+  hedgeBudgetFlippedOrderIds: null,
 };
 
 export interface Quote {

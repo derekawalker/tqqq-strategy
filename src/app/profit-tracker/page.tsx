@@ -283,6 +283,7 @@ export default function ProfitPage() {
     };
 
     for (const o of filledOptionOrders) {
+      if (o.underlyingSymbol !== "TQQQ") continue; // exclude QQQ hedge — tracked on the Hedge page
       const entry = getEntry(o.symbol);
       if (o.instruction === "SELL_TO_OPEN") {
         entry.stos.push(o);

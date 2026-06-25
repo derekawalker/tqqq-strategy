@@ -75,7 +75,9 @@ export function parseFilledOptionOrder(order: any, accountNumber: string): Fille
   for (const leg of order.legs ?? []) {
     if (leg["instrument-type"] !== "Equity Option") continue;
     const sym: string = leg.symbol ?? "";
-    if (!sym.includes("TQQQ")) continue;
+    // OCC root is the symbol padded to 6 chars, e.g. "TQQQ  …" / "QQQ   …".
+    const underlyingSymbol = sym.slice(0, 6).trim();
+    if (underlyingSymbol !== "TQQQ" && underlyingSymbol !== "QQQ") continue;
     const instruction = actionToInstruction(leg.action ?? "");
     if (!instruction) continue;
     const { totalValue, totalQty } = legFillTotals(leg);
@@ -87,6 +89,7 @@ export function parseFilledOptionOrder(order: any, accountNumber: string): Fille
       orderId: order.id,
       accountNumber,
       instruction,
+      underlyingSymbol,
       symbol: sym.trim(),
       contracts: totalQty,
       fillPrice,

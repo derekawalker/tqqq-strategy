@@ -49,6 +49,7 @@ export const DEMO_ACCOUNT_CONFIG: Account[] = [
       callSafetyLevels: 8,
       putSafetyLevels: 8,
       levelResetDate: null,
+      hedgeBudgetFlippedOrderIds: null,
     },
   },
   {
@@ -67,6 +68,7 @@ export const DEMO_ACCOUNT_CONFIG: Account[] = [
       callSafetyLevels: 8,
       putSafetyLevels: 8,
       levelResetDate: null,
+      hedgeBudgetFlippedOrderIds: null,
     },
   },
   {
@@ -85,6 +87,7 @@ export const DEMO_ACCOUNT_CONFIG: Account[] = [
       callSafetyLevels: 8,
       putSafetyLevels: 8,
       levelResetDate: null,
+      hedgeBudgetFlippedOrderIds: null,
     },
   },
 ];
@@ -172,21 +175,21 @@ export const DEMO_DATA: SchwabData = {
     // Options fees: optRegFee ≈ $0.02955/contract + tafFee ≈ $0.002/contract ≈ ~$0.032/contract
     // ── Account A ────────────────────────────────────────────────────────────
     // Currently open positions
-    { orderId: 10001001, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260417P00055000", contracts: 2, fillPrice: 1.45, total:  290.00, fees: -0.06, time: daysAgo(30) },
-    { orderId: 10001002, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260515P00045000", contracts: 3, fillPrice: 0.90, total:  270.00, fees: -0.10, time: daysAgo(14) },
-    { orderId: 10001003, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260417C00050000", contracts: 2, fillPrice: 0.72, total:  144.00, fees: -0.06, time: daysAgo(10) },
-    { orderId: 10001004, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260515C00062000", contracts: 2, fillPrice: 0.55, total:  110.00, fees: -0.06, time: daysAgo(30) },
+    { orderId: 10001001, accountNumber: A, instruction: "SELL_TO_OPEN", underlyingSymbol: "TQQQ", symbol: "TQQQ260417P00055000", contracts: 2, fillPrice: 1.45, total:  290.00, fees: -0.06, time: daysAgo(30) },
+    { orderId: 10001002, accountNumber: A, instruction: "SELL_TO_OPEN", underlyingSymbol: "TQQQ", symbol: "TQQQ260515P00045000", contracts: 3, fillPrice: 0.90, total:  270.00, fees: -0.10, time: daysAgo(14) },
+    { orderId: 10001003, accountNumber: A, instruction: "SELL_TO_OPEN", underlyingSymbol: "TQQQ", symbol: "TQQQ260417C00050000", contracts: 2, fillPrice: 0.72, total:  144.00, fees: -0.06, time: daysAgo(10) },
+    { orderId: 10001004, accountNumber: A, instruction: "SELL_TO_OPEN", underlyingSymbol: "TQQQ", symbol: "TQQQ260515C00062000", contracts: 2, fillPrice: 0.55, total:  110.00, fees: -0.06, time: daysAgo(30) },
     // Expired (March 20 cycle)
-    { orderId: 10001005, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260320P00048000", contracts: 3, fillPrice: 1.15, total:  345.00, fees: -0.10, time: daysAgo(42) },
-    { orderId: 10001006, accountNumber: A, instruction: "SELL_TO_OPEN", symbol: "TQQQ260320C00058000", contracts: 1, fillPrice: 0.80, total:   80.00, fees: -0.03, time: daysAgo(42) },
+    { orderId: 10001005, accountNumber: A, instruction: "SELL_TO_OPEN", underlyingSymbol: "TQQQ", symbol: "TQQQ260320P00048000", contracts: 3, fillPrice: 1.15, total:  345.00, fees: -0.10, time: daysAgo(42) },
+    { orderId: 10001006, accountNumber: A, instruction: "SELL_TO_OPEN", underlyingSymbol: "TQQQ", symbol: "TQQQ260320C00058000", contracts: 1, fillPrice: 0.80, total:   80.00, fees: -0.03, time: daysAgo(42) },
     // ── Account C ────────────────────────────────────────────────────────────
     // Currently open positions
-    { orderId: 30001001, accountNumber: C, instruction: "SELL_TO_OPEN", symbol: "TQQQ260417P00057000", contracts: 3, fillPrice: 0.95, total:  285.00, fees: -0.10, time: daysAgo(28) },
-    { orderId: 30001002, accountNumber: C, instruction: "SELL_TO_OPEN", symbol: "TQQQ260515P00044000", contracts: 4, fillPrice: 0.85, total:  340.00, fees: -0.13, time: daysAgo(14) },
-    { orderId: 30001003, accountNumber: C, instruction: "SELL_TO_OPEN", symbol: "TQQQ260515C00064000", contracts: 3, fillPrice: 0.42, total:  126.00, fees: -0.10, time: daysAgo(28) },
+    { orderId: 30001001, accountNumber: C, instruction: "SELL_TO_OPEN", underlyingSymbol: "TQQQ", symbol: "TQQQ260417P00057000", contracts: 3, fillPrice: 0.95, total:  285.00, fees: -0.10, time: daysAgo(28) },
+    { orderId: 30001002, accountNumber: C, instruction: "SELL_TO_OPEN", underlyingSymbol: "TQQQ", symbol: "TQQQ260515P00044000", contracts: 4, fillPrice: 0.85, total:  340.00, fees: -0.13, time: daysAgo(14) },
+    { orderId: 30001003, accountNumber: C, instruction: "SELL_TO_OPEN", underlyingSymbol: "TQQQ", symbol: "TQQQ260515C00064000", contracts: 3, fillPrice: 0.42, total:  126.00, fees: -0.10, time: daysAgo(28) },
     // Expired (March 20 cycle)
-    { orderId: 30001004, accountNumber: C, instruction: "SELL_TO_OPEN", symbol: "TQQQ260320P00050000", contracts: 4, fillPrice: 1.10, total:  440.00, fees: -0.13, time: daysAgo(42) },
-    { orderId: 30001005, accountNumber: C, instruction: "SELL_TO_OPEN", symbol: "TQQQ260320C00060000", contracts: 2, fillPrice: 0.65, total:  130.00, fees: -0.06, time: daysAgo(42) },
+    { orderId: 30001004, accountNumber: C, instruction: "SELL_TO_OPEN", underlyingSymbol: "TQQQ", symbol: "TQQQ260320P00050000", contracts: 4, fillPrice: 1.10, total:  440.00, fees: -0.13, time: daysAgo(42) },
+    { orderId: 30001005, accountNumber: C, instruction: "SELL_TO_OPEN", underlyingSymbol: "TQQQ", symbol: "TQQQ260320C00060000", contracts: 2, fillPrice: 0.65, total:  130.00, fees: -0.06, time: daysAgo(42) },
   ],
 
   expiredOptionOrders: [

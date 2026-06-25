@@ -27,6 +27,7 @@ export interface FilledOptionOrder {
   orderId: number;
   accountNumber: string;
   instruction: "SELL_TO_OPEN" | "BUY_TO_CLOSE" | "BUY_TO_OPEN" | "SELL_TO_CLOSE";
+  underlyingSymbol: string; // "TQQQ" (ladder) or "QQQ" (hedge)
   symbol: string;
   contracts: number;
   fillPrice: number;  // per share (×100 for total per contract)
@@ -166,7 +167,7 @@ export function parseFilledOptionOrder(order: RawSchwabOrder, accountNumber: str
   const legs: RawOrderLeg[] = order.orderLegCollection ?? [];
   const optionLegs = legs.filter((leg) =>
     leg.orderLegType === "OPTION" &&
-    leg.instrument?.underlyingSymbol === "TQQQ" &&
+    ["TQQQ", "QQQ"].includes(leg.instrument?.underlyingSymbol ?? "") &&
     ["SELL_TO_OPEN", "BUY_TO_CLOSE", "BUY_TO_OPEN", "SELL_TO_CLOSE"].includes(leg.instruction ?? "")
   );
   if (optionLegs.length === 0) return [];
@@ -188,6 +189,7 @@ export function parseFilledOptionOrder(order: RawSchwabOrder, accountNumber: str
   for (const leg of optionLegs) {
     const instruction = leg.instruction as FilledOptionOrder["instruction"];
     const symbol: string = leg.instrument?.symbol ?? "";
+    const underlyingSymbol: string = leg.instrument?.underlyingSymbol ?? "";
     const fill = leg.legId != null ? legFills.get(leg.legId) : undefined;
 
     let totalValue = 0;
@@ -213,7 +215,7 @@ export function parseFilledOptionOrder(order: RawSchwabOrder, accountNumber: str
     const isDebit = instruction === "BUY_TO_CLOSE" || instruction === "BUY_TO_OPEN";
     const total = isDebit ? -gross : gross;
 
-    result.push({ orderId: order.orderId, accountNumber, instruction, symbol, contracts: totalContracts, fillPrice, total, fees: 0, time: order.closeTime });
+    result.push({ orderId: order.orderId, accountNumber, instruction, underlyingSymbol, symbol, contracts: totalContracts, fillPrice, total, fees: 0, time: order.closeTime });
   }
   return result;
 }
