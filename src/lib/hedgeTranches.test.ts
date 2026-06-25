@@ -36,12 +36,16 @@ describe("classifyTranche", () => {
 describe("buildTranchePlan", () => {
   const base = { tqqqValue: 100_000, spot: 500, vxnPct: 22, annualBudgetPct: 0.02 };
 
-  it("only sizes active (budgetShare > 0) tranches and prices the deeper one cheaper", () => {
+  it("only sizes active (budgetShare > 0) tranches with correct strike ordering", () => {
     const plan = buildTranchePlan(base);
     expect(plan.map((t) => t.def.key)).toEqual(["crash", "catastrophe"]);
     const [crash, catastrophe] = plan;
-    expect(crash.estPremiumPerContract).toBeGreaterThan(catastrophe.estPremiumPerContract);
+    // Catastrophe strike is deeper OTM (lower absolute strike).
     expect(catastrophe.strike).toBeLessThan(crash.strike);
+    // Catastrophe uses a longer DTE (365d) than crash (180d), so it costs more
+    // per contract — but fewer rolls per year means cheaper annualized carry.
+    expect(catastrophe.def.dte).toBeGreaterThan(crash.def.dte);
+    expect(catastrophe.estPremiumPerContract).toBeGreaterThan(crash.estPremiumPerContract);
   });
 
   it("caps deep tranches by notional so they don't balloon into hundreds of contracts", () => {

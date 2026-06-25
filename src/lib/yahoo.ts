@@ -11,13 +11,9 @@ export interface YahooBar {
   open: number;
 }
 
-export async function fetchYahooDaily(
-  symbol: string,
-  rangeYears: number | "max" = 3,
-): Promise<YahooBar[]> {
+async function fetchYahooChart(symbol: string, query: string): Promise<YahooBar[]> {
   const encoded = encodeURIComponent(symbol);
-  const range = rangeYears === "max" ? "max" : `${rangeYears}y`;
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1d&range=${range}`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?interval=1d&${query}`;
   const res = await fetch(url, {
     headers: { "User-Agent": "Mozilla/5.0" },
     // Cache for 1 hour — daily bars don't change mid-day.
@@ -51,6 +47,30 @@ export async function fetchYahooDaily(
     });
   }
   return out;
+}
+
+export async function fetchYahooDaily(
+  symbol: string,
+  rangeYears: number | "max" = 3,
+): Promise<YahooBar[]> {
+  const range = rangeYears === "max" ? "max" : `${rangeYears}y`;
+  return fetchYahooChart(symbol, `range=${range}`);
+}
+
+/**
+ * Daily bars for an explicit date window via Yahoo's period1/period2 (Unix
+ * seconds). Unlike `range=max`, this reliably returns *daily* granularity for
+ * historical windows — `range=max` silently downgrades to monthly bars, which
+ * is useless for a backtest. `start`/`end` are YYYY-MM-DD (inclusive).
+ */
+export async function fetchYahooDailyRange(
+  symbol: string,
+  start: string,
+  end: string,
+): Promise<YahooBar[]> {
+  const period1 = Math.floor(new Date(start + "T00:00:00Z").getTime() / 1000);
+  const period2 = Math.floor(new Date(end + "T23:59:59Z").getTime() / 1000);
+  return fetchYahooChart(symbol, `period1=${period1}&period2=${period2}`);
 }
 
 /** Build a date→close map from Yahoo bars for fast lookup. */

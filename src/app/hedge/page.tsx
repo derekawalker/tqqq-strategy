@@ -45,6 +45,7 @@ import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { CARD_RADIUS } from "@/lib/cardStyles";
 import { fmtDate } from "@/lib/format";
 import PutHedgePanel from "./PutHedgePanel";
+import HedgeBacktestPanel from "./HedgeBacktestPanel";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -984,10 +985,14 @@ export default function BacktestPage() {
     <Tabs defaultValue="hedge" color={color} keepMounted={false}>
       <Tabs.List mb="md">
         <Tabs.Tab value="hedge">Put hedge</Tabs.Tab>
+        <Tabs.Tab value="hedge-backtest">Hedge backtest</Tabs.Tab>
         <Tabs.Tab value="ladder">Ladder strategy</Tabs.Tab>
       </Tabs.List>
       <Tabs.Panel value="hedge">
         <PutHedgePanel />
+      </Tabs.Panel>
+      <Tabs.Panel value="hedge-backtest">
+        <HedgeBacktestPanel />
       </Tabs.Panel>
       <Tabs.Panel value="ladder">
         <LadderBacktest />

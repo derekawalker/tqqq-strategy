@@ -3,23 +3,24 @@
  * strategy: don't pay up to insure ordinary 10–15% dips (you're busy buying
  * those) — spend on the long-bear and catastrophe tail instead.
  *
- *   - Crash       (−30% OTM on TQQQ) — liquid strikes, core long-bear cover.
- *   - Catastrophe (−50% OTM on TQQQ) — deep tail insurance; big payoff in a
- *                              2008/2020-style crash, still listed/tradeable.
- *   - Workhorse   (~20% OTM on TQQQ) — shallow cover for ordinary drawdowns.
- *                              Off by default (budgetShare 0); kept here so open
- *                              positions at that depth still classify/display.
+ * Strategy (QQQ instrument, recommended):
+ *   - Crash       (−25% OTM on QQQ, 180-day puts, Jan + Jul)
+ *                 Core long-bear cover. Rolls twice a year; liquid strikes.
+ *   - Catastrophe (−35% OTM on QQQ, 365-day LEAPS, Jan only)
+ *                 Deep tail insurance. Annual buy; maximum theta efficiency.
+ *   - Workhorse   (~12% OTM) — off by default; you buy ordinary dips.
  *
- * Sizing uses *two* constraints and takes the smaller:
- *   1. Budget — each active tranche gets a share of the annual premium budget
- *      (a % of TQQQ value) and buys what that affords.
- *   2. Notional cap — a ceiling on how much TQQQ notional a tranche may cover,
- *      so the cheap deep tranches don't balloon into hundreds of unfillable
- *      lottery-ticket contracts when handed a big budget slice.
+ * A QQQ −25% move ≈ TQQQ −55–60%; QQQ −35% ≈ TQQQ −75%+.
+ * Using QQQ puts instead of TQQQ puts: far more liquid, tighter spreads,
+ * tradeable at any DTE. TQQQ puts remain available as an alternate instrument.
  *
- * Premiums are modeled with the same Black-Scholes used by the backtester, off
- * the ^VXN implied-vol input, with a mild linear skew so the deep-OTM tranches
- * aren't priced too cheaply (real put skew makes tails richer than ATM IV) — or
+ * Sizing uses two constraints and takes the smaller:
+ *   1. Budget  — each active tranche gets a share of the annual premium budget
+ *      (a % of TQQQ value) and buys what that affords at its target DTE.
+ *   2. Notional cap — a ceiling on how much TQQQ notional a tranche may cover.
+ *
+ * Premiums are modeled with Black-Scholes off the ^VXN implied-vol input, with
+ * a mild linear skew so deep-OTM tranches aren't priced too cheaply — or
  * replaced by live option-chain marks via an optional resolver.
  *
  * All functions here are pure — feed them current prices and a budget.
@@ -36,42 +37,49 @@ export interface TrancheDef {
   key: TrancheKey;
   label: string;
   desc: string;
-  /** Strike / spot. 0.88 = a 12%-out-of-the-money put. */
+  /** Strike / spot. 0.75 = a 25%-out-of-the-money put on QQQ. */
   moneyness: number;
   /** Fraction of the annual premium budget allotted to this tranche. 0 = off. */
   budgetShare: number;
-  /** Ceiling on TQQQ notional this tranche may cover, as a multiple of TQQQ
-   *  value — caps cheap deep tranches so they don't balloon in contract count. */
+  /** Ceiling on TQQQ notional this tranche may cover, as a multiple of TQQQ value. */
   maxCoverage: number;
   /** Mantine color name for badges/rows. */
   color: string;
+  /** Days to expiry to target when buying this tranche. */
+  dte: number;
+  /** Calendar months (0-indexed) in which DCA clips for this tranche are bought. */
+  buyMonths: readonly number[];
 }
 
 /**
- * Tranche sets per put instrument. The QQQ depths hedge QQQ −25% / −35% moves;
- * the TQQQ depths hedge the *same* scenarios, but because TQQQ falls ~2.3–3× as
- * fast, the equivalent strikes are far deeper (a QQQ −25% bear ≈ TQQQ −55–60%).
- * TQQQ puts hedge the held position directly, so coverage is ~1× notional, not 3×.
+ * Tranche sets per put instrument.
+ *
+ * QQQ (recommended): 6-month crash puts + 1-year catastrophe LEAPS.
+ * TQQQ: legacy instrument with 90-day puts at equivalent depths.
  */
 export const TRANCHE_SETS: Record<HedgeInstrument, TrancheDef[]> = {
   QQQ: [
     {
       key: "crash",
       label: "Crash",
-      desc: "Core long-bear / fast-crash cover (≈ QQQ −25%).",
+      desc: "Core long-bear cover (≈ QQQ −25%) — 6-month puts, rolled twice a year.",
       moneyness: 0.75,
       budgetShare: 0.6,
       maxCoverage: 3,
       color: "orange",
+      dte: 180,
+      buyMonths: [0, 6] as const, // Jan + Jul
     },
     {
       key: "catastrophe",
       label: "Catastrophe",
-      desc: "Deep tail insurance (≈ QQQ −35%) — cheap, max convexity in a 2008/2020 event.",
+      desc: "Deep tail insurance (≈ QQQ −35%) — annual LEAPS, maximum theta efficiency.",
       moneyness: 0.65,
       budgetShare: 0.4,
       maxCoverage: 1.5,
       color: "red",
+      dte: 365,
+      buyMonths: [0] as const, // Jan only
     },
     {
       key: "workhorse",
@@ -81,6 +89,8 @@ export const TRANCHE_SETS: Record<HedgeInstrument, TrancheDef[]> = {
       budgetShare: 0,
       maxCoverage: 2,
       color: "teal",
+      dte: 60,
+      buyMonths: [] as const,
     },
   ],
   TQQQ: [
@@ -92,6 +102,8 @@ export const TRANCHE_SETS: Record<HedgeInstrument, TrancheDef[]> = {
       budgetShare: 0.6,
       maxCoverage: 1.5,
       color: "orange",
+      dte: 90,
+      buyMonths: [0, 6] as const,
     },
     {
       key: "catastrophe",
@@ -101,6 +113,8 @@ export const TRANCHE_SETS: Record<HedgeInstrument, TrancheDef[]> = {
       budgetShare: 0.4,
       maxCoverage: 1.0,
       color: "red",
+      dte: 90,
+      buyMonths: [0] as const,
     },
     {
       key: "workhorse",
@@ -110,6 +124,8 @@ export const TRANCHE_SETS: Record<HedgeInstrument, TrancheDef[]> = {
       budgetShare: 0,
       maxCoverage: 1.5,
       color: "teal",
+      dte: 60,
+      buyMonths: [] as const,
     },
   ],
 };
@@ -122,23 +138,32 @@ const IV_SCALE: Record<HedgeInstrument, number> = { QQQ: 1, TQQQ: 3 };
 /** Dividend yield of the put underlying. */
 const DIV_YIELD: Record<HedgeInstrument, number> = { QQQ: 0.006, TQQQ: 0 };
 
-/** Default days to expiry to buy at (QQQ). */
-export const HEDGE_DTE = 60;
-/**
- * Suggested DTE per instrument. Deep-OTM TQQQ puts have no market at 60 days —
- * the bids/asks only show up ~90 days out — so TQQQ buys longer-dated.
- */
-export const HEDGE_DTE_BY_INSTRUMENT: Record<HedgeInstrument, number> = { QQQ: 60, TQQQ: 90 };
+/** Fallback DTE per instrument when a tranche doesn't specify one. */
+export const HEDGE_DTE_BY_INSTRUMENT: Record<HedgeInstrument, number> = { QQQ: 180, TQQQ: 90 };
 /** Roll/replace a clip once it decays to this many days left. */
 export const ROLL_AT_DTE = 21;
-/** Dollar-cost-average each tranche's target over this many weekly clips. */
-export const WEEKS_PER_CYCLE = 5;
+/** Dollar-cost-average each tranche's window target over this many weekly clips. */
+export const WEEKS_PER_CYCLE = 3;
+/** Number of DCA clips per buy window (= WEEKS_PER_CYCLE). */
+export const DCA_WEEKS = 3;
+/** Calendar days in a DCA window (first ~3 weeks of the buy month). */
+export const DCA_WINDOW_DAYS = 21;
+/** Pause buying when ^VXN is above this threshold — IV too expensive. */
+export const VIX_PAUSE_THRESHOLD = 25;
+/** Close half a position when it has gained this fraction of its cost basis. */
+export const PROFIT_TAKE_PCT = 1.5;
+/** Monetize a put once its |delta| reaches this — the crash harvest trigger. */
+export const MONETIZE_DELTA = 0.45;
+/** Linear vol skew used for live greeks/pricing (matches the model SKEW). */
+export const LIVE_SKEW = 0.8;
 
 const RISK_FREE = 0.04;
 /** Linear vol skew: deeper-OTM puts carry richer IV than the ATM ^VXN level. */
 const SKEW = 0.8;
 /** Fallback IV (as a fraction) when ^VXN is unavailable. */
 const DEFAULT_IV = 0.22;
+
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 /** Skew-adjusted implied vol for a given moneyness. */
 function ivFor(baseIv: number, moneyness: number): number {
@@ -163,6 +188,66 @@ export function classifyTranche(
   return defs[defs.length - 1].key;
 }
 
+/** Status of the buy window for a tranche relative to a given date. */
+export interface BuyWindowStatus {
+  /** True when today falls within the DCA window (first DCA_WINDOW_DAYS of a buy month). */
+  inWindow: boolean;
+  /** Which clip (1–DCA_WEEKS) if in window; null otherwise. */
+  clip: number | null;
+  /** Start date of the next buy window (the one after the current one if in window). */
+  nextWindowDate: Date;
+  /** Calendar days until nextWindowDate; 0 when currently in a window. */
+  daysUntilNext: number;
+  /** Short month label of the next (or current) window, e.g. "Jul". */
+  periodLabel: string;
+}
+
+/** Find the first buy month strictly after the given month (wraps to next year). */
+function findNextWindow(
+  buyMonths: readonly number[],
+  afterMonth: number,
+  afterYear: number,
+): { date: Date; label: string } {
+  for (let i = 1; i <= 12; i++) {
+    const m = (afterMonth + i) % 12;
+    const y = afterYear + Math.floor((afterMonth + i) / 12);
+    if (buyMonths.includes(m)) return { date: new Date(y, m, 1), label: MONTH_NAMES[m] };
+  }
+  return { date: new Date(afterYear + 1, buyMonths[0], 1), label: MONTH_NAMES[buyMonths[0]] };
+}
+
+/**
+ * Returns the buy-window status for a tranche on the given date.
+ * "In window" = first DCA_WINDOW_DAYS calendar days of a buy month.
+ */
+export function buyWindowStatus(def: TrancheDef, today: Date = new Date()): BuyWindowStatus {
+  const m = today.getMonth();
+  const d = today.getDate();
+  const y = today.getFullYear();
+  const months = def.buyMonths;
+
+  if (!months || months.length === 0) {
+    return { inWindow: false, clip: null, nextWindowDate: new Date(9999, 0, 1), daysUntilNext: 999999, periodLabel: '' };
+  }
+
+  if (months.includes(m) && d >= 1 && d <= DCA_WINDOW_DAYS) {
+    const clip = Math.min(DCA_WEEKS, Math.ceil(d / 7));
+    const next = findNextWindow(months, m, y);
+    return { inWindow: true, clip, nextWindowDate: next.date, daysUntilNext: 0, periodLabel: MONTH_NAMES[m] };
+  }
+
+  // Past the window this month, or a non-buy month — find upcoming window.
+  const next = findNextWindow(months, m, y);
+  const msUntil = next.date.getTime() - today.getTime();
+  return {
+    inWindow: false,
+    clip: null,
+    nextWindowDate: next.date,
+    daysUntilNext: Math.max(0, Math.ceil(msUntil / 86_400_000)),
+    periodLabel: next.label,
+  };
+}
+
 /** A live quote for a strike, supplied by an option-chain resolver. */
 export interface TrancheQuote {
   /** Actual listed strike (may differ from the ideal model strike). */
@@ -180,6 +265,8 @@ export interface TranchePlan {
   def: TrancheDef;
   /** Recommended strike — the real listed strike when priced off a live chain. */
   strike: number;
+  /** Effective DTE used for this tranche. */
+  dte: number;
   /** Full standing-stack target, in contracts. */
   targetContracts: number;
   /** Contracts to buy in a single weekly clip while building toward target. */
@@ -190,6 +277,8 @@ export interface TranchePlan {
   estAnnualPremium: number;
   /** Dollars of the annual budget allotted to this tranche. */
   annualBudget: number;
+  /** Dollars to spend in a single DCA clip (annualBudget / totalClipsPerYear). */
+  perClipBudget: number;
   /** True when the premium came from a live option-chain mark, not the model. */
   live: boolean;
 }
@@ -201,9 +290,8 @@ export interface TranchePlan {
  * @param spot            current spot of the put underlying (QQQ or TQQQ price)
  * @param vxnPct          ^VXN level (e.g. 22 for 22%); null → DEFAULT_IV
  * @param annualBudgetPct annual premium budget as a fraction of tqqqValue
- *                        (0.02 = 2%/yr)
- * @param instrument      put underlying (default "QQQ"); "TQQQ" uses deeper
- *                        strikes and ~3× IV
+ *                        (0.03 = 3%/yr)
+ * @param instrument      put underlying (default "QQQ")
  */
 export function buildTranchePlan(opts: {
   tqqqValue: number;
@@ -217,16 +305,15 @@ export function buildTranchePlan(opts: {
 }): TranchePlan[] {
   const { tqqqValue, spot, vxnPct, annualBudgetPct, resolver } = opts;
   const instrument = opts.instrument ?? "QQQ";
-  const dte = HEDGE_DTE_BY_INSTRUMENT[instrument];
   const baseIv = (vxnPct != null && vxnPct > 0 ? vxnPct / 100 : DEFAULT_IV) * IV_SCALE[instrument];
   const div = DIV_YIELD[instrument];
   const totalBudget = Math.max(0, tqqqValue) * Math.max(0, annualBudgetPct);
-  const rollsPerYear = 365 / dte;
 
   return TRANCHE_SETS[instrument].filter((def) => def.budgetShare > 0).map((def) => {
+    const dte = def.dte;
+    const rollsPerYear = 365 / dte;
     const idealStrike = Math.max(1, Math.round(spot * def.moneyness));
 
-    // Prefer a live mark; fall back to the skew-adjusted Black-Scholes model.
     const quote = resolver?.(idealStrike) ?? null;
     const live = quote != null && quote.mark > 0;
     let strike: number;
@@ -243,7 +330,6 @@ export function buildTranchePlan(opts: {
     const annualPerContract = estPremiumPerContract * rollsPerYear;
     const annualBudget = totalBudget * def.budgetShare;
 
-    // Two ceilings: what the budget affords, and a sane notional cap.
     const budgetTarget =
       annualPerContract > 0 ? Math.floor(annualBudget / annualPerContract) : 0;
     const notionalPerContract = strike * 100;
@@ -255,14 +341,19 @@ export function buildTranchePlan(opts: {
     const weeklyContracts =
       targetContracts > 0 ? Math.max(1, Math.ceil(targetContracts / WEEKS_PER_CYCLE)) : 0;
 
+    const totalClipsPerYear = def.buyMonths.length * DCA_WEEKS;
+    const perClipBudget = totalClipsPerYear > 0 ? annualBudget / totalClipsPerYear : 0;
+
     return {
       def,
       strike,
+      dte,
       targetContracts,
       weeklyContracts,
       estPremiumPerContract,
       estAnnualPremium: targetContracts * annualPerContract,
       annualBudget,
+      perClipBudget,
       live,
     };
   });
