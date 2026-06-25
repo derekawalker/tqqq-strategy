@@ -18,6 +18,9 @@ import {
   ThemeIcon,
   NumberInput,
   Divider,
+  Collapse,
+  UnstyledButton,
+  Progress,
 } from "@mantine/core";
 
 const outfit = Outfit({ subsets: ["latin"] });
@@ -30,6 +33,7 @@ import {
   IconArrowDown,
   IconCurrencyDollar,
   IconRefresh,
+  IconChevronDown,
 } from "@tabler/icons-react";
 import { useApp } from "@/lib/context/AppContext";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
@@ -149,19 +153,27 @@ interface ActionItem {
   icon: React.ReactNode;
   title: string;
   detail: string;
+  /** Days until this step is due (0 = act now). */
+  daysAway: number;
 }
 
-function TodayPanel({
-  plan,
-  openPuts,
-  qqqSpot,
-  vxnPct,
-}: {
-  plan: TranchePlan[] | null;
-  openPuts: OptionPosition[];
-  qqqSpot: number | null;
-  vxnPct: number | null;
-}) {
+/** Short "Now" / "in N days" label for a step's countdown. */
+function awayLabel(daysAway: number): string {
+  if (daysAway <= 0) return "Now";
+  if (daysAway === 1) return "1 day";
+  return `${daysAway} days`;
+}
+
+/**
+ * Build the prioritized list of hedge actions (rolls, monetize, ladder buys),
+ * sorted most-urgent first, each tagged with how many days away it is. Pure.
+ */
+function buildHedgeActions(
+  plan: TranchePlan[] | null,
+  openPuts: OptionPosition[],
+  qqqSpot: number | null,
+  vxnPct: number | null,
+): ActionItem[] {
   const actions: ActionItem[] = [];
 
   // --- Roll / profit alerts on open positions ---
@@ -175,6 +187,7 @@ function TodayPanel({
         icon: <IconAlertTriangle size={14} />,
         title: `${pos.symbol} — roll immediately`,
         detail: `Expires ${fmtDate(pos.expiry)} (${daysUntil(pos.expiry)}d). Close and reopen at target DTE for this tranche.`,
+        daysAway: 0,
       });
     } else if (rec.action === "close-profit") {
       const costTotal = Math.abs(pos.averagePrice) * pos.longQty * 100;
@@ -186,6 +199,7 @@ function TodayPanel({
         icon: <IconCurrencyDollar size={14} />,
         title: `${pos.symbol} — monetize the spike`,
         detail: `Up ${fmtPct((pos.marketValue - costTotal) / costTotal)} (+${fmtUsd(gain)})${deltaNote}. Close ~half and stage the proceeds into the dip-ladder in tranches — never deploy it all at once; a 3× ETF can keep halving.`,
+        daysAway: 0,
       });
     } else if (rec.action === "roll-soon") {
       actions.push({
@@ -194,6 +208,7 @@ function TodayPanel({
         icon: <IconRefresh size={14} />,
         title: `${pos.symbol} — roll soon`,
         detail: `${daysUntil(pos.expiry)}d left (expires ${fmtDate(pos.expiry)}). Open replacement at target DTE, then close this one.`,
+        daysAway: Math.max(0, daysUntil(pos.expiry) - ROLL_AT_DTE),
       });
     }
   }
@@ -233,6 +248,7 @@ function TodayPanel({
           icon: <IconAlertTriangle size={14} />,
           title: `${t.def.label}: VXN spiking, defer (${haveLabel})`,
           detail: `^VXN at ${vxnPct!.toFixed(1)}% (above ${VIX_PAUSE_THRESHOLD}% panic line). Let the spike settle before adding the crash leg. ${detail}`,
+          daysAway: 0,
         });
       } else if (dueNow) {
         actions.push({
@@ -241,6 +257,7 @@ function TodayPanel({
           icon: <IconArrowDown size={14} />,
           title: `Buy ${t.def.label} — ${haveLabel}`,
           detail,
+          daysAway: 0,
         });
       } else {
         const waitDays = Math.max(0, Math.round(t.spacingDays - newestEntryAge));
@@ -248,35 +265,78 @@ function TodayPanel({
           priority: 4,
           color: "gray",
           icon: <IconClock size={14} />,
-          title: `${t.def.label}: next rung in ~${waitDays}d (${haveLabel})`,
+          title: `${t.def.label}: next rung (${haveLabel})`,
           detail: `${detail} · stagger ${spacingLabel(t.spacingDays)}`,
+          daysAway: waitDays,
         });
       }
     }
   }
 
-  const sorted = [...actions].sort((a, b) => a.priority - b.priority);
-  const bg = useCardBg(sorted[0]?.color ?? "gray");
+  const sorted = [...actions].sort((a, b) => a.priority - b.priority || a.daysAway - b.daysAway);
 
-  if (sorted.length === 0) return null;
+  // Ladder full and nothing due — surface the soonest roll so there's always a next step.
+  if (sorted.length === 0 && openPuts.length > 0) {
+    const soonest = openPuts.reduce((m, p) => Math.min(m, daysUntil(p.expiry)), Infinity);
+    sorted.push({
+      priority: 6,
+      color: "gray",
+      icon: <IconShield size={14} />,
+      title: "Hedge ladder complete — nothing to buy",
+      detail: `Soonest put expires in ${soonest}d; roll it at ${ROLL_AT_DTE}d left.`,
+      daysAway: Math.max(0, soonest - ROLL_AT_DTE),
+    });
+  }
 
+  return sorted;
+}
+
+/**
+ * Combined next-steps panel: the prioritized action list with the most-urgent
+ * step (the "next step") emphasized at the top, each tagged with its countdown.
+ */
+function NextStepsPanel({ actions }: { actions: ActionItem[] }) {
+  const topColor = actions[0]?.color === "dimmed" ? "gray" : (actions[0]?.color ?? "gray");
+  const bg = useCardBg(topColor);
+  if (actions.length === 0) return null;
   return (
     <Paper radius={CARD_RADIUS} p="md" style={{ background: bg }}>
       <Text size="xs" fw={700} tt="uppercase" style={CARD_LABEL_STYLE} mb="sm">
-        Today&apos;s action
+        Next steps
       </Text>
       <Stack gap="sm">
-        {sorted.map((a, i) => (
-          <Group key={i} gap="sm" align="flex-start" wrap="nowrap">
-            <ThemeIcon size="sm" variant="light" color={a.color === "dimmed" ? "gray" : a.color} radius="xl" mt={1} style={{ flexShrink: 0 }}>
-              {a.icon}
-            </ThemeIcon>
-            <Box>
-              <Text size="sm" fw={600}>{a.title}</Text>
-              <Text size="xs" c="dimmed">{a.detail}</Text>
-            </Box>
-          </Group>
-        ))}
+        {actions.map((a, i) => {
+          const color = a.color === "dimmed" ? "gray" : a.color;
+          const isNext = i === 0;
+          return (
+            <Group key={i} gap="sm" align="flex-start" wrap="nowrap">
+              <ThemeIcon
+                size={isNext ? "md" : "sm"}
+                variant={isNext ? "filled" : "light"}
+                color={color}
+                radius="xl"
+                mt={1}
+                style={{ flexShrink: 0 }}
+              >
+                {a.icon}
+              </ThemeIcon>
+              <Box style={{ flex: 1, minWidth: 0 }}>
+                <Group justify="space-between" gap="xs" wrap="nowrap">
+                  <Text size="sm" fw={isNext ? 700 : 600}>{a.title}</Text>
+                  <Badge
+                    size={isNext ? "md" : "sm"}
+                    color={color}
+                    variant={isNext ? "filled" : "light"}
+                    style={{ flexShrink: 0 }}
+                  >
+                    {awayLabel(a.daysAway)}
+                  </Badge>
+                </Group>
+                <Text size="xs" c="dimmed">{a.detail}</Text>
+              </Box>
+            </Group>
+          );
+        })}
       </Stack>
     </Paper>
   );
@@ -287,12 +347,18 @@ function TodayPanel({
 // ---------------------------------------------------------------------------
 
 function PutCard({ pos, spot, vxnPct }: { pos: OptionPosition; spot: number | null; vxnPct: number | null }) {
+  const [showClose, setShowClose] = useState(false);
   const dte = daysUntil(pos.expiry);
   const costTotal = Math.abs(pos.averagePrice) * pos.longQty * 100;
   const pnl = pos.marketValue - costTotal;
   const pnlPct = costTotal > 0 ? pnl / costTotal : 0;
   const greeks = greeksFor(pos, spot, vxnPct);
   const rec = closeRec(pos, spot, greeks);
+
+  // Suggested closing limit: the +PROFIT_TAKE_PCT profit-take target.
+  const avgSh = Math.abs(pos.averagePrice);
+  const closeLimitSh = avgSh * (1 + PROFIT_TAKE_PCT);
+  const markSh = pos.longQty > 0 ? pos.marketValue / (pos.longQty * 100) : 0;
   const trKey = spot ? classifyTranche(pos.strike / spot, INSTRUMENT) : null;
   const tr = trKey ? TRANCHE_SETS[INSTRUMENT].find((t) => t.key === trKey) : null;
 
@@ -395,6 +461,42 @@ function PutCard({ pos, spot, vxnPct }: { pos: OptionPosition; spot: number | nu
       >
         {rec.label}
       </Badge>
+
+      {/* Suggested closing price — collapsible */}
+      <Divider opacity={0.12} mt="sm" mb={6} />
+      <UnstyledButton onClick={() => setShowClose((s) => !s)} style={{ width: "100%" }}>
+        <Group justify="space-between" gap={4} wrap="nowrap">
+          <Text size="9px" tt="uppercase" c="dimmed" style={CARD_LABEL_STYLE}>
+            Suggested close
+          </Text>
+          <Group gap={4} wrap="nowrap">
+            <Text size="xs" fw={700} c="teal.4">${closeLimitSh.toFixed(2)}/sh</Text>
+            <IconChevronDown
+              size={12}
+              style={{ transform: showClose ? "rotate(180deg)" : "none", transition: "transform .15s", color: "var(--mantine-color-dimmed)" }}
+            />
+          </Group>
+        </Group>
+      </UnstyledButton>
+      <Collapse in={showClose}>
+        <Stack gap={2} mt={6}>
+          <Group justify="space-between" wrap="nowrap">
+            <Text size="xs" c="dimmed">Limit / contract (+{Math.round(PROFIT_TAKE_PCT * 100)}%)</Text>
+            <Text size="xs" fw={600} c="teal.4">{fmtMoney(closeLimitSh * 100)}</Text>
+          </Group>
+          <Group justify="space-between" wrap="nowrap">
+            <Text size="xs" c="dimmed">All {pos.longQty} ct</Text>
+            <Text size="xs" fw={600}>{fmtMoney(closeLimitSh * 100 * pos.longQty)}</Text>
+          </Group>
+          <Group justify="space-between" wrap="nowrap">
+            <Text size="xs" c="dimmed">Current mark</Text>
+            <Text size="xs" fw={600}>${markSh.toFixed(2)}/sh</Text>
+          </Group>
+          <Text size="9px" c="dimmed" mt={2}>
+            Or sell when |Δ| ≥ {MONETIZE_DELTA} in a selloff. Close ~half and stage into the dip-ladder.
+          </Text>
+        </Stack>
+      </Collapse>
     </Paper>
   );
 }
@@ -555,6 +657,8 @@ function BudgetRow({
   vxnPct,
   qqqSpot,
   asOf,
+  spent,
+  recovered,
 }: {
   tqqqValue: number;
   budgetPct: number;
@@ -562,45 +666,70 @@ function BudgetRow({
   vxnPct: number | null;
   qqqSpot: number | null;
   asOf: string | null;
+  spent: number;
+  recovered: number;
 }) {
   const annualBudget = tqqqValue * (budgetPct / 100);
   const openCount = plan ? plan.filter(t => t.targetContracts > 0).length : 0;
   const statusColor = openCount === 0 ? "red" : openCount < (plan?.length ?? 1) ? "yellow" : "teal";
 
+  const spentPct = annualBudget > 0 ? (spent / annualBudget) * 100 : 0;
+  const remaining = annualBudget - spent;
+  const meterColor = spentPct >= 100 ? "red" : spentPct >= 80 ? "yellow" : "teal";
+  const year = new Date().getFullYear();
+
   return (
     <Paper radius={CARD_RADIUS} p="sm" style={{ background: "color-mix(in srgb, var(--mantine-color-dark-7) 60%, transparent)" }}>
-      <Group justify="space-between" align="center" wrap="wrap" gap="sm">
-        <Group gap="xs" align="center">
-          <ThemeIcon size="sm" variant="light" color={statusColor} radius="xl">
-            {openCount > 0 ? <IconShield size={12} /> : <IconShieldOff size={12} />}
-          </ThemeIcon>
-          <Group gap="xs">
-            {qqqSpot !== null && (
-              <Badge color="blue" variant="light" size="sm">QQQ ${qqqSpot.toFixed(2)}</Badge>
-            )}
-            {vxnPct !== null && (
-              <Badge color={vxnPct > VIX_PAUSE_THRESHOLD ? "red" : "grape"} variant="light" size="sm">
-                ^VXN {vxnPct.toFixed(1)}%
-              </Badge>
-            )}
-            {asOf && <Text size="xs" c="dimmed">as of {fmtDate(asOf)}</Text>}
-          </Group>
-        </Group>
-        <Group gap="md" align="center">
+      <Stack gap="xs">
+        <Group justify="space-between" align="center" wrap="wrap" gap="sm">
           <Group gap="xs" align="center">
-            <Text size="xs" c="dimmed">Annual budget</Text>
-            <Text size="xs" fw={700}>{fmtUsd(annualBudget)}</Text>
-            <Text size="xs" c="dimmed">·</Text>
-            <NumberInput
-              value={budgetPct}
-              readOnly
-              min={0.5} max={8} step={0.5}
-              suffix="%/yr" size="xs" w={100} decimalScale={1}
-              styles={{ input: { cursor: "default" } }}
-            />
+            <ThemeIcon size="sm" variant="light" color={statusColor} radius="xl">
+              {openCount > 0 ? <IconShield size={12} /> : <IconShieldOff size={12} />}
+            </ThemeIcon>
+            <Group gap="xs">
+              {qqqSpot !== null && (
+                <Badge color="blue" variant="light" size="sm">QQQ ${qqqSpot.toFixed(2)}</Badge>
+              )}
+              {vxnPct !== null && (
+                <Badge color={vxnPct > VIX_PAUSE_THRESHOLD ? "red" : "grape"} variant="light" size="sm">
+                  ^VXN {vxnPct.toFixed(1)}%
+                </Badge>
+              )}
+              {asOf && <Text size="xs" c="dimmed">as of {fmtDate(asOf)}</Text>}
+            </Group>
+          </Group>
+          <Group gap="md" align="center">
+            <Group gap="xs" align="center">
+              <Text size="xs" c="dimmed">Annual budget</Text>
+              <Text size="xs" fw={700}>{fmtUsd(annualBudget)}</Text>
+              <Text size="xs" c="dimmed">·</Text>
+              <NumberInput
+                value={budgetPct}
+                readOnly
+                min={0.5} max={8} step={0.5}
+                suffix="%/yr" size="xs" w={100} decimalScale={1}
+                styles={{ input: { cursor: "default" } }}
+              />
+            </Group>
           </Group>
         </Group>
-      </Group>
+
+        {/* Annual budget spend meter */}
+        <Box>
+          <Group justify="space-between" gap="xs" mb={4} wrap="wrap">
+            <Text size="xs" c="dimmed">
+              {year} spent <Text span fw={700} c={`${meterColor}.4`}>{fmtMoney(spent)}</Text> of {fmtUsd(annualBudget)}
+              {recovered > 0 && (
+                <Text span c="dimmed"> · {fmtMoney(recovered)} recovered</Text>
+              )}
+            </Text>
+            <Text size="xs" c={remaining < 0 ? "red.4" : "dimmed"}>
+              {remaining >= 0 ? `${fmtMoney(remaining)} left` : `${fmtMoney(-remaining)} over`} ({Math.round(spentPct)}%)
+            </Text>
+          </Group>
+          <Progress value={Math.min(100, spentPct)} color={meterColor} size="sm" radius="xl" />
+        </Box>
+      </Stack>
     </Paper>
   );
 }
@@ -611,7 +740,7 @@ function BudgetRow({
 
 export default function PutHedgePanel() {
   const color = useAccountColor();
-  const { activeAccount, balances, allOptionPositions } = useApp();
+  const { activeAccount, balances, allOptionPositions, filledOptionOrders } = useApp();
 
   const [market, setMarket] = useState<MarketData | null>(null);
   const [marketLoading, setMarketLoading] = useState(true);
@@ -680,6 +809,28 @@ export default function PutHedgePanel() {
     [activePuts, qqqSpot, plan],
   );
 
+  // Prioritized next-steps, shared by the top banner and the full action list.
+  const hedgeActions = useMemo(
+    () => buildHedgeActions(plan, activePuts, qqqSpot, market?.vxnPct ?? null),
+    [plan, activePuts, qqqSpot, market?.vxnPct],
+  );
+
+  // YTD hedge spend: premium paid on QQQ-put opens this calendar year, less any
+  // recovered by monetizing. OCC symbol = 6-char root + 6-digit date + C/P + strike.
+  const budgetSpent = useMemo(() => {
+    const year = new Date().getFullYear();
+    let paid = 0;
+    let recovered = 0;
+    for (const o of filledOptionOrders) {
+      if (o.symbol.slice(0, 6).trim() !== INSTRUMENT) continue;
+      if (!/P\d{8}$/.test(o.symbol)) continue; // puts only
+      if (new Date(o.time).getFullYear() !== year) continue;
+      if (o.instruction === "BUY_TO_OPEN") paid += Math.abs(o.total);
+      else if (o.instruction === "SELL_TO_CLOSE") recovered += Math.abs(o.total);
+    }
+    return { paid, recovered };
+  }, [filledOptionOrders]);
+
   return (
     <Stack gap="lg">
       <Box>
@@ -692,6 +843,9 @@ export default function PutHedgePanel() {
           at +{Math.round(PROFIT_TAKE_PCT * 100)}%.
         </Text>
       </Box>
+
+      {/* Next steps — most-urgent first, each with its countdown */}
+      {hedgeActions.length > 0 && <NextStepsPanel actions={hedgeActions} />}
 
       {/* VXN panic-spike warning */}
       {market?.vxnPct != null && market.vxnPct > VIX_PAUSE_THRESHOLD && (
@@ -723,17 +877,10 @@ export default function PutHedgePanel() {
             vxnPct={market?.vxnPct ?? null}
             qqqSpot={qqqSpot}
             asOf={market?.asOf ?? null}
+            spent={budgetSpent.paid}
+            recovered={budgetSpent.recovered}
           />
 
-          {/* Today's action */}
-          {activeTqqqValue > 0 && plan && (
-            <TodayPanel
-              plan={plan}
-              openPuts={activePuts}
-              qqqSpot={qqqSpot}
-              vxnPct={market?.vxnPct ?? null}
-            />
-          )}
 
           {activeTqqqValue === 0 && (
             <Alert color="gray" icon={<IconInfoCircle size={16} />} radius={CARD_RADIUS}>
