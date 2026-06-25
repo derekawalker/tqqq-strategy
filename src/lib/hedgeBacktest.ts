@@ -29,7 +29,7 @@
  * Pure: feed it aligned QQQ/TQQQ bars + a VXN lookup and a config.
  */
 
-import { bsPutGreeks } from "./putHedge";
+import { bsPutGreeks, strikeForDelta } from "./putHedge";
 import { TRANCHE_SETS, type HedgeInstrument, type TrancheKey } from "./hedgeTranches";
 
 export interface HedgeBar {
@@ -52,10 +52,8 @@ export interface HedgeBacktestConfig {
   monetizeGainPct: number;
   /** Skip new buys when VXN (in %) is above this — vol too rich. */
   vxnPauseThreshold: number;
-  /** Trading days between DCA clips. Default 5 (~weekly). */
+  /** Trading days between clips. Default 21 (~monthly), to stagger entries/expiries. */
   buyEveryDays?: number;
-  /** Clips to spread a tranche's target over while building. Default 3. */
-  dcaClips?: number;
   /** Annualized risk-free rate. Default 0.04. */
   riskFree?: number;
   /** Linear vol skew: deep-OTM puts carry richer IV than ATM VXN. Default 0.8. */
@@ -140,8 +138,7 @@ export function runHedgeBacktest(
 ): HedgeBacktestResult {
   const instrument = cfg.instrument ?? "QQQ";
   const tranches = TRANCHE_SETS[instrument].filter((t) => t.budgetShare > 0);
-  const buyEveryDays = cfg.buyEveryDays ?? 5;
-  const dcaClips = cfg.dcaClips ?? 3;
+  const buyEveryDays = cfg.buyEveryDays ?? 21;
   const r = cfg.riskFree ?? 0.04;
   const skew = cfg.skew ?? 0.8;
   const defaultIv = cfg.defaultIv ?? 0.22;
@@ -173,6 +170,17 @@ export function runHedgeBacktest(
     const baseIv = (vxnPct != null && vxnPct > 0 ? vxnPct / 100 : defaultIv) * ivScale;
     const iv = ivFor(baseIv, strike / spot);
     return bsPutGreeks(spot, strike, Math.max(dte, 0) / 365, iv, r, div);
+  };
+
+  // Strike that hits a tranche's target delta off live spot + IV (skew fixed point).
+  const deltaStrikeAt = (spot: number, targetDelta: number, dte: number, vxnPct: number | undefined) => {
+    const baseIv = (vxnPct != null && vxnPct > 0 ? vxnPct / 100 : defaultIv) * ivScale;
+    const T = Math.max(dte, 1) / 365;
+    let strike = strikeForDelta(spot, T, baseIv, targetDelta, r, div);
+    for (let k = 0; k < 2; k++) {
+      strike = strikeForDelta(spot, T, ivFor(baseIv, strike / spot), targetDelta, r, div);
+    }
+    return Math.max(1, strike);
   };
 
   let open: OpenLot[] = [];
@@ -228,7 +236,7 @@ export function runHedgeBacktest(
       const annualBudget = tqqqValue * cfg.annualBudgetPct;
       for (const def of tranches) {
         const dte = def.dte;
-        const strike = Math.max(1, Math.round(spot * def.moneyness));
+        const strike = deltaStrikeAt(spot, def.targetDelta, dte, vxn);
         const g = priceAt(spot, strike, dte, vxn);
         if (g.price <= 0) continue;
         const premPerContract = g.price * 100;
@@ -245,7 +253,10 @@ export function runHedgeBacktest(
           .reduce((s, l) => s + l.contracts, 0);
         if (openContracts >= target) continue;
 
-        const clip = Math.max(1, Math.ceil(target / dcaClips));
+        // Buy whole contracts toward the target, ~one per buy-day, so entries
+        // and expiries stagger evenly across the hold (bigger ladders buy more
+        // per clip to avoid an absurd number of tiny buys).
+        const clip = Math.max(1, Math.ceil(target / Math.max(1, Math.round(dte / buyEveryDays))));
         const want = Math.min(clip, target - openContracts);
 
         const budgetLeft = annualBudget - premiumThisYear;
@@ -265,7 +276,7 @@ export function runHedgeBacktest(
           expiryDate: addDays(date, dte),
           entryDte: dte,
           costPerShare: g.price,
-          moneyness: def.moneyness,
+          moneyness: strike / spot,
         });
       }
     }

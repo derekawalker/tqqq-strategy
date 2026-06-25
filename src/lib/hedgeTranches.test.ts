@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
   TRANCHES,
-  WEEKS_PER_CYCLE,
   classifyTranche,
   buildTranchePlan,
   planAnnualCost,
@@ -16,13 +15,15 @@ describe("TRANCHES", () => {
 
 describe("classifyTranche", () => {
   it("maps moneyness to the nearest tranche and rejects near-the-money puts", () => {
+    // QQQ anchors workhorse 0.88 / crash 0.78 / catastrophe 0.68 → boundaries 0.83, 0.73.
     expect(classifyTranche(0.97)).toBeNull(); // too close to be a hedge tranche
     expect(classifyTranche(0.88)).toBe("workhorse");
-    expect(classifyTranche(0.82)).toBe("workhorse");
+    expect(classifyTranche(0.85)).toBe("workhorse");
     expect(classifyTranche(0.8)).toBe("crash");
+    expect(classifyTranche(0.78)).toBe("crash");
     expect(classifyTranche(0.75)).toBe("crash");
-    expect(classifyTranche(0.7)).toBe("crash");
-    expect(classifyTranche(0.65)).toBe("catastrophe");
+    expect(classifyTranche(0.72)).toBe("catastrophe");
+    expect(classifyTranche(0.68)).toBe("catastrophe");
     expect(classifyTranche(0.5)).toBe("catastrophe"); // even deeper still catastrophe
   });
 
@@ -36,16 +37,17 @@ describe("classifyTranche", () => {
 describe("buildTranchePlan", () => {
   const base = { tqqqValue: 100_000, spot: 500, vxnPct: 22, annualBudgetPct: 0.02 };
 
-  it("only sizes active (budgetShare > 0) tranches with correct strike ordering", () => {
+  it("only sizes active tranches; strikes solved by delta sit below spot and deeper for the lower-delta leg", () => {
     const plan = buildTranchePlan(base);
     expect(plan.map((t) => t.def.key)).toEqual(["crash", "catastrophe"]);
     const [crash, catastrophe] = plan;
-    // Catastrophe strike is deeper OTM (lower absolute strike).
+    // Both are OTM puts (strike below spot).
+    expect(crash.strike).toBeLessThan(base.spot);
+    expect(catastrophe.strike).toBeLessThan(base.spot);
+    // The lower-delta (0.10) catastrophe leg targets a deeper-OTM strike than
+    // the 0.20-delta crash leg.
+    expect(catastrophe.def.targetDelta).toBeLessThan(crash.def.targetDelta);
     expect(catastrophe.strike).toBeLessThan(crash.strike);
-    // Catastrophe uses a longer DTE (365d) than crash (180d), so it costs more
-    // per contract — but fewer rolls per year means cheaper annualized carry.
-    expect(catastrophe.def.dte).toBeGreaterThan(crash.def.dte);
-    expect(catastrophe.estPremiumPerContract).toBeGreaterThan(crash.estPremiumPerContract);
   });
 
   it("caps deep tranches by notional so they don't balloon into hundreds of contracts", () => {
@@ -64,15 +66,29 @@ describe("buildTranchePlan", () => {
     expect(planAnnualCost(plan)).toBeGreaterThan(0);
   });
 
-  it("weekly clip is a fraction of the target but at least one contract", () => {
+  it("clip is whole contracts (≥1 while building), and stagger spacing is positive", () => {
     const plan = buildTranchePlan(base);
     for (const t of plan) {
       if (t.targetContracts > 0) {
-        expect(t.weeklyContracts).toBeGreaterThanOrEqual(1);
-        expect(t.weeklyContracts).toBeLessThanOrEqual(t.targetContracts);
-        expect(t.weeklyContracts).toBeGreaterThanOrEqual(Math.ceil(t.targetContracts / WEEKS_PER_CYCLE));
+        expect(t.clipContracts).toBeGreaterThanOrEqual(1);
+        expect(t.clipContracts).toBeLessThanOrEqual(t.targetContracts);
+        expect(Number.isInteger(t.clipContracts)).toBe(true);
+        expect(t.spacingDays).toBeGreaterThan(0);
+        // Out-of-pocket per buy = whole contracts × premium.
+        expect(t.perBuyCost).toBeCloseTo(t.clipContracts * t.estPremiumPerContract, 6);
       } else {
-        expect(t.weeklyContracts).toBe(0);
+        expect(t.clipContracts).toBe(0);
+      }
+    }
+  });
+
+  it("on a tiny budget the ladder is small and spacing stretches (no fractional clip)", () => {
+    // Tiny budget → ~1 contract per leg → clip is 1, spaced across the whole hold.
+    const plan = buildTranchePlan({ ...base, annualBudgetPct: 0.005 });
+    for (const t of plan) {
+      if (t.targetContracts > 0) {
+        expect(t.clipContracts).toBe(1);
+        expect(t.spacingDays).toBeGreaterThanOrEqual(t.dte / t.targetContracts - 1);
       }
     }
   });

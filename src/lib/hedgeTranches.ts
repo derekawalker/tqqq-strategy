@@ -4,11 +4,16 @@
  * those) — spend on the long-bear and catastrophe tail instead.
  *
  * Strategy (QQQ instrument, recommended):
- *   - Crash       (−25% OTM on QQQ, 180-day puts, Jan + Jul)
- *                 Core long-bear cover. Rolls twice a year; liquid strikes.
- *   - Catastrophe (−35% OTM on QQQ, 365-day LEAPS, Jan only)
- *                 Deep tail insurance. Annual buy; maximum theta efficiency.
- *   - Workhorse   (~12% OTM) — off by default; you buy ordinary dips.
+ *   - Crash       (~0.15Δ, 180-day puts) — core long-bear cover.
+ *   - Catastrophe (~0.07Δ, 365-day LEAPS) — deep tail insurance, max convexity.
+ *   - Workhorse   (~0.30Δ) — off by default; you buy ordinary dips.
+ *
+ * Strikes are solved to hit each tranche's target delta off live spot + ^VXN,
+ * so depth adapts with vol. Each leg targets a standing ladder of N contracts
+ * (whatever the budget affords); you buy them one (clip) at a time, spaced
+ * evenly across the holding period so entries/expiries stagger, and roll at
+ * ROLL_AT_DTE. On a small budget N may be just 1–3 contracts, so the cadence
+ * stretches automatically rather than forcing a fractional monthly buy.
  *
  * A QQQ −25% move ≈ TQQQ −55–60%; QQQ −35% ≈ TQQQ −75%+.
  * Using QQQ puts instead of TQQQ puts: far more liquid, tighter spreads,
@@ -26,7 +31,7 @@
  * All functions here are pure — feed them current prices and a budget.
  */
 
-import { bsPut } from "./putHedge";
+import { bsPut, strikeForDelta } from "./putHedge";
 
 export type TrancheKey = "workhorse" | "crash" | "catastrophe";
 
@@ -37,7 +42,17 @@ export interface TrancheDef {
   key: TrancheKey;
   label: string;
   desc: string;
-  /** Strike / spot. 0.75 = a 25%-out-of-the-money put on QQQ. */
+  /**
+   * Target put delta (absolute). The buy strike is solved to hit this off live
+   * spot + VXN, so depth adapts with vol (in a spike the strike pushes deeper
+   * OTM for the same delta). 0.20 = the −0.20-delta put.
+   */
+  targetDelta: number;
+  /**
+   * Nominal strike/spot, used only as a classification anchor for bucketing
+   * open puts into tranches and as a fallback when spot/IV aren't available.
+   * 0.75 ≈ a 25%-OTM put on QQQ at normal vol.
+   */
   moneyness: number;
   /** Fraction of the annual premium budget allotted to this tranche. 0 = off. */
   budgetShare: number;
@@ -47,8 +62,6 @@ export interface TrancheDef {
   color: string;
   /** Days to expiry to target when buying this tranche. */
   dte: number;
-  /** Calendar months (0-indexed) in which DCA clips for this tranche are bought. */
-  buyMonths: readonly number[];
 }
 
 /**
@@ -62,70 +75,70 @@ export const TRANCHE_SETS: Record<HedgeInstrument, TrancheDef[]> = {
     {
       key: "crash",
       label: "Crash",
-      desc: "Core long-bear cover (≈ QQQ −25%) — 6-month puts, rolled twice a year.",
-      moneyness: 0.75,
+      desc: "Core long-bear cover (~0.15Δ) — 6-month puts, staggered into a ladder.",
+      targetDelta: 0.15,
+      moneyness: 0.78,
       budgetShare: 0.6,
       maxCoverage: 3,
       color: "orange",
       dte: 180,
-      buyMonths: [0, 6] as const, // Jan + Jul
     },
     {
       key: "catastrophe",
       label: "Catastrophe",
-      desc: "Deep tail insurance (≈ QQQ −35%) — annual LEAPS, maximum theta efficiency.",
-      moneyness: 0.65,
+      desc: "Deep tail insurance (~0.07Δ) — 1-year LEAPS, staggered into a ladder.",
+      targetDelta: 0.07,
+      moneyness: 0.68,
       budgetShare: 0.4,
       maxCoverage: 1.5,
       color: "red",
       dte: 365,
-      buyMonths: [0] as const, // Jan only
     },
     {
       key: "workhorse",
       label: "Workhorse",
       desc: "Near-the-money cover for ordinary dips. Off by default — you buy those dips.",
+      targetDelta: 0.30,
       moneyness: 0.88,
       budgetShare: 0,
       maxCoverage: 2,
       color: "teal",
       dte: 60,
-      buyMonths: [] as const,
     },
   ],
   TQQQ: [
     {
       key: "crash",
       label: "Crash",
-      desc: "Core long-bear cover — TQQQ −30% OTM. Liquid strikes, activates in a serious correction.",
+      desc: "Core long-bear cover (~0.20Δ on TQQQ). Liquid strikes, activates in a serious correction.",
+      targetDelta: 0.20,
       moneyness: 0.70,
       budgetShare: 0.6,
       maxCoverage: 1.5,
       color: "orange",
       dte: 90,
-      buyMonths: [0, 6] as const,
     },
     {
       key: "catastrophe",
       label: "Catastrophe",
-      desc: "Deep tail insurance — TQQQ −50% OTM. High convexity in a 2008/2020-style crash.",
+      desc: "Deep tail insurance (~0.10Δ on TQQQ). High convexity in a 2008/2020-style crash.",
+      targetDelta: 0.10,
       moneyness: 0.50,
       budgetShare: 0.4,
       maxCoverage: 1.0,
       color: "red",
       dte: 90,
-      buyMonths: [0] as const,
     },
     {
       key: "workhorse",
       label: "Workhorse",
       desc: "Shallow TQQQ cover for ordinary dips. Off by default — you buy those dips.",
+      targetDelta: 0.30,
       moneyness: 0.82,
       budgetShare: 0,
       maxCoverage: 1.5,
       color: "teal",
       dte: 60,
-      buyMonths: [] as const,
     },
   ],
 };
@@ -142,12 +155,6 @@ const DIV_YIELD: Record<HedgeInstrument, number> = { QQQ: 0.006, TQQQ: 0 };
 export const HEDGE_DTE_BY_INSTRUMENT: Record<HedgeInstrument, number> = { QQQ: 180, TQQQ: 90 };
 /** Roll/replace a clip once it decays to this many days left. */
 export const ROLL_AT_DTE = 21;
-/** Dollar-cost-average each tranche's window target over this many weekly clips. */
-export const WEEKS_PER_CYCLE = 3;
-/** Number of DCA clips per buy window (= WEEKS_PER_CYCLE). */
-export const DCA_WEEKS = 3;
-/** Calendar days in a DCA window (first ~3 weeks of the buy month). */
-export const DCA_WINDOW_DAYS = 21;
 /**
  * Pause buying the *crash* leg only when ^VXN is above this — and only on a
  * genuine panic spike, not ordinary bear-market vol. Backtests showed a 25
@@ -169,11 +176,31 @@ const SKEW = 0.8;
 /** Fallback IV (as a fraction) when ^VXN is unavailable. */
 const DEFAULT_IV = 0.22;
 
-const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
 /** Skew-adjusted implied vol for a given moneyness. */
 function ivFor(baseIv: number, moneyness: number): number {
   return baseIv * (1 + SKEW * Math.max(0, 1 - moneyness));
+}
+
+/**
+ * Strike that hits a target put delta off live spot + IV. Because the skew makes
+ * IV depend on the strike, solve as a short fixed point: an ATM-IV first pass,
+ * then refine the IV at that strike's moneyness and re-solve. Returns a $0.50-grid
+ * strike (the resolver snaps it to a real listed contract).
+ */
+export function deltaStrike(
+  spot: number,
+  targetDelta: number,
+  dte: number,
+  baseIv: number,
+  div: number,
+): number {
+  const T = Math.max(dte, 1) / 365;
+  let strike = strikeForDelta(spot, T, baseIv, targetDelta, RISK_FREE, div);
+  for (let i = 0; i < 2; i++) {
+    const iv = ivFor(baseIv, strike / spot);
+    strike = strikeForDelta(spot, T, iv, targetDelta, RISK_FREE, div);
+  }
+  return Math.max(1, strike);
 }
 
 /**
@@ -192,66 +219,6 @@ export function classifyTranche(
     if (moneyness >= lower) return defs[i].key;
   }
   return defs[defs.length - 1].key;
-}
-
-/** Status of the buy window for a tranche relative to a given date. */
-export interface BuyWindowStatus {
-  /** True when today falls within the DCA window (first DCA_WINDOW_DAYS of a buy month). */
-  inWindow: boolean;
-  /** Which clip (1–DCA_WEEKS) if in window; null otherwise. */
-  clip: number | null;
-  /** Start date of the next buy window (the one after the current one if in window). */
-  nextWindowDate: Date;
-  /** Calendar days until nextWindowDate; 0 when currently in a window. */
-  daysUntilNext: number;
-  /** Short month label of the next (or current) window, e.g. "Jul". */
-  periodLabel: string;
-}
-
-/** Find the first buy month strictly after the given month (wraps to next year). */
-function findNextWindow(
-  buyMonths: readonly number[],
-  afterMonth: number,
-  afterYear: number,
-): { date: Date; label: string } {
-  for (let i = 1; i <= 12; i++) {
-    const m = (afterMonth + i) % 12;
-    const y = afterYear + Math.floor((afterMonth + i) / 12);
-    if (buyMonths.includes(m)) return { date: new Date(y, m, 1), label: MONTH_NAMES[m] };
-  }
-  return { date: new Date(afterYear + 1, buyMonths[0], 1), label: MONTH_NAMES[buyMonths[0]] };
-}
-
-/**
- * Returns the buy-window status for a tranche on the given date.
- * "In window" = first DCA_WINDOW_DAYS calendar days of a buy month.
- */
-export function buyWindowStatus(def: TrancheDef, today: Date = new Date()): BuyWindowStatus {
-  const m = today.getMonth();
-  const d = today.getDate();
-  const y = today.getFullYear();
-  const months = def.buyMonths;
-
-  if (!months || months.length === 0) {
-    return { inWindow: false, clip: null, nextWindowDate: new Date(9999, 0, 1), daysUntilNext: 999999, periodLabel: '' };
-  }
-
-  if (months.includes(m) && d >= 1 && d <= DCA_WINDOW_DAYS) {
-    const clip = Math.min(DCA_WEEKS, Math.ceil(d / 7));
-    const next = findNextWindow(months, m, y);
-    return { inWindow: true, clip, nextWindowDate: next.date, daysUntilNext: 0, periodLabel: MONTH_NAMES[m] };
-  }
-
-  // Past the window this month, or a non-buy month — find upcoming window.
-  const next = findNextWindow(months, m, y);
-  const msUntil = next.date.getTime() - today.getTime();
-  return {
-    inWindow: false,
-    clip: null,
-    nextWindowDate: next.date,
-    daysUntilNext: Math.max(0, Math.ceil(msUntil / 86_400_000)),
-    periodLabel: next.label,
-  };
 }
 
 /** A live quote for a strike, supplied by an option-chain resolver. */
@@ -273,18 +240,20 @@ export interface TranchePlan {
   strike: number;
   /** Effective DTE used for this tranche. */
   dte: number;
-  /** Full standing-stack target, in contracts. */
+  /** Full standing-ladder target, in whole contracts (what the budget affords). */
   targetContracts: number;
-  /** Contracts to buy in a single weekly clip while building toward target. */
-  weeklyContracts: number;
+  /** Whole contracts to buy in a single clip (≥1 while the ladder is short of target). */
+  clipContracts: number;
+  /** Days to space buys apart so the ladder's expiries stagger across the hold. */
+  spacingDays: number;
   /** Premium to open one contract today, in dollars (live mark or modeled). */
   estPremiumPerContract: number;
   /** Estimated annual carry for the full target, in dollars. */
   estAnnualPremium: number;
   /** Dollars of the annual budget allotted to this tranche. */
   annualBudget: number;
-  /** Dollars to spend in a single DCA clip (annualBudget / totalClipsPerYear). */
-  perClipBudget: number;
+  /** Out-of-pocket cost of one clip, in dollars (clipContracts × premium). */
+  perBuyCost: number;
   /** True when the premium came from a live option-chain mark, not the model. */
   live: boolean;
 }
@@ -318,7 +287,8 @@ export function buildTranchePlan(opts: {
   return TRANCHE_SETS[instrument].filter((def) => def.budgetShare > 0).map((def) => {
     const dte = def.dte;
     const rollsPerYear = 365 / dte;
-    const idealStrike = Math.max(1, Math.round(spot * def.moneyness));
+    // Strike is solved to hit the tranche's target delta off live spot + IV.
+    const idealStrike = deltaStrike(spot, def.targetDelta, dte, baseIv, div);
 
     const quote = resolver?.(idealStrike) ?? null;
     const live = quote != null && quote.mark > 0;
@@ -329,7 +299,7 @@ export function buildTranchePlan(opts: {
       estPremiumPerContract = quote!.mark * 100;
     } else {
       strike = idealStrike;
-      const iv = ivFor(baseIv, def.moneyness);
+      const iv = ivFor(baseIv, strike / spot);
       estPremiumPerContract = bsPut(spot, strike, dte / 365, iv, RISK_FREE, div) * 100;
     }
 
@@ -344,22 +314,30 @@ export function buildTranchePlan(opts: {
         ? Math.floor((def.maxCoverage * Math.max(0, tqqqValue)) / notionalPerContract)
         : 0;
     const targetContracts = Math.max(0, Math.min(budgetTarget, coverTarget));
-    const weeklyContracts =
-      targetContracts > 0 ? Math.max(1, Math.ceil(targetContracts / WEEKS_PER_CYCLE)) : 0;
 
-    const totalClipsPerYear = def.buyMonths.length * DCA_WEEKS;
-    const perClipBudget = totalClipsPerYear > 0 ? annualBudget / totalClipsPerYear : 0;
+    // Adaptive staggering: buy whole contracts, never finer than weekly. The
+    // standing ladder of `targetContracts` is built one clip at a time; if it's
+    // big enough to want >52 buys/yr, each clip holds more than one contract.
+    const annualContractBuys = targetContracts * rollsPerYear;
+    const clipContracts =
+      targetContracts > 0 ? Math.max(1, Math.ceil(annualContractBuys / 52)) : 0;
+    // Number of buys to build the ladder, spread evenly across the hold so the
+    // expiries stagger; tiny ladders (1 contract) just hold-and-roll.
+    const buysToBuild = clipContracts > 0 ? Math.ceil(targetContracts / clipContracts) : 0;
+    const spacingDays = buysToBuild > 0 ? Math.round(dte / buysToBuild) : 0;
+    const perBuyCost = clipContracts * estPremiumPerContract;
 
     return {
       def,
       strike,
       dte,
       targetContracts,
-      weeklyContracts,
+      clipContracts,
+      spacingDays,
       estPremiumPerContract,
       estAnnualPremium: targetContracts * annualPerContract,
       annualBudget,
-      perClipBudget,
+      perBuyCost,
       live,
     };
   });

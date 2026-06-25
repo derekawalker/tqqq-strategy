@@ -28,7 +28,7 @@ const baseCfg: HedgeBacktestConfig = {
   monetizeDelta: 0.45,
   monetizeGainPct: 1.5,
   vxnPauseThreshold: 25,
-  buyEveryDays: 5,
+  buyEveryDays: 7, // weekly here so the short synthetic windows get several clips
 };
 
 describe("runHedgeBacktest", () => {

@@ -45,10 +45,8 @@ import {
   PROFIT_TAKE_PCT,
   MONETIZE_DELTA,
   LIVE_SKEW,
-  DCA_WEEKS,
   buildTranchePlan,
   classifyTranche,
-  buyWindowStatus,
   type TrancheKey,
   type TranchePlan,
 } from "@/lib/hedgeTranches";
@@ -80,13 +78,28 @@ const fmtMoney = (x: number) =>
 // ---------------------------------------------------------------------------
 
 /** Greeks for an open put, off current spot + VXN (null when inputs missing). */
-function greeksFor(pos: OptionPosition, spot: number | null, vxnPct: number | null): PutGreeks | null {
-  if (spot === null || spot <= 0) return null;
-  const dte = daysUntil(pos.expiry);
-  const moneyness = pos.strike / spot;
+/** Model greeks for any strike/DTE off current spot + VXN (null when inputs missing). */
+function modelGreeks(spot: number | null, strike: number, dte: number, vxnPct: number | null): PutGreeks | null {
+  if (spot === null || spot <= 0 || strike <= 0) return null;
+  const moneyness = strike / spot;
   const baseIv = vxnPct != null && vxnPct > 0 ? vxnPct / 100 : 0.22;
   const iv = baseIv * (1 + LIVE_SKEW * Math.max(0, 1 - moneyness)); // QQQ: IV scale 1
-  return bsPutGreeks(spot, pos.strike, dte / 365, iv, 0.04, 0.006);
+  return bsPutGreeks(spot, strike, Math.max(dte, 0) / 365, iv, 0.04, 0.006);
+}
+
+/** Greeks for an open put, off current spot + VXN. */
+function greeksFor(pos: OptionPosition, spot: number | null, vxnPct: number | null): PutGreeks | null {
+  return modelGreeks(spot, pos.strike, daysUntil(pos.expiry), vxnPct);
+}
+
+/** Spacing between staggered buys, as a short human label (e.g. "~every 6 weeks"). */
+function spacingLabel(spacingDays: number): string {
+  if (spacingDays <= 0) return "—";
+  if (spacingDays <= 10) return "~weekly";
+  const weeks = Math.round(spacingDays / 7);
+  if (weeks < 9) return `~every ${weeks} wks`;
+  const months = Math.round(spacingDays / 30);
+  return `~every ${months} mo`;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,7 +162,6 @@ function TodayPanel({
   qqqSpot: number | null;
   vxnPct: number | null;
 }) {
-  const today = useMemo(() => new Date(), []);
   const actions: ActionItem[] = [];
 
   // --- Roll / profit alerts on open positions ---
@@ -186,58 +198,60 @@ function TodayPanel({
     }
   }
 
-  // --- Buy window actions ---
-  if (plan) {
+  // --- Ladder-building buys (gap-driven, whole contracts, staggered) ---
+  if (plan && qqqSpot !== null) {
     const vxnSpiking = vxnPct !== null && vxnPct > VIX_PAUSE_THRESHOLD;
 
     for (const t of plan) {
-      const ws = buyWindowStatus(t.def, today);
-      if (!ws.inWindow) continue;
+      if (t.targetContracts <= 0) continue;
 
-      const strike = qqqSpot !== null ? Math.round(qqqSpot * t.def.moneyness) : t.strike;
-      const detail = `QQQ ~$${strike} put · ${t.dte}-day DTE · spend ~${fmtMoney(t.perClipBudget)} this clip`;
+      // What's already held in this leg, and how recently the newest was opened.
+      const legPuts = openPuts.filter((p) => classifyTranche(p.strike / qqqSpot, INSTRUMENT) === t.def.key);
+      const openContracts = legPuts.reduce((s, p) => s + p.longQty, 0);
+      if (openContracts >= t.targetContracts) continue; // ladder full — rolls maintain it
+
+      // Entry ≈ expiry − target DTE; newest entry's age in days.
+      const newestEntryAge = legPuts.length > 0
+        ? Math.min(...legPuts.map((p) => t.dte - daysUntil(p.expiry)))
+        : Infinity;
+
+      const strike = Math.round(t.strike);
+      const deltaTag = ` · ${t.def.targetDelta.toFixed(2)}Δ`;
+      const buyLabel = t.clipContracts === 1 ? "1 contract" : `${t.clipContracts} contracts`;
+      const haveLabel = `have ${openContracts}/${t.targetContracts}`;
+      const detail = `QQQ ~$${strike} put${deltaTag} · ${t.dte}-day DTE · buy ${buyLabel} (~${fmtMoney(t.perBuyCost)}) · ${haveLabel}`;
 
       // Soft gate: only the crash leg defers, and only on a true panic spike.
       // The catastrophe leg is a cheap lottery ticket — always keep buying it.
       const gated = vxnSpiking && t.def.key !== "catastrophe";
+      const dueNow = openContracts === 0 || newestEntryAge >= t.spacingDays;
 
       if (gated) {
         actions.push({
           priority: 3,
           color: "yellow",
           icon: <IconAlertTriangle size={14} />,
-          title: `${t.def.label}: clip ${ws.clip}/${DCA_WEEKS} — VXN spiking, defer`,
+          title: `${t.def.label}: VXN spiking, defer (${haveLabel})`,
           detail: `^VXN at ${vxnPct!.toFixed(1)}% (above ${VIX_PAUSE_THRESHOLD}% panic line). Let the spike settle before adding the crash leg. ${detail}`,
         });
-      } else {
+      } else if (dueNow) {
         actions.push({
           priority: 3,
           color: "teal",
           icon: <IconArrowDown size={14} />,
-          title: `Buy ${t.def.label}: clip ${ws.clip}/${DCA_WEEKS} — ${ws.periodLabel} window`,
+          title: `Buy ${t.def.label} — ${haveLabel}`,
           detail,
         });
+      } else {
+        const waitDays = Math.max(0, Math.round(t.spacingDays - newestEntryAge));
+        actions.push({
+          priority: 4,
+          color: "gray",
+          icon: <IconClock size={14} />,
+          title: `${t.def.label}: next rung in ~${waitDays}d (${haveLabel})`,
+          detail: `${detail} · stagger ${spacingLabel(t.spacingDays)}`,
+        });
       }
-    }
-  }
-
-  // --- Upcoming windows if nothing active ---
-  const activeBuyActions = actions.filter((a) => a.priority === 3);
-  if (plan && activeBuyActions.length === 0) {
-    const upcoming = plan
-      .map((t) => ({ t, ws: buyWindowStatus(t.def, today) }))
-      .filter(({ ws }) => !ws.inWindow)
-      .sort((a, b) => a.ws.daysUntilNext - b.ws.daysUntilNext);
-
-    for (const { t, ws } of upcoming.slice(0, 2)) {
-      const strike = qqqSpot !== null ? Math.round(qqqSpot * t.def.moneyness) : t.strike;
-      actions.push({
-        priority: 4,
-        color: "gray",
-        icon: <IconClock size={14} />,
-        title: `${t.def.label}: next buy ${ws.periodLabel} 1 (${ws.daysUntilNext}d)`,
-        detail: `QQQ ~$${strike} put · ${t.dte}-day DTE · buy ~${fmtMoney(t.perClipBudget)} of puts each week for ${DCA_WEEKS} weeks (≈${fmtMoney(t.perClipBudget * DCA_WEEKS)} total)`,
-      });
     }
   }
 
@@ -390,10 +404,11 @@ function PutCard({ pos, spot, vxnPct }: { pos: OptionPosition; spot: number | nu
 // ---------------------------------------------------------------------------
 
 function EmptyPutCard({ tranche, spot }: { tranche: TranchePlan; spot: number | null }) {
-  const strike = spot !== null ? Math.round(spot * tranche.def.moneyness) : tranche.strike;
-  const otmPct = Math.round((1 - tranche.def.moneyness) * 100);
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const windowLabel = tranche.def.buyMonths.map((m) => monthNames[m]).join(" + ") || "—";
+  const strike = Math.round(tranche.strike);
+  const otmPct = spot !== null && spot > 0
+    ? Math.round((1 - tranche.strike / spot) * 100)
+    : Math.round((1 - tranche.def.moneyness) * 100);
+  const deltaLabel = tranche.def.targetDelta.toFixed(2);
 
   return (
     <Paper
@@ -417,7 +432,9 @@ function EmptyPutCard({ tranche, spot }: { tranche: TranchePlan; spot: number | 
           <Text className={outfit.className} style={{ fontSize: "2.4rem", fontWeight: 700, lineHeight: 1, color: "var(--mantine-color-dark-2)" }}>
             ~${strike}
           </Text>
-          <Text size="xs" c="dimmed" mt={2}>{INSTRUMENT} · {otmPct}% OTM</Text>
+          <Text size="xs" c="dimmed" mt={2}>
+            {INSTRUMENT} · {deltaLabel}Δ · ~{otmPct}% OTM
+          </Text>
         </Box>
         <Box ta="right">
           <Text size="xs" c="dimmed" style={CARD_LABEL_STYLE}>Target DTE</Text>
@@ -432,12 +449,14 @@ function EmptyPutCard({ tranche, spot }: { tranche: TranchePlan; spot: number | 
 
       <Group grow gap="xs">
         <Box>
-          <Text size="9px" c="dimmed" style={CARD_LABEL_STYLE}>~per clip</Text>
-          <Text size="sm" fw={600} c="dark.2">{fmtMoney(tranche.perClipBudget)}</Text>
+          <Text size="9px" c="dimmed" style={CARD_LABEL_STYLE}>Buy / clip</Text>
+          <Text size="sm" fw={600} c="dark.2">
+            {tranche.clipContracts} ct · {fmtMoney(tranche.perBuyCost)}
+          </Text>
         </Box>
         <Box ta="right">
-          <Text size="9px" c="dimmed" style={CARD_LABEL_STYLE}>Buy months</Text>
-          <Text size="sm" fw={600} c="dimmed">{windowLabel}</Text>
+          <Text size="9px" c="dimmed" style={CARD_LABEL_STYLE}>Stagger</Text>
+          <Text size="sm" fw={600} c="dimmed">{spacingLabel(tranche.spacingDays)}</Text>
         </Box>
       </Group>
 
@@ -464,9 +483,9 @@ function TrancheSection({
   spot: number | null;
   vxnPct: number | null;
 }) {
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const windowLabel = tranche.def.buyMonths.map((m) => monthNames[m]).join(" + ") || "—";
-  const otmPct = Math.round((1 - tranche.def.moneyness) * 100);
+  const otmPct = spot !== null && spot > 0
+    ? Math.round((1 - tranche.strike / spot) * 100)
+    : Math.round((1 - tranche.def.moneyness) * 100);
   const openCount = puts.length;
 
   return (
@@ -494,21 +513,21 @@ function TrancheSection({
       <Table fz="xs" verticalSpacing={4} withRowBorders={false} mb="md">
         <Table.Tbody>
           <Table.Tr>
-            <Table.Td c="dimmed" style={CARD_LABEL_STYLE}>OTM depth</Table.Td>
-            <Table.Td fw={600}>{otmPct}%</Table.Td>
+            <Table.Td c="dimmed" style={CARD_LABEL_STYLE}>Target Δ</Table.Td>
+            <Table.Td fw={600}>{tranche.def.targetDelta.toFixed(2)} <Text span size="9px" c="dimmed">(~{otmPct}% OTM)</Text></Table.Td>
             <Table.Td c="dimmed" style={CARD_LABEL_STYLE}>Target DTE</Table.Td>
             <Table.Td fw={600}>{tranche.dte}d</Table.Td>
           </Table.Tr>
           <Table.Tr>
-            <Table.Td c="dimmed" style={CARD_LABEL_STYLE}>Buy months</Table.Td>
-            <Table.Td fw={600}>{windowLabel}</Table.Td>
-            <Table.Td c="dimmed" style={CARD_LABEL_STYLE}>Per clip</Table.Td>
-            <Table.Td fw={600} c={`${tranche.def.color}.4`}>{fmtMoney(tranche.perClipBudget)}</Table.Td>
+            <Table.Td c="dimmed" style={CARD_LABEL_STYLE}>Target ladder</Table.Td>
+            <Table.Td fw={600}>{tranche.targetContracts} ct</Table.Td>
+            <Table.Td c="dimmed" style={CARD_LABEL_STYLE}>Buy / clip</Table.Td>
+            <Table.Td fw={600} c={`${tranche.def.color}.4`}>{tranche.clipContracts} ct · {fmtMoney(tranche.perBuyCost)}</Table.Td>
           </Table.Tr>
           <Table.Tr>
-            <Table.Td c="dimmed" style={CARD_LABEL_STYLE}>Annual budget</Table.Td>
-            <Table.Td fw={600}>{fmtUsd(tranche.annualBudget)}</Table.Td>
-            <Table.Td c="dimmed" style={CARD_LABEL_STYLE}>Est. carry</Table.Td>
+            <Table.Td c="dimmed" style={CARD_LABEL_STYLE}>Stagger</Table.Td>
+            <Table.Td fw={600}>{spacingLabel(tranche.spacingDays)}</Table.Td>
+            <Table.Td c="dimmed" style={CARD_LABEL_STYLE}>Annual carry</Table.Td>
             <Table.Td fw={600} c="dimmed">{fmtUsd(tranche.estAnnualPremium)}/yr</Table.Td>
           </Table.Tr>
         </Table.Tbody>
@@ -666,9 +685,11 @@ export default function PutHedgePanel() {
       <Box>
         <Text size="xl" fw={700}>Put hedge</Text>
         <Text size="sm" c="dimmed">
-          QQQ put overlay tuned for a buy-the-dip strategy: 6-month crash puts (Jan + Jul)
-          and 1-year catastrophe LEAPS (Jan). Skip ordinary dips — spend on the long-bear tail.
-          Roll at {ROLL_AT_DTE}d; take half profit at +{Math.round(PROFIT_TAKE_PCT * 100)}%.
+          QQQ put overlay tuned for a buy-the-dip strategy: a ~0.15Δ crash leg (6-month) and a
+          ~0.07Δ catastrophe leg (1-year LEAPS). Your budget sets a standing ladder of whole
+          contracts per leg; buy them one at a time, spaced evenly so expiries stagger. Skip
+          ordinary dips — spend on the long-bear tail. Roll at {ROLL_AT_DTE}d; take half profit
+          at +{Math.round(PROFIT_TAKE_PCT * 100)}%.
         </Text>
       </Box>
 
@@ -765,7 +786,7 @@ export default function PutHedgePanel() {
           <Table.Thead>
             <Table.Tr>
               <Table.Th style={CARD_LABEL_STYLE}>Tranche</Table.Th>
-              <Table.Th style={CARD_LABEL_STYLE}>Depth</Table.Th>
+              <Table.Th style={CARD_LABEL_STYLE}>Target Δ</Table.Th>
               <Table.Th style={CARD_LABEL_STYLE}>DTE</Table.Th>
               <Table.Th style={CARD_LABEL_STYLE}>Buy schedule</Table.Th>
               <Table.Th style={CARD_LABEL_STYLE}>Budget</Table.Th>
@@ -774,17 +795,14 @@ export default function PutHedgePanel() {
           </Table.Thead>
           <Table.Tbody>
             {TRANCHE_SETS[INSTRUMENT].filter((t) => t.budgetShare > 0).map((t) => {
-              const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-              const schedule = t.buyMonths.length > 0
-                ? `${t.buyMonths.map((m) => monthNames[m]).join(" + ")} · 3 clips/window`
-                : "—";
+              const schedule = `Staggered · roll ${ROLL_AT_DTE}d`;
               const activates =
                 t.key === "crash" ? "QQQ −25% (~TQQQ −55%)" :
                 t.key === "catastrophe" ? "QQQ −35% (~TQQQ −75%)" : "—";
               return (
                 <Table.Tr key={t.key}>
                   <Table.Td><Badge color={t.color} variant="light" size="xs">{t.label}</Badge></Table.Td>
-                  <Table.Td>{Math.round((1 - t.moneyness) * 100)}% OTM</Table.Td>
+                  <Table.Td>{t.targetDelta.toFixed(2)}Δ</Table.Td>
                   <Table.Td>{t.dte}d</Table.Td>
                   <Table.Td c="dimmed">{schedule}</Table.Td>
                   <Table.Td>{Math.round(t.budgetShare * 100)}% of annual</Table.Td>
