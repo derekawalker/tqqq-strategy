@@ -1637,12 +1637,14 @@ function OptionsPageInner() {
       });
   };
 
+  // This page is the TQQQ covered-call / cash-secured-put ladder. Exclude QQQ
+  // options — those are the protective hedge, tracked on the Hedge page.
   const calls = useMemo(
-    () => optionPositions.filter((p) => p.putCall === "CALL"),
+    () => optionPositions.filter((p) => p.putCall === "CALL" && p.underlyingSymbol !== "QQQ"),
     [optionPositions],
   );
   const puts = useMemo(
-    () => optionPositions.filter((p) => p.putCall === "PUT"),
+    () => optionPositions.filter((p) => p.putCall === "PUT" && p.underlyingSymbol !== "QQQ"),
     [optionPositions],
   );
 
