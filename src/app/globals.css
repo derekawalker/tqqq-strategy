@@ -48,6 +48,10 @@ tr[data-with-row-border] { border-bottom: none !important; }
 .profit-tab { border-radius: 6px 6px 0 0 !important; }
 .profit-accordion { --accordion-radius: 24px !important; }
 
+/* Hedge page tabs: subtle near-square hover instead of the rounded-pill default. */
+.hedge-tab { border-radius: 2px 2px 0 0 !important; }
+.hedge-tab:hover { background-color: var(--mantine-color-default-hover) !important; }
+
 @media (max-width: 768px) {
   .hide-mobile { display: none; }
   .profit-tab { font-size: var(--mantine-font-size-xs) !important; padding: 6px 10px !important; }

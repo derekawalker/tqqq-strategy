@@ -984,9 +984,9 @@ export default function BacktestPage() {
   return (
     <Tabs defaultValue="hedge" color={color} keepMounted={false}>
       <Tabs.List mb="md">
-        <Tabs.Tab value="hedge">Put hedge</Tabs.Tab>
-        <Tabs.Tab value="hedge-backtest">Hedge backtest</Tabs.Tab>
-        <Tabs.Tab value="ladder">Ladder strategy</Tabs.Tab>
+        <Tabs.Tab value="hedge" className="hedge-tab">Put hedge</Tabs.Tab>
+        <Tabs.Tab value="hedge-backtest" className="hedge-tab">Hedge backtest</Tabs.Tab>
+        <Tabs.Tab value="ladder" className="hedge-tab">Ladder strategy</Tabs.Tab>
       </Tabs.List>
       <Tabs.Panel value="hedge">
         <PutHedgePanel />

@@ -70,7 +70,15 @@ interface CrisisPreset {
   end: string;
 }
 
+/** YYYY-MM-DD `days` ago from today (UTC). */
+function daysAgoISO(days: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
 const CRISES: CrisisPreset[] = [
+  { label: "Past 365 days", desc: "Rolling 1-year window ending today — the hedge against recent conditions", start: daysAgoISO(365), end: daysAgoISO(0) },
   { label: "2018 Q4", desc: "Tech selloff — QQQ −23%, TQQQ −55%", start: "2018-09-01", end: "2019-03-31" },
   { label: "COVID crash", desc: "Feb–Mar 2020 — QQQ −28%, TQQQ −70% in 5 weeks", start: "2020-01-15", end: "2020-06-30" },
   { label: "2022 bear", desc: "Rate-hike cycle — QQQ −33%, TQQQ −79% over the year", start: "2022-01-01", end: "2022-12-31" },
@@ -96,7 +104,7 @@ export default function HedgeBacktestPanel() {
   const [budgetPct, setBudgetPct] = useState<number>(3);
   const [gateEnabled, setGateEnabled] = useState<boolean>(true);
   const [vxnGate, setVxnGate] = useState<number>(50);
-  const [activeCrisis, setActiveCrisis] = useState<CrisisPreset>(CRISES[1]);
+  const [activeCrisis, setActiveCrisis] = useState<CrisisPreset>(CRISES[0]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
