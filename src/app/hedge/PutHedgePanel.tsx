@@ -235,6 +235,17 @@ function buildHedgeActions(
         detail: `${daysUntil(pos.expiry)}d left (expires ${fmtDate(pos.expiry)}). Open replacement at target DTE, then close this one.`,
         daysAway: Math.max(0, daysUntil(pos.expiry) - ROLL_AT_DTE),
       });
+    } else {
+      // Healthy — forward-looking: when it reaches the roll line.
+      const rollIn = Math.max(0, daysUntil(pos.expiry) - ROLL_AT_DTE);
+      actions.push({
+        priority: 5,
+        color: "gray",
+        icon: <IconRefresh size={14} />,
+        title: `${pos.symbol} — reaches ${ROLL_AT_DTE}d DTE, roll`,
+        detail: `Expires ${fmtDate(pos.expiry)} (${daysUntil(pos.expiry)}d). Hold until the roll line, then roll-and-replace.`,
+        daysAway: rollIn,
+      });
     }
   }
 
@@ -290,7 +301,7 @@ function buildHedgeActions(
           priority: 4,
           color: "gray",
           icon: <IconClock size={14} />,
-          title: `${t.def.label}: next buy ${fmtDate(isoInDays(waitDays))} (${haveLabel})`,
+          title: `${t.def.label}: next buy (${haveLabel})`,
           detail: `${detail} · stagger ${spacingLabel(t.spacingDays)}`,
           daysAway: waitDays,
         });
@@ -298,40 +309,26 @@ function buildHedgeActions(
     }
   }
 
-  const sorted = [...actions].sort((a, b) => a.priority - b.priority || a.daysAway - b.daysAway);
-
-  // Ladder full and nothing due — the next buy is the soonest roll-and-replace.
-  if (sorted.length === 0 && openPuts.length > 0) {
-    const soonest = openPuts.reduce((m, p) => Math.min(m, daysUntil(p.expiry)), Infinity);
-    const rollIn = Math.max(0, soonest - ROLL_AT_DTE);
-    sorted.push({
-      priority: 6,
-      color: "gray",
-      icon: <IconShield size={14} />,
-      title: `Hedge ladder complete — next buy ${fmtDate(isoInDays(rollIn))}`,
-      detail: `Soonest put expires in ${soonest}d; roll-and-replace it at ${ROLL_AT_DTE}d left.`,
-      daysAway: rollIn,
-    });
-  }
-
-  return sorted;
+  // Chronological agenda — soonest first; ties broken by urgency.
+  return [...actions].sort((a, b) => a.daysAway - b.daysAway || a.priority - b.priority);
 }
 
 /**
- * Combined next-steps panel: the prioritized action list with the most-urgent
- * step (the "next step") emphasized at the top, each tagged with its countdown.
+ * Combined next-steps panel: the next few steps in chronological order, the
+ * soonest emphasized, each with its scheduled date and countdown.
  */
 function NextStepsPanel({ actions }: { actions: ActionItem[] }) {
   const topColor = actions[0]?.color === "dimmed" ? "gray" : (actions[0]?.color ?? "gray");
   const bg = useCardBg(topColor);
   if (actions.length === 0) return null;
+  const shown = actions.slice(0, 3);
   return (
     <Paper radius={CARD_RADIUS} p="md" style={{ background: bg }}>
       <Text size="xs" fw={700} tt="uppercase" style={CARD_LABEL_STYLE} mb="sm">
         Next steps
       </Text>
       <Stack gap="sm">
-        {actions.map((a, i) => {
+        {shown.map((a, i) => {
           const color = a.color === "dimmed" ? "gray" : a.color;
           const isNext = i === 0;
           return (
@@ -347,22 +344,25 @@ function NextStepsPanel({ actions }: { actions: ActionItem[] }) {
                 {a.icon}
               </ThemeIcon>
               <Box style={{ flex: 1, minWidth: 0 }}>
-                <Group justify="space-between" gap="xs" wrap="nowrap">
+                <Group justify="space-between" gap="xs" wrap="nowrap" align="flex-start">
                   <Text size="sm" fw={isNext ? 700 : 600}>{a.title}</Text>
-                  <Badge
-                    size={isNext ? "md" : "sm"}
-                    color={color}
-                    variant={isNext ? "filled" : "light"}
-                    style={{ flexShrink: 0 }}
-                  >
-                    {awayLabel(a.daysAway)}
-                  </Badge>
+                  <Box style={{ flexShrink: 0, textAlign: "right" }}>
+                    <Badge size={isNext ? "md" : "sm"} color={color} variant={isNext ? "filled" : "light"}>
+                      {a.daysAway <= 0 ? "Now" : fmtDate(isoInDays(a.daysAway))}
+                    </Badge>
+                    {a.daysAway > 0 && (
+                      <Text size="9px" c="dimmed" mt={1}>in {awayLabel(a.daysAway)}</Text>
+                    )}
+                  </Box>
                 </Group>
                 <Text size="xs" c="dimmed">{a.detail}</Text>
               </Box>
             </Group>
           );
         })}
+        {actions.length > shown.length && (
+          <Text size="9px" c="dimmed" ta="right">+{actions.length - shown.length} more scheduled</Text>
+        )}
       </Stack>
     </Paper>
   );
@@ -605,11 +605,14 @@ function TrancheSection({
   puts,
   spot,
   vxnPct,
+  compact,
 }: {
   tranche: TranchePlan;
   puts: OptionPosition[];
   spot: number | null;
   vxnPct: number | null;
+  /** Side-by-side layout — use a single-column inner card grid. */
+  compact?: boolean;
 }) {
   const otmPct = spot !== null && spot > 0
     ? Math.round((1 - tranche.strike / spot) * 100)
@@ -662,7 +665,7 @@ function TrancheSection({
       </Table>
 
       {/* Position cards */}
-      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+      <SimpleGrid cols={compact ? { base: 1 } : { base: 1, sm: 2, lg: 3 }} spacing="md">
         {puts.length > 0
           ? puts.map((pos, i) => <PutCard key={i} pos={pos} spot={spot} vxnPct={vxnPct} />)
           : <EmptyPutCard tranche={tranche} spot={spot} />
@@ -1067,20 +1070,30 @@ export default function PutHedgePanel() {
         </>
       )}
 
-      {/* Open hedge puts by tranche */}
-      {plan && qqqSpot !== null && (
+      {/* Open hedge puts by tranche — side by side until a leg holds 2+ puts */}
+      {plan && qqqSpot !== null && (() => {
+        const anyMultiple = plan.some((t) => (putsByTranche.get(t.def.key) ?? []).length >= 2);
+        const sections = plan.map((t) => (
+          <TrancheSection
+            key={t.def.key}
+            tranche={t}
+            puts={putsByTranche.get(t.def.key) ?? []}
+            spot={qqqSpot}
+            vxnPct={market?.vxnPct ?? null}
+            compact={!anyMultiple}
+          />
+        ));
+        return (
         <Stack gap="md">
           <Text tt="uppercase" fw={600} style={CARD_LABEL_STYLE}>Open hedge puts</Text>
 
-          {plan.map((t) => (
-            <TrancheSection
-              key={t.def.key}
-              tranche={t}
-              puts={putsByTranche.get(t.def.key) ?? []}
-              spot={qqqSpot}
-              vxnPct={market?.vxnPct ?? null}
-            />
-          ))}
+          {anyMultiple ? (
+            sections
+          ) : (
+            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+              {sections}
+            </SimpleGrid>
+          )}
 
           {unclassified.length > 0 && (
             <Box>
@@ -1099,7 +1112,8 @@ export default function PutHedgePanel() {
             </Alert>
           )}
         </Stack>
-      )}
+        );
+      })()}
 
       {/* Strategy reference table */}
       <Paper radius={CARD_RADIUS} withBorder>
