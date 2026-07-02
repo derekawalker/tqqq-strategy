@@ -721,9 +721,19 @@ function buildCallRows(
     strikeToLevels.get(s)!.push(n);
   }
 
-  const highStrike = callStrikeForLevel(levels[0]);
+  const level0Strike = callStrikeForLevel(levels[0]);
   const lowStrike = callStrikeForLevel(levels[currentLevel]);
   const safeEdge = callStrikeForLevel(levels[Math.max(0, maxSafe)]);
+
+  // Extend top of ladder if a position has a strike above level 0
+  const highestPositionStrike = positions.reduce<number | null>(
+    (max, p) => (max === null ? p.strike : Math.max(max, p.strike)),
+    null,
+  );
+  const highStrike =
+    highestPositionStrike !== null && highestPositionStrike > level0Strike
+      ? Math.ceil(highestPositionStrike / 0.5) * 0.5
+      : level0Strike;
 
   // Always show 2 rows below the ITM boundary; extend further if an open position is ITM
   const itmFirstStrike = Math.floor((currentPrice - 0.001) / 0.5) * 0.5;

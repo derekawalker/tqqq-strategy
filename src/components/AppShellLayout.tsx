@@ -83,12 +83,14 @@ function AppShellInner({ children }: { children: ReactNode }) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const expiring = optionPositions.filter((p) => {
+    const tqqqOptions = optionPositions.filter((p) => p.underlyingSymbol !== "QQQ");
+
+    const expiring = tqqqOptions.filter((p) => {
       const dte = Math.round((new Date(p.expiry + "T00:00:00").getTime() - today.getTime()) / 86400000);
       return dte === 0;
     }).length;
 
-    const itm = quote.loading ? null : optionPositions.filter((p) => {
+    const itm = quote.loading ? null : tqqqOptions.filter((p) => {
       if (p.putCall === "CALL") return p.strike < quote.price;
       return p.strike > quote.price;
     }).length;
