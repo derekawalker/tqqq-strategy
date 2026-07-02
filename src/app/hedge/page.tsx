@@ -46,6 +46,7 @@ import { CARD_RADIUS } from "@/lib/cardStyles";
 import { fmtDate } from "@/lib/format";
 import PutHedgePanel from "./PutHedgePanel";
 import HedgeBacktestPanel from "./HedgeBacktestPanel";
+import CrashStressPanel from "./CrashStressPanel";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -986,6 +987,7 @@ export default function BacktestPage() {
       <Tabs.List mb="md">
         <Tabs.Tab value="hedge" className="hedge-tab">Put hedge</Tabs.Tab>
         <Tabs.Tab value="hedge-backtest" className="hedge-tab">Hedge backtest</Tabs.Tab>
+        <Tabs.Tab value="crash-stress" className="hedge-tab">Crash stress</Tabs.Tab>
         <Tabs.Tab value="ladder" className="hedge-tab">Ladder strategy</Tabs.Tab>
       </Tabs.List>
       <Tabs.Panel value="hedge">
@@ -993,6 +995,9 @@ export default function BacktestPage() {
       </Tabs.Panel>
       <Tabs.Panel value="hedge-backtest">
         <HedgeBacktestPanel />
+      </Tabs.Panel>
+      <Tabs.Panel value="crash-stress">
+        <CrashStressPanel />
       </Tabs.Panel>
       <Tabs.Panel value="ladder">
         <LadderBacktest />
