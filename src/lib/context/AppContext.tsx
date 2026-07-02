@@ -1,11 +1,39 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useMemo, useRef, useCallback, ReactNode } from "react";
-import type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition } from "@/lib/schwab/parse";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+  ReactNode,
+} from "react";
+import type {
+  FilledOrder,
+  FilledOptionOrder,
+  ExpiredOptionOrder,
+  WorkingOrder,
+  OptionPosition,
+} from "@/lib/schwab/parse";
 import type { Transaction, AccountBalance } from "@/app/api/schwab/data/route";
-import { needsSnapshotUpdate, recordSnapshot, type BalanceSnapshot } from "@/lib/balanceHistory";
+import {
+  needsSnapshotUpdate,
+  recordSnapshot,
+  type BalanceSnapshot,
+} from "@/lib/balanceHistory";
 import { toDateKey } from "@/lib/format";
-export type { FilledOrder, FilledOptionOrder, ExpiredOptionOrder, WorkingOrder, OptionPosition, Transaction, AccountBalance, BalanceSnapshot };
+export type {
+  FilledOrder,
+  FilledOptionOrder,
+  ExpiredOptionOrder,
+  WorkingOrder,
+  OptionPosition,
+  Transaction,
+  AccountBalance,
+  BalanceSnapshot,
+};
 
 export interface AccountSettings {
   initialCash: number | null;
@@ -40,8 +68,8 @@ const DEFAULT_SETTINGS: AccountSettings = {
   reductionFactor: null,
   orderWarnBelow: 3,
   orderBuffer: 5,
-  callSafetyLevels: 8,
-  putSafetyLevels: 8,
+  callSafetyLevels: 15,
+  putSafetyLevels: 15,
   levelResetDate: null,
   hedgeBudgetFlippedOrderIds: null,
 };
@@ -77,7 +105,10 @@ interface AppContextValue {
   activeAccount: Account | null;
   setActiveAccount: (account: Account | null) => void;
   updateAccountColor: (accountNumber: string, color: string) => void;
-  updateAccountSettings: (accountNumber: string, settings: Partial<AccountSettings>) => void;
+  updateAccountSettings: (
+    accountNumber: string,
+    settings: Partial<AccountSettings>,
+  ) => void;
   privacyMode: boolean;
   togglePrivacy: () => void;
   lastRefreshed: Date | null;
@@ -122,9 +153,16 @@ export function deserializeAccount(a: Account): Account {
     settings: {
       ...a.settings,
       // Migrate old field name → new field name
-      levelStartingCash: a.settings.levelStartingCash ?? (raw.startingCash as number | null) ?? null,
-      startingDate: a.settings.startingDate ? new Date(a.settings.startingDate) : null,
-      levelResetDate: a.settings.levelResetDate ? new Date(a.settings.levelResetDate) : null,
+      levelStartingCash:
+        a.settings.levelStartingCash ??
+        (raw.startingCash as number | null) ??
+        null,
+      startingDate: a.settings.startingDate
+        ? new Date(a.settings.startingDate)
+        : null,
+      levelResetDate: a.settings.levelResetDate
+        ? new Date(a.settings.levelResetDate)
+        : null,
     },
   };
 }
@@ -134,7 +172,9 @@ const AppContext = createContext<AppContextValue | null>(null);
 export function AppProvider({ children }: { children: ReactNode }) {
   // Start with empty defaults (matches SSR); init effect loads from Supabase before enabling writes
   const [accounts, setAccounts] = useState<Account[]>(DEFAULT_ACCOUNTS);
-  const [activeAccount, setActiveAccount] = useState<Account | null>(DEFAULT_ACCOUNTS[0] ?? null);
+  const [activeAccount, setActiveAccount] = useState<Account | null>(
+    DEFAULT_ACCOUNTS[0] ?? null,
+  );
   // initialized becomes true after settings are loaded from the database — persists only fire after this
   const [initialized, setInitialized] = useState(false);
   // ref-based guard so the persist effects only fire on changes AFTER init, not during the initial load
@@ -148,7 +188,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // logic would incorrectly wipe Tastytrade option positions when Schwab data arrives.
   const accountsRef = useRef(accounts);
 
-  useEffect(() => { accountsRef.current = accounts; }, [accounts]);
+  useEffect(() => {
+    accountsRef.current = accounts;
+  }, [accounts]);
 
   // Persist accounts to Supabase whenever they change (after initial load)
   useEffect(() => {
@@ -159,8 +201,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // callSafetyLevels, and putSafetyLevels all have non-null defaults, so they don't count.
     const hasRealSettings = accounts.some((a) =>
       (Object.keys(DEFAULT_SETTINGS) as (keyof AccountSettings)[]).some(
-        (key) => DEFAULT_SETTINGS[key] === null && a.settings[key] !== null
-      )
+        (key) => DEFAULT_SETTINGS[key] === null && a.settings[key] !== null,
+      ),
     );
     if (!supabaseLoadedRef.current && !hasRealSettings) return;
     fetch("/api/settings", {
@@ -177,49 +219,71 @@ export function AppProvider({ children }: { children: ReactNode }) {
     fetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ key: "activeAccountNumber", value: activeAccount.accountNumber }),
+      body: JSON.stringify({
+        key: "activeAccountNumber",
+        value: activeAccount.accountNumber,
+      }),
     }).catch(() => {});
   }, [activeAccount]);
 
   const [privacyMode, setPrivacyMode] = useState(false);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [schwabConnected, setSchwabConnected] = useState<boolean | null>(null);
-  const [tastytradeConnected, setTastytradeConnected] = useState<boolean | null>(null);
+  const [tastytradeConnected, setTastytradeConnected] = useState<
+    boolean | null
+  >(null);
 
-  const syncAccountsFromSchwab = useCallback(async (preferredAccountNumber?: string | null) => {
-    try {
-      const res = await fetch("/api/schwab/accounts");
-      const schwabAccounts = await res.json();
-      if (!Array.isArray(schwabAccounts)) return;
+  const syncAccountsFromSchwab = useCallback(
+    async (preferredAccountNumber?: string | null) => {
+      try {
+        const res = await fetch("/api/schwab/accounts");
+        const schwabAccounts = await res.json();
+        if (!Array.isArray(schwabAccounts)) return;
 
-      setAccounts((prev) => {
-        const colors = ["blue", "teal", "violet", "orange", "pink", "grape"];
-        const nonSchwab = prev.filter((a) => a.broker === "tastytrade"); // undefined = legacy schwab, exclude
-        const merged = schwabAccounts.map((sa: { accountNumber: string; nickName: string }, i: number) => {
-          const existing = prev.find((a) => a.accountNumber === sa.accountNumber);
-          return existing
-            ? { ...existing, accountName: sa.nickName, broker: "schwab" as const }
-            : {
-                accountNumber: sa.accountNumber,
-                accountName: sa.nickName,
-                color: colors[i % colors.length],
-                broker: "schwab" as const,
-                settings: { ...DEFAULT_SETTINGS },
-              };
+        setAccounts((prev) => {
+          const colors = ["blue", "teal", "violet", "orange", "pink", "grape"];
+          const nonSchwab = prev.filter((a) => a.broker === "tastytrade"); // undefined = legacy schwab, exclude
+          const merged = schwabAccounts.map(
+            (sa: { accountNumber: string; nickName: string }, i: number) => {
+              const existing = prev.find(
+                (a) => a.accountNumber === sa.accountNumber,
+              );
+              return existing
+                ? {
+                    ...existing,
+                    accountName: sa.nickName,
+                    broker: "schwab" as const,
+                  }
+                : {
+                    accountNumber: sa.accountNumber,
+                    accountName: sa.nickName,
+                    color: colors[i % colors.length],
+                    broker: "schwab" as const,
+                    settings: { ...DEFAULT_SETTINGS },
+                  };
+            },
+          );
+          const allAccounts = [...merged, ...nonSchwab];
+          setActiveAccount((active) => {
+            const preferred = preferredAccountNumber ?? active?.accountNumber;
+            return (
+              allAccounts.find((a) => a.accountNumber === preferred) ??
+              allAccounts[0] ??
+              null
+            );
+          });
+          return allAccounts;
         });
-        const allAccounts = [...merged, ...nonSchwab];
-        setActiveAccount((active) => {
-          const preferred = preferredAccountNumber ?? active?.accountNumber;
-          return allAccounts.find((a) => a.accountNumber === preferred) ?? allAccounts[0] ?? null;
-        });
-        return allAccounts;
-      });
-    } catch {
-      // silently ignore — accounts remain as-is
-    }
-  }, []);
+      } catch {
+        // silently ignore — accounts remain as-is
+      }
+    },
+    [],
+  );
 
-  const syncAccountsFromTastytrade = useCallback(async (): Promise<string | null> => {
+  const syncAccountsFromTastytrade = useCallback(async (): Promise<
+    string | null
+  > => {
     try {
       const res = await fetch("/api/tastytrade/accounts");
       if (!res.ok) {
@@ -232,19 +296,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setAccounts((prev) => {
         const colors = ["blue", "teal", "violet", "orange", "pink", "grape"];
         const nonTasty = prev.filter((a) => a.broker !== "tastytrade"); // keep schwab + legacy (undefined)
-        const merged = tastyAccounts.map((ta: { accountNumber: string; nickName: string }, i: number) => {
-          const existing = prev.find((a) => a.accountNumber === ta.accountNumber);
-          const colorIdx = nonTasty.length + i;
-          return existing
-            ? { ...existing, accountName: ta.nickName, broker: "tastytrade" as const }
-            : {
-                accountNumber: ta.accountNumber,
-                accountName: ta.nickName,
-                color: colors[colorIdx % colors.length],
-                broker: "tastytrade" as const,
-                settings: { ...DEFAULT_SETTINGS },
-              };
-        });
+        const merged = tastyAccounts.map(
+          (ta: { accountNumber: string; nickName: string }, i: number) => {
+            const existing = prev.find(
+              (a) => a.accountNumber === ta.accountNumber,
+            );
+            const colorIdx = nonTasty.length + i;
+            return existing
+              ? {
+                  ...existing,
+                  accountName: ta.nickName,
+                  broker: "tastytrade" as const,
+                }
+              : {
+                  accountNumber: ta.accountNumber,
+                  accountName: ta.nickName,
+                  color: colors[colorIdx % colors.length],
+                  broker: "tastytrade" as const,
+                  settings: { ...DEFAULT_SETTINGS },
+                };
+          },
+        );
         return [...nonTasty, ...merged];
       });
       return null;
@@ -287,18 +359,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
       let remoteAccounts: Account[] = [];
       let savedNumber: string | null = null;
       try {
-        const [accountsData, activeNumData, historyData] = await Promise.allSettled([
-          fetch("/api/settings?key=accounts").then((r) => r.json()),
-          fetch("/api/settings?key=activeAccountNumber").then((r) => r.json()),
-          fetch("/api/settings?key=balanceHistory").then((r) => r.json()),
-        ]);
+        const [accountsData, activeNumData, historyData] =
+          await Promise.allSettled([
+            fetch("/api/settings?key=accounts").then((r) => r.json()),
+            fetch("/api/settings?key=activeAccountNumber").then((r) =>
+              r.json(),
+            ),
+            fetch("/api/settings?key=balanceHistory").then((r) => r.json()),
+          ]);
         if (!cancelled) {
-          if (accountsData.status === "fulfilled" && accountsData.value?.value) {
-            remoteAccounts = (accountsData.value.value as Account[]).map(deserializeAccount);
+          if (
+            accountsData.status === "fulfilled" &&
+            accountsData.value?.value
+          ) {
+            remoteAccounts = (accountsData.value.value as Account[]).map(
+              deserializeAccount,
+            );
             setAccounts(remoteAccounts);
             supabaseLoadedRef.current = true;
           }
-          if (activeNumData.status === "fulfilled" && activeNumData.value?.value) {
+          if (
+            activeNumData.status === "fulfilled" &&
+            activeNumData.value?.value
+          ) {
             savedNumber = activeNumData.value.value as string;
           }
           if (historyData.status === "fulfilled") {
@@ -322,8 +405,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ]);
         if (cancelled) return;
 
-        const connected = schwabRes.status === "fulfilled" && schwabRes.value?.authenticated === true;
-        const tastyConnected = tastyRes.status === "fulfilled" && tastyRes.value?.connected === true;
+        const connected =
+          schwabRes.status === "fulfilled" &&
+          schwabRes.value?.authenticated === true;
+        const tastyConnected =
+          tastyRes.status === "fulfilled" && tastyRes.value?.connected === true;
         setSchwabConnected(connected);
         setTastytradeConnected(tastyConnected);
 
@@ -333,9 +419,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           await syncAccountsFromSchwab(savedNumber); // sets activeAccount internally
         } else {
           setActiveAccount(
-            (savedNumber ? remoteAccounts.find((a) => a.accountNumber === savedNumber) : null) ??
+            (savedNumber
+              ? remoteAccounts.find((a) => a.accountNumber === savedNumber)
+              : null) ??
               remoteAccounts[0] ??
-              null
+              null,
           );
         }
       } catch {
@@ -343,9 +431,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
           setSchwabConnected(false);
           setTastytradeConnected(false);
           setActiveAccount(
-            (savedNumber ? remoteAccounts.find((a) => a.accountNumber === savedNumber) : null) ??
+            (savedNumber
+              ? remoteAccounts.find((a) => a.accountNumber === savedNumber)
+              : null) ??
               remoteAccounts[0] ??
-              null
+              null,
           );
         }
       }
@@ -365,22 +455,42 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
     init();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
-  const [quote, setQuote] = useState<Quote>({ price: 0, changePercent: 0, trend: 0, closes30: [], dates30: [], daysOfWeek30: [], loading: true });
+  const [quote, setQuote] = useState<Quote>({
+    price: 0,
+    changePercent: 0,
+    trend: 0,
+    closes30: [],
+    dates30: [],
+    daysOfWeek30: [],
+    loading: true,
+  });
   const [refreshTick, setRefreshTick] = useState(0);
   const [quoteTick, setQuoteTick] = useState(0);
   // Set by a user-initiated refresh so the next snapshot fetch bypasses the server-side TTL cache.
   // Consumed (and reset) by the snapshot effect; mount/focus refreshes leave it false to use cache.
   const forceFreshRef = useRef(false);
   const [allFilledOrders, setAllFilledOrders] = useState<FilledOrder[]>([]);
-  const [allFilledOptionOrders, setAllFilledOptionOrders] = useState<FilledOptionOrder[]>([]);
-  const [allExpiredOptionOrders, setAllExpiredOptionOrders] = useState<ExpiredOptionOrder[]>([]);
+  const [allFilledOptionOrders, setAllFilledOptionOrders] = useState<
+    FilledOptionOrder[]
+  >([]);
+  const [allExpiredOptionOrders, setAllExpiredOptionOrders] = useState<
+    ExpiredOptionOrder[]
+  >([]);
   const [allWorkingOrders, setAllWorkingOrders] = useState<WorkingOrder[]>([]);
-  const [allOptionPositions, setAllOptionPositions] = useState<OptionPosition[]>([]);
+  const [allOptionPositions, setAllOptionPositions] = useState<
+    OptionPosition[]
+  >([]);
   const [allTransactions, setAllTransactions] = useState<Transaction[]>([]);
-  const [allTqqqShares, setAllTqqqShares] = useState<Record<string, number>>({});
-  const [allTqqqAvgPrice, setAllTqqqAvgPrice] = useState<Record<string, number>>({});
+  const [allTqqqShares, setAllTqqqShares] = useState<Record<string, number>>(
+    {},
+  );
+  const [allTqqqAvgPrice, setAllTqqqAvgPrice] = useState<
+    Record<string, number>
+  >({});
   const [snapshotLoading, setSnapshotLoading] = useState(false);
   const [allBalances, setAllBalances] = useState<AccountBalance[]>([]);
   const [balanceHistory, setBalanceHistory] = useState<BalanceSnapshot[]>([]);
@@ -404,7 +514,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     function mergeByTime<T>(a: T[] = [], b: T[] = [], key: keyof T): T[] {
       return [...a, ...b].sort(
         (x, y) =>
-          new Date(y[key] as string).getTime() - new Date(x[key] as string).getTime(),
+          new Date(y[key] as string).getTime() -
+          new Date(x[key] as string).getTime(),
       );
     }
 
@@ -418,24 +529,54 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // The init effect may discover Tastytrade accounts after this effect has already started its
       // fetches; reading the ref here ensures the correct account numbers are always used.
       const tastyNums = new Set(
-        accountsRef.current.filter(a => a.broker === "tastytrade").map(a => a.accountNumber)
+        accountsRef.current
+          .filter((a) => a.broker === "tastytrade")
+          .map((a) => a.accountNumber),
       );
-      const owns = (acct: string) => (incomingIsTasty ? tastyNums.has(acct) : !tastyNums.has(acct));
+      const owns = (acct: string) =>
+        incomingIsTasty ? tastyNums.has(acct) : !tastyNums.has(acct);
       const keepOther = <T extends { accountNumber: string }>(arr: T[]) =>
         arr.filter((o) => !owns(o.accountNumber));
       // For unsorted slices, keep the Schwab partition first to preserve prior ordering.
-      const concat = <T extends { accountNumber: string }>(prev: T[], incoming: T[]) =>
-        incomingIsTasty ? [...keepOther(prev), ...incoming] : [...incoming, ...keepOther(prev)];
+      const concat = <T extends { accountNumber: string }>(
+        prev: T[],
+        incoming: T[],
+      ) =>
+        incomingIsTasty
+          ? [...keepOther(prev), ...incoming]
+          : [...incoming, ...keepOther(prev)];
 
-      setAllFilledOrders(prev => mergeByTime(keepOther(prev), data.filledOrders ?? [], "time" as never));
-      setAllFilledOptionOrders(prev => mergeByTime(keepOther(prev), data.filledOptionOrders ?? [], "time" as never));
-      setAllExpiredOptionOrders(prev => mergeByTime(keepOther(prev), data.expiredOptionOrders ?? [], "time" as never));
-      setAllWorkingOrders(prev => mergeByTime(keepOther(prev), data.workingOrders ?? [], "enteredTime" as never));
-      setAllOptionPositions(prev => concat(prev, data.optionPositions ?? []));
-      setAllBalances(prev => concat(prev, data.balances ?? []));
-      setAllTransactions(prev => mergeByTime(keepOther(prev), data.transactions ?? [], "time" as never));
-      setAllTqqqShares(prev => ({ ...prev, ...(data.tqqqShares ?? {}) }));
-      setAllTqqqAvgPrice(prev => ({ ...prev, ...(data.tqqqAvgPrice ?? {}) }));
+      setAllFilledOrders((prev) =>
+        mergeByTime(keepOther(prev), data.filledOrders ?? [], "time" as never),
+      );
+      setAllFilledOptionOrders((prev) =>
+        mergeByTime(
+          keepOther(prev),
+          data.filledOptionOrders ?? [],
+          "time" as never,
+        ),
+      );
+      setAllExpiredOptionOrders((prev) =>
+        mergeByTime(
+          keepOther(prev),
+          data.expiredOptionOrders ?? [],
+          "time" as never,
+        ),
+      );
+      setAllWorkingOrders((prev) =>
+        mergeByTime(
+          keepOther(prev),
+          data.workingOrders ?? [],
+          "enteredTime" as never,
+        ),
+      );
+      setAllOptionPositions((prev) => concat(prev, data.optionPositions ?? []));
+      setAllBalances((prev) => concat(prev, data.balances ?? []));
+      setAllTransactions((prev) =>
+        mergeByTime(keepOther(prev), data.transactions ?? [], "time" as never),
+      );
+      setAllTqqqShares((prev) => ({ ...prev, ...(data.tqqqShares ?? {}) }));
+      setAllTqqqAvgPrice((prev) => ({ ...prev, ...(data.tqqqAvgPrice ?? {}) }));
     };
 
     // A user-initiated refresh bypasses the server cache; mount/focus reuse it. Read + reset here so
@@ -447,34 +588,51 @@ export function AppProvider({ children }: { children: ReactNode }) {
     fetch(`/api/schwab/data${freshParam}`)
       .then((r) => r.json())
       .then((s) => applyData(s, false))
-      .catch(() => { /* ignore */ })
+      .catch(() => {
+        /* ignore */
+      })
       .finally(() => markComplete());
 
     fetch(`/api/tastytrade/data${freshParam}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((t) => {
         if (cancelled) return;
-        if (t === null) { checkTastytradeAuth(); return; }
+        if (t === null) {
+          checkTastytradeAuth();
+          return;
+        }
         applyData(t, true);
       })
-      .catch(() => { /* ignore */ })
+      .catch(() => {
+        /* ignore */
+      })
       .finally(() => markComplete());
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [refreshTick]);
 
   // Record one balance snapshot per day, the first time balances finish loading that day. This
   // piggybacks on the existing refresh flow — no cron/infra needed — so the portfolio-history
   // chart fills in naturally as the app is used.
   useEffect(() => {
-    if (snapshotLoading || allBalances.length === 0 || !persistReadyRef.current || !balanceHistoryLoaded) return;
+    if (
+      snapshotLoading ||
+      allBalances.length === 0 ||
+      !persistReadyRef.current ||
+      !balanceHistoryLoaded
+    )
+      return;
     const today = toDateKey(new Date());
     const accountNumbers = allBalances.map((b) => b.accountNumber);
     // Record when today is missing entirely, or is missing an account we now have a balance for
     // (e.g. the second broker finished loading after the day's first snapshot was taken).
     if (!needsSnapshotUpdate(balanceHistory, today, accountNumbers)) return;
 
-    const values = Object.fromEntries(allBalances.map((b) => [b.accountNumber, b.totalValue]));
+    const values = Object.fromEntries(
+      allBalances.map((b) => [b.accountNumber, b.totalValue]),
+    );
     const next = recordSnapshot(balanceHistory, today, values);
     setBalanceHistory(next);
     fetch("/api/settings", {
@@ -486,36 +644,56 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const accountNumber = activeAccount?.accountNumber ?? null;
   const filledOrders = useMemo(
-    () => accountNumber ? allFilledOrders.filter((o) => o.accountNumber === accountNumber) : [],
-    [allFilledOrders, accountNumber]
+    () =>
+      accountNumber
+        ? allFilledOrders.filter((o) => o.accountNumber === accountNumber)
+        : [],
+    [allFilledOrders, accountNumber],
   );
   const workingOrders = useMemo(
-    () => accountNumber ? allWorkingOrders.filter((o) => o.accountNumber === accountNumber) : [],
-    [allWorkingOrders, accountNumber]
+    () =>
+      accountNumber
+        ? allWorkingOrders.filter((o) => o.accountNumber === accountNumber)
+        : [],
+    [allWorkingOrders, accountNumber],
   );
   const optionPositions = useMemo(
-    () => accountNumber ? allOptionPositions.filter((o) => o.accountNumber === accountNumber) : [],
-    [allOptionPositions, accountNumber]
+    () =>
+      accountNumber
+        ? allOptionPositions.filter((o) => o.accountNumber === accountNumber)
+        : [],
+    [allOptionPositions, accountNumber],
   );
   const filledOptionOrders = useMemo(
-    () => accountNumber ? allFilledOptionOrders.filter((o) => o.accountNumber === accountNumber) : [],
-    [allFilledOptionOrders, accountNumber]
+    () =>
+      accountNumber
+        ? allFilledOptionOrders.filter((o) => o.accountNumber === accountNumber)
+        : [],
+    [allFilledOptionOrders, accountNumber],
   );
   const expiredOptionOrders = useMemo(
-    () => accountNumber ? allExpiredOptionOrders.filter((o) => o.accountNumber === accountNumber) : [],
-    [allExpiredOptionOrders, accountNumber]
+    () =>
+      accountNumber
+        ? allExpiredOptionOrders.filter(
+            (o) => o.accountNumber === accountNumber,
+          )
+        : [],
+    [allExpiredOptionOrders, accountNumber],
   );
   const transactions = useMemo(
-    () => accountNumber ? allTransactions.filter((t) => t.accountNumber === accountNumber) : [],
-    [allTransactions, accountNumber]
+    () =>
+      accountNumber
+        ? allTransactions.filter((t) => t.accountNumber === accountNumber)
+        : [],
+    [allTransactions, accountNumber],
   );
   const tqqqShares = useMemo(
-    () => accountNumber ? (allTqqqShares[accountNumber] ?? 0) : 0,
-    [allTqqqShares, accountNumber]
+    () => (accountNumber ? (allTqqqShares[accountNumber] ?? 0) : 0),
+    [allTqqqShares, accountNumber],
   );
   const tqqqAvgPrice = useMemo(
-    () => accountNumber ? (allTqqqAvgPrice[accountNumber] ?? 0) : 0,
-    [allTqqqAvgPrice, accountNumber]
+    () => (accountNumber ? (allTqqqAvgPrice[accountNumber] ?? 0) : 0),
+    [allTqqqAvgPrice, accountNumber],
   );
   const [alerts, setAlerts] = useState<Alerts>({
     levelMatch: null,
@@ -526,29 +704,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
     idleCash: null,
   });
 
-  const updateAccountColor = useCallback((accountNumber: string, color: string) => {
-    setAccounts((prev) =>
-      prev.map((a) => (a.accountNumber === accountNumber ? { ...a, color } : a))
-    );
-    setActiveAccount((prev) =>
-      prev?.accountNumber === accountNumber ? { ...prev, color } : prev
-    );
-  }, []);
+  const updateAccountColor = useCallback(
+    (accountNumber: string, color: string) => {
+      setAccounts((prev) =>
+        prev.map((a) =>
+          a.accountNumber === accountNumber ? { ...a, color } : a,
+        ),
+      );
+      setActiveAccount((prev) =>
+        prev?.accountNumber === accountNumber ? { ...prev, color } : prev,
+      );
+    },
+    [],
+  );
 
-  const updateAccountSettings = useCallback((accountNumber: string, settings: Partial<AccountSettings>) => {
-    setAccounts((prev) =>
-      prev.map((a) =>
-        a.accountNumber === accountNumber
-          ? { ...a, settings: { ...a.settings, ...settings } }
-          : a
-      )
-    );
-    setActiveAccount((prev) =>
-      prev?.accountNumber === accountNumber
-        ? { ...prev, settings: { ...prev.settings, ...settings } }
-        : prev
-    );
-  }, []);
+  const updateAccountSettings = useCallback(
+    (accountNumber: string, settings: Partial<AccountSettings>) => {
+      setAccounts((prev) =>
+        prev.map((a) =>
+          a.accountNumber === accountNumber
+            ? { ...a, settings: { ...a.settings, ...settings } }
+            : a,
+        ),
+      );
+      setActiveAccount((prev) =>
+        prev?.accountNumber === accountNumber
+          ? { ...prev, settings: { ...prev.settings, ...settings } }
+          : prev,
+      );
+    },
+    [],
+  );
 
   const togglePrivacy = useCallback(() => setPrivacyMode((p) => !p), []);
   // opts.silent skips the loading flash — used by background polling / focus refresh so the

@@ -16,8 +16,8 @@ function makeAccount(overrides: Partial<Account["settings"]> = {}): Account {
       reductionFactor: 0.95,
       orderWarnBelow: 3,
       orderBuffer: 5,
-      callSafetyLevels: 8,
-      putSafetyLevels: 8,
+      callSafetyLevels: 15,
+      putSafetyLevels: 15,
       levelResetDate: null,
       hedgeBudgetFlippedOrderIds: null,
       ...overrides,
@@ -34,7 +34,9 @@ describe("deserializeAccount", () => {
 
   it("converts startingDate string to Date object", () => {
     // Simulates what JSON.parse produces from a stored account
-    const raw = makeAccount({ startingDate: "2026-01-01T12:00:00.000Z" as unknown as Date });
+    const raw = makeAccount({
+      startingDate: "2026-01-01T12:00:00.000Z" as unknown as Date,
+    });
     const result = deserializeAccount(raw);
     expect(result.settings.startingDate).toBeInstanceOf(Date);
     expect(result.settings.startingDate?.getFullYear()).toBe(2026);
@@ -44,7 +46,9 @@ describe("deserializeAccount", () => {
     // This is the regression: without this conversion, levelResetDate stayed
     // as a string after localStorage load, causing NaN comparisons in useLevels
     // that filtered out ALL fills and made options tables appear empty.
-    const raw = makeAccount({ levelResetDate: "2026-04-14T00:00:00.000Z" as unknown as Date });
+    const raw = makeAccount({
+      levelResetDate: "2026-04-14T00:00:00.000Z" as unknown as Date,
+    });
     const result = deserializeAccount(raw);
     expect(result.settings.levelResetDate).toBeInstanceOf(Date);
     // Use UTC getters to avoid timezone-dependent failures
@@ -54,7 +58,11 @@ describe("deserializeAccount", () => {
   });
 
   it("preserves all other settings unchanged", () => {
-    const account = makeAccount({ initialCash: 250000, levelStartingCash: 250000, sellPercentage: 1.64 });
+    const account = makeAccount({
+      initialCash: 250000,
+      levelStartingCash: 250000,
+      sellPercentage: 1.64,
+    });
     const result = deserializeAccount(account);
     expect(result.settings.initialCash).toBe(250000);
     expect(result.settings.levelStartingCash).toBe(250000);
