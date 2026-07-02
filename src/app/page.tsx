@@ -10,6 +10,7 @@ import { GainLossCard } from "@/components/GainLossCard";
 import { StatCard } from "@/components/StatCard";
 import { MiniChartCard } from "@/components/MiniChartCard";
 import { CurrentLevelCard } from "@/components/CurrentLevelCard";
+import { CashStressCard } from "@/components/CashStressCard";
 
 export default function Home() {
   const { filledOrders, optionPositions, tqqqShares } = useApp();
@@ -32,6 +33,7 @@ export default function Home() {
       </div>
       <div className="dash-chart"><MiniChartCard /></div>
       <div className="dash-level"><CurrentLevelCard /></div>
+      <div className="dash-cashstress"><CashStressCard /></div>
     </Box>
   );
 }

@@ -59,6 +59,7 @@ tr[data-with-row-border] { border-bottom: none !important; }
 }
 .dash-chart    { grid-column: span 2; }
 .dash-level    { grid-column: span 3; }
+.dash-cashstress { grid-column: span 5; }
 
 /* Mobile: stack in desired order */
 @media (max-width: 768px) {
@@ -70,6 +71,7 @@ tr[data-with-row-border] { border-bottom: none !important; }
   .dashboard-grid .dash-account  { grid-column: span 1; grid-row: span 1; order: 1; }
   .dashboard-grid .dash-chart    { grid-column: span 1; order: 2; }
   .dashboard-grid .dash-level    { grid-column: span 1; order: 3; }
-  .dashboard-grid .dash-stats    { grid-column: span 1; order: 4; }
-  .dashboard-grid .dash-gainloss { grid-column: span 1; order: 5; }
+  .dashboard-grid .dash-cashstress { grid-column: span 1; order: 4; }
+  .dashboard-grid .dash-stats    { grid-column: span 1; order: 5; }
+  .dashboard-grid .dash-gainloss { grid-column: span 1; order: 6; }
 }
