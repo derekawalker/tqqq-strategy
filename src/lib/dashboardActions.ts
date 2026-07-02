@@ -11,7 +11,7 @@ import type { OptionPosition } from "./schwab/parse";
 import type { WorkingOrder } from "./schwab/parse";
 import { type HedgeActionItem } from "./hedgeActions";
 import type { Regime } from "./sentiment";
-import { regimeAction } from "./sentiment";
+import { regimeAction, regimeThrottle } from "./sentiment";
 
 export type QueueSource = "hedge" | "options" | "ladder" | "regime";
 
@@ -160,7 +160,7 @@ export function regimeQueueActions(regime: Regime, daysInRegime: number): QueueA
       priority: regime === "Risk-Off" ? 0 : 5,
       daysAway: 0,
       title: `Regime: ${regime}${daysInRegime <= 1 ? " (just changed)" : ` — ${daysInRegime}d`}`,
-      detail: regimeAction(regime),
+      detail: `${regimeAction(regime)} Ladder buys: ${regimeThrottle(regime).label}`,
       color: regime === "Risk-Off" ? "red" : "orange",
       href: "/sentiment",
     },

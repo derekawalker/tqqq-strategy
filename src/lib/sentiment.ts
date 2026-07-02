@@ -191,6 +191,25 @@ export function regimeAction(regime: Regime): string {
   return "Exit TQQQ. Cash / SGOV / hedged exposure. No dip-buying.";
 }
 
+export interface RegimeThrottle {
+  /** Same convention as strategySignals.ts: 1.0 = full buys, 0.0 = pause all buys. */
+  multiplier: number;
+  label: string;
+}
+
+/**
+ * Maps the current regime to a ladder buy-throttle recommendation, so the
+ * standing dip-buying ladder and the regime model give one consistent stance
+ * instead of the ladder buying dips the regime model says to avoid. Advisory
+ * only — the app doesn't place or cancel orders on its own.
+ */
+export function regimeThrottle(regime: Regime): RegimeThrottle {
+  if (regime === "Risk-On") return { multiplier: 1, label: "Full size — buy every touched level." };
+  if (regime === "Neutral")
+    return { multiplier: 0.5, label: "Half size — consider buying half the normal share count per level." };
+  return { multiplier: 0, label: "Paused — consider holding off new buys until the regime improves." };
+}
+
 // ---------------------------------------------------------------------------
 // Per-signal scorers (pure)
 // ---------------------------------------------------------------------------

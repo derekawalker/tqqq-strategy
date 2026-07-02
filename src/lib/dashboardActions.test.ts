@@ -118,6 +118,13 @@ describe("regimeQueueActions", () => {
     const [action] = regimeQueueActions("Risk-Off", 1);
     expect(action.title).toContain("just changed");
   });
+
+  it("includes the ladder buy-throttle guidance in the detail text", () => {
+    const [neutral] = regimeQueueActions("Neutral", 5);
+    expect(neutral.detail).toContain("Half size");
+    const [riskOff] = regimeQueueActions("Risk-Off", 5);
+    expect(riskOff.detail).toContain("Paused");
+  });
 });
 
 describe("hedgeQueueActions", () => {

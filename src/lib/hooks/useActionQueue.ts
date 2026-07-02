@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
+import { useSentiment } from "@/lib/hooks/useSentiment";
 import { buildTranchePlan } from "@/lib/hedgeTranches";
 import { buildHedgeActions } from "@/lib/hedgeActions";
-import type { Regime } from "@/lib/sentiment";
 import {
   hedgeQueueActions,
   optionQueueActions,
@@ -23,12 +23,6 @@ interface HedgeMarketData {
   error?: string;
 }
 
-interface SentimentData {
-  regime: Regime;
-  daysInRegime: number;
-  error?: string;
-}
-
 /**
  * Aggregates hedge actions, short-option exit signals, near-spot ladder
  * buys/sells, and regime advisories into one sorted queue for the dashboard.
@@ -38,6 +32,7 @@ interface SentimentData {
 export function useActionQueue(): QueueAction[] | null {
   const { activeAccount, balances, optionPositions, workingOrders, quote } = useApp();
   const levelsSummary = useLevels();
+  const sentiment = useSentiment();
 
   const [hedgeMarket, setHedgeMarket] = useState<HedgeMarketData | null>(null);
   useEffect(() => {
@@ -45,16 +40,6 @@ export function useActionQueue(): QueueAction[] | null {
     fetch("/api/put-hedge")
       .then((r) => r.json())
       .then((d: HedgeMarketData) => { if (!cancelled && !d.error) setHedgeMarket(d); })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, []);
-
-  const [sentiment, setSentiment] = useState<SentimentData | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetch("/api/sentiment")
-      .then((r) => r.json())
-      .then((d: SentimentData) => { if (!cancelled && !d.error) setSentiment(d); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, []);
