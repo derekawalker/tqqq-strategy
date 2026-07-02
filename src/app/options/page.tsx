@@ -48,6 +48,7 @@ import type { Level } from "@/lib/levels";
 import { estimateCallSale, estimatePutSale, type SaleEconomics } from "@/lib/optionYield";
 import { ivFor, IV_SCALE, DIV_YIELD } from "@/lib/hedgeTranches";
 import { ivRankGuidance, IV_RANK_GUIDANCE_LABEL } from "@/lib/ivRank";
+import { nextEvent, eventGuidance, MARKET_EVENTS } from "@/lib/marketEvents";
 
 // ── day change + sparkline banner ──────────────────────────────────────────
 
@@ -738,6 +739,19 @@ function IvRankBanner({ ivRank, loading }: { ivRank: number | null; loading: boo
         {IV_RANK_GUIDANCE_LABEL[guidance]}
       </Text>
     </Group>
+  );
+}
+
+/** FOMC/CPI heads-up: TQQQ has no earnings, but its IV lives on these prints. */
+function EventCalendarBanner() {
+  const upcoming = useMemo(() => nextEvent(MARKET_EVENTS, new Date()), []);
+  if (!upcoming) return null;
+  const when = upcoming.daysAway === 0 ? "today" : upcoming.daysAway === 1 ? "tomorrow" : `in ${upcoming.daysAway} days`;
+  return (
+    <Alert color="orange" variant="light" icon={<IconAlertTriangle size={16} />}>
+      <Text size="sm" fw={600}>{upcoming.label} {when}</Text>
+      <Text size="xs" c="dimmed">{eventGuidance(upcoming.kind)}</Text>
+    </Alert>
   );
 }
 
@@ -2048,6 +2062,7 @@ function OptionsPageInner() {
           daysOfWeek30={quote.daysOfWeek30}
           loading={quote.loading}
         />
+        <EventCalendarBanner />
         <Group justify="space-between" align="center">
           <IvRankBanner ivRank={ivData?.ivRank ?? null} loading={ivLoading} />
           {dteControl}
@@ -2113,6 +2128,7 @@ function OptionsPageInner() {
         daysOfWeek30={quote.daysOfWeek30}
         loading={quote.loading}
       />
+      <EventCalendarBanner />
       <Group justify="space-between" align="center">
         <IvRankBanner ivRank={ivData?.ivRank ?? null} loading={ivLoading} />
         {dteControl}
