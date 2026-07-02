@@ -11,6 +11,7 @@ import { StatCard } from "@/components/StatCard";
 import { MiniChartCard } from "@/components/MiniChartCard";
 import { CurrentLevelCard } from "@/components/CurrentLevelCard";
 import { CashStressCard } from "@/components/CashStressCard";
+import { ActionQueueCard } from "@/components/ActionQueueCard";
 
 export default function Home() {
   const { filledOrders, optionPositions, tqqqShares } = useApp();
@@ -24,6 +25,7 @@ export default function Home() {
 
   return (
     <Box className="dashboard-grid">
+      <div className="dash-actionqueue"><ActionQueueCard /></div>
       <div className="dash-account"><AccountValueCard /></div>
       <div className="dash-gainloss"><GainLossCard /></div>
       <div className="dash-stats">
