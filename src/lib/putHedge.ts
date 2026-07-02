@@ -59,6 +59,48 @@ export interface PutGreeks {
   vega: number;
 }
 
+export interface CallGreeks {
+  /** Price per share (× 100 for one contract). */
+  price: number;
+  /** Call delta — positive, in [0, 1]. */
+  delta: number;
+  /** Theta per calendar day, per share (negative = time decay costs you). */
+  theta: number;
+  /** Vega per 1 vol point (0.01 change in sigma), per share. */
+  vega: number;
+}
+
+/**
+ * Black-Scholes call price plus the greeks used to estimate covered-call
+ * income (delta as an assignment-probability proxy, price for annualized
+ * yield). Same params as {@link bsPutGreeks}. At/after expiry returns
+ * intrinsic with delta of 1 (ITM) or 0 (OTM) and zero theta/vega.
+ */
+export function bsCallGreeks(
+  s: number,
+  k: number,
+  tYears: number,
+  sigma: number,
+  r = 0.04,
+  q = 0,
+): CallGreeks {
+  if (tYears <= 0 || sigma <= 0) {
+    const intrinsic = Math.max(s - k, 0);
+    return { price: intrinsic, delta: s > k ? 1 : 0, theta: 0, vega: 0 };
+  }
+  const sqrtT = Math.sqrt(tYears);
+  const d1 = (Math.log(s / k) + (r - q + 0.5 * sigma * sigma) * tYears) / (sigma * sqrtT);
+  const d2 = d1 - sigma * sqrtT;
+  const price = s * Math.exp(-q * tYears) * normCdf(d1) - k * Math.exp(-r * tYears) * normCdf(d2);
+  const delta = Math.exp(-q * tYears) * normCdf(d1);
+  const thetaYr =
+    -(s * Math.exp(-q * tYears) * normPdf(d1) * sigma) / (2 * sqrtT) -
+    r * k * Math.exp(-r * tYears) * normCdf(d2) +
+    q * s * Math.exp(-q * tYears) * normCdf(d1);
+  const vega = (s * Math.exp(-q * tYears) * normPdf(d1) * sqrtT) / 100;
+  return { price, delta, theta: thetaYr / 365, vega };
+}
+
 /**
  * Black-Scholes put price plus the greeks the hedge logic needs.
  * Same params as {@link bsPut}. At/after expiry returns intrinsic with

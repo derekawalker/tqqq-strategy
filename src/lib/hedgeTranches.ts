@@ -147,9 +147,9 @@ export const TRANCHE_SETS: Record<HedgeInstrument, TrancheDef[]> = {
 export const TRANCHES: TrancheDef[] = TRANCHE_SETS.QQQ;
 
 /** IV multiplier vs ^VXN: TQQQ options run ~3× the index implied vol. */
-const IV_SCALE: Record<HedgeInstrument, number> = { QQQ: 1, TQQQ: 3 };
+export const IV_SCALE: Record<HedgeInstrument, number> = { QQQ: 1, TQQQ: 3 };
 /** Dividend yield of the put underlying. */
-const DIV_YIELD: Record<HedgeInstrument, number> = { QQQ: 0.006, TQQQ: 0 };
+export const DIV_YIELD: Record<HedgeInstrument, number> = { QQQ: 0.006, TQQQ: 0 };
 
 /** Fallback DTE per instrument when a tranche doesn't specify one. */
 export const HEDGE_DTE_BY_INSTRUMENT: Record<HedgeInstrument, number> = { QQQ: 180, TQQQ: 90 };
@@ -176,8 +176,15 @@ const SKEW = 0.8;
 /** Fallback IV (as a fraction) when ^VXN is unavailable. */
 const DEFAULT_IV = 0.22;
 
-/** Skew-adjusted implied vol for a given moneyness. */
-function ivFor(baseIv: number, moneyness: number): number {
+/**
+ * Skew-adjusted implied vol for a given moneyness (strike / spot). Deeper-OTM
+ * puts (moneyness < 1) carry richer IV than the ATM level; OTM calls
+ * (moneyness > 1) are left at the base IV — this models the equity/index put
+ * skew, not a symmetric smile, which matches how TQQQ/QQQ options actually
+ * trade. Exported so option-selling yield estimates (Options page) share the
+ * same skew model as the hedge pricer instead of drifting out of sync.
+ */
+export function ivFor(baseIv: number, moneyness: number): number {
   return baseIv * (1 + SKEW * Math.max(0, 1 - moneyness));
 }
 

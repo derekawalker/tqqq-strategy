@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, Suspense, Fragment } from "react";
+import { useMemo, useState, useEffect, Suspense, Fragment, type CSSProperties } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Table,
@@ -45,6 +45,9 @@ import {
 } from "recharts";
 import type { OptionPosition } from "@/lib/schwab/parse";
 import type { Level } from "@/lib/levels";
+import { estimateCallSale, estimatePutSale, type SaleEconomics } from "@/lib/optionYield";
+import { ivFor, IV_SCALE, DIV_YIELD } from "@/lib/hedgeTranches";
+import { ivRankGuidance, IV_RANK_GUIDANCE_LABEL } from "@/lib/ivRank";
 
 // ── day change + sparkline banner ──────────────────────────────────────────
 
@@ -671,6 +674,73 @@ function PositionAdvice({
   );
 }
 
+// ── yield / IV rank helpers ─────────────────────────────────────────────────
+
+/** TQQQ implied vol off live ^VXN: base scaled by the TQQQ/QQQ IV multiplier. */
+function tqqqBaseIv(vxnPct: number | null): number | null {
+  if (vxnPct == null || vxnPct <= 0) return null;
+  return (vxnPct / 100) * IV_SCALE.TQQQ;
+}
+
+/** Modeled sale economics for one strike, or null when live IV isn't available yet. */
+function rowEconomics(
+  kind: "call" | "put",
+  spot: number,
+  strike: number,
+  dte: number,
+  baseIv: number | null,
+): SaleEconomics | null {
+  if (baseIv == null || spot <= 0 || strike <= 0 || dte <= 0) return null;
+  const iv = ivFor(baseIv, strike / spot);
+  return kind === "call"
+    ? estimateCallSale(spot, strike, dte, iv, DIV_YIELD.TQQQ)
+    : estimatePutSale(spot, strike, dte, iv, DIV_YIELD.TQQQ);
+}
+
+/** Yield/delta table cell shared by the calls and puts tables. */
+function YieldCell({ econ, style }: { econ: SaleEconomics | null; style?: CSSProperties }) {
+  if (!econ) {
+    return (
+      <Table.Td ta="right" style={style}>
+        <Text size="xs" c="dimmed">—</Text>
+      </Table.Td>
+    );
+  }
+  const color = econ.goodSale ? "var(--mantine-color-teal-5)" : undefined;
+  return (
+    <Table.Td ta="right" style={style}>
+      <Stack gap={0} align="flex-end">
+        <Text size="xs" fw={econ.goodSale ? 700 : 400} style={color ? { color } : undefined}>
+          {econ.annualizedYieldPct.toFixed(1)}%
+        </Text>
+        <Text size="xs" c="dimmed" style={{ fontSize: 9 }}>
+          Δ{econ.delta.toFixed(2)}
+        </Text>
+      </Stack>
+    </Table.Td>
+  );
+}
+
+/** Compact IV-rank badge + sizing guidance, shown once above the tables. */
+function IvRankBanner({ ivRank, loading }: { ivRank: number | null; loading: boolean }) {
+  if (loading) {
+    return <Skeleton height={20} width={220} radius="sm" />;
+  }
+  if (ivRank == null) return null;
+  const guidance = ivRankGuidance(ivRank);
+  const color = guidance === "rich" ? "teal" : guidance === "thin" ? "orange" : "gray";
+  return (
+    <Group gap={6} align="center">
+      <Badge color={color} variant="light" size="sm">
+        IV Rank {ivRank.toFixed(0)}%
+      </Badge>
+      <Text size="xs" c="dimmed">
+        {IV_RANK_GUIDANCE_LABEL[guidance]}
+      </Text>
+    </Group>
+  );
+}
+
 /** Round up to nearest $0.50 — used for calls (sell above current price) */
 function callStrikeForLevel(level: Level): number {
   return Math.ceil(level.sellPrice / 0.5) * 0.5;
@@ -1105,6 +1175,9 @@ function CallsTable({
   riskStrike,
   riskStrikeAvg,
   currentLevel,
+  spot,
+  baseIv,
+  targetDte,
 }: {
   rows: CallRow[];
   color: string;
@@ -1117,6 +1190,9 @@ function CallsTable({
   riskStrike: number | null;
   riskStrikeAvg: number | null;
   currentLevel: number;
+  spot: number;
+  baseIv: number | null;
+  targetDte: number;
 }) {
   const mask = createMask(privacyMode);
   const posKey = (strike: number, expiry: string) => `${strike}-${expiry}`;
@@ -1215,6 +1291,16 @@ function CallsTable({
               <Table.Th ta="right">Strike</Table.Th>
               <Table.Th ta="right">
                 <Tooltip
+                  label={`Modeled annualized yield on shares + delta for a ~${targetDte}-day sale, off live IV`}
+                  withArrow
+                >
+                  <span style={{ cursor: "default", borderBottom: "1px dotted" }}>
+                    Yield
+                  </span>
+                </Tooltip>
+              </Table.Th>
+              <Table.Th ta="right">
+                <Tooltip
                   label="Recommended number of contracts to sell"
                   withArrow
                 >
@@ -1261,11 +1347,12 @@ function CallsTable({
                 const firstPos = row.positions[0] ?? null;
                 const firstKey = firstPos ? posKey(row.strike, firstPos.expiry) : "";
                 const firstExpanded = firstPos ? expandedKeys.has(firstKey) : false;
+                const econ = rowEconomics("call", spot, row.strike, targetDte, baseIv);
                 return (
                   <Fragment key={row.strike}>
                     {isItmBoundary && (
                       <Table.Tr bg="rgba(251,146,60,0.15)">
-                        <Table.Td colSpan={6} py={2} style={{ textAlign: "center" }}>
+                        <Table.Td colSpan={7} py={2} style={{ textAlign: "center" }}>
                           <Text size="9px" fw={700} c="rgba(251,146,60,0.8)" tt="uppercase" style={{ letterSpacing: "0.08em" }}>▼ ITM ▼</Text>
                         </Table.Td>
                       </Table.Tr>
@@ -1293,6 +1380,7 @@ function CallsTable({
                       <Table.Td ta="right" style={firstPos && firstExpanded ? { borderTop: POSITION_BORDER } : undefined}>
                         <Text size="xs">{mask(`$${row.strike.toFixed(2)}`)}</Text>
                       </Table.Td>
+                      <YieldCell econ={econ} style={firstPos && firstExpanded ? { borderTop: POSITION_BORDER } : undefined} />
                       <Table.Td ta="right" style={firstPos && firstExpanded ? { borderTop: POSITION_BORDER } : undefined}>
                         {row.contracts > 0 ? (
                           <Badge color="gray" variant="light" size="sm">{row.contracts}</Badge>
@@ -1306,7 +1394,7 @@ function CallsTable({
                     </Table.Tr>
                     {firstPos && firstExpanded && (
                       <Table.Tr bg={rowBg} style={{ opacity: dim ? 0.4 : 1 }}>
-                        <Table.Td colSpan={6} py={4} style={{ borderTop: "1px dashed var(--mantine-color-dark-3)", borderLeft: POSITION_BORDER, borderRight: POSITION_BORDER, borderBottom: POSITION_BORDER }}>
+                        <Table.Td colSpan={7} py={4} style={{ borderTop: "1px dashed var(--mantine-color-dark-3)", borderLeft: POSITION_BORDER, borderRight: POSITION_BORDER, borderBottom: POSITION_BORDER }}>
                           <PositionAdvice position={firstPos} inSafeZone={row.inSafeZone} itm={row.itm} levelNums={row.levelNums} currentLevel={currentLevel} privacyMode={privacyMode} />
                         </Table.Td>
                       </Table.Tr>
@@ -1325,11 +1413,12 @@ function CallsTable({
                             </Table.Td>
                             <Table.Td style={expanded ? { borderTop: POSITION_BORDER } : undefined} />
                             <Table.Td style={expanded ? { borderTop: POSITION_BORDER } : undefined} />
+                            <Table.Td style={expanded ? { borderTop: POSITION_BORDER } : undefined} />
                             <PositionCells position={pos} color={color} privacyMode={privacyMode} inSafeZone={row.inSafeZone} withBorder={expanded} />
                           </Table.Tr>
                           {expanded && (
                             <Table.Tr bg={rowBg}>
-                              <Table.Td colSpan={6} py={4} style={{ borderTop: "1px dashed var(--mantine-color-dark-3)", borderLeft: POSITION_BORDER, borderRight: POSITION_BORDER, borderBottom: POSITION_BORDER }}>
+                              <Table.Td colSpan={7} py={4} style={{ borderTop: "1px dashed var(--mantine-color-dark-3)", borderLeft: POSITION_BORDER, borderRight: POSITION_BORDER, borderBottom: POSITION_BORDER }}>
                                 <PositionAdvice position={pos} inSafeZone={row.inSafeZone} itm={row.itm} levelNums={row.levelNums} currentLevel={currentLevel} privacyMode={privacyMode} />
                               </Table.Td>
                             </Table.Tr>
@@ -1362,6 +1451,9 @@ function PutsTable({
   riskStrike,
   riskStrikeAvg,
   currentLevel,
+  spot,
+  baseIv,
+  targetDte,
 }: {
   rows: PutRow[];
   color: string;
@@ -1374,6 +1466,9 @@ function PutsTable({
   riskStrike: number | null;
   riskStrikeAvg: number | null;
   currentLevel: number;
+  spot: number;
+  baseIv: number | null;
+  targetDte: number;
 }) {
   const mask = createMask(privacyMode);
   const posKey = (strike: number, expiry: string) => `${strike}-${expiry}`;
@@ -1472,6 +1567,16 @@ function PutsTable({
               <Table.Th ta="right">Strike</Table.Th>
               <Table.Th ta="right">
                 <Tooltip
+                  label={`Modeled annualized return on collateral + delta for a ~${targetDte}-day sale, off live IV`}
+                  withArrow
+                >
+                  <span style={{ cursor: "default", borderBottom: "1px dotted" }}>
+                    Yield
+                  </span>
+                </Tooltip>
+              </Table.Th>
+              <Table.Th ta="right">
+                <Tooltip
                   label="Recommended number of contracts to sell"
                   withArrow
                 >
@@ -1518,11 +1623,12 @@ function PutsTable({
                 const firstPos = row.positions[0] ?? null;
                 const firstKey = firstPos ? posKey(row.strike, firstPos.expiry) : "";
                 const firstExpanded = firstPos ? expandedKeys.has(firstKey) : false;
+                const econ = rowEconomics("put", spot, row.strike, targetDte, baseIv);
                 return (
                   <Fragment key={row.strike}>
                     {isItmBoundary && (
                       <Table.Tr bg="rgba(251,146,60,0.15)">
-                        <Table.Td colSpan={6} py={2} style={{ textAlign: "center" }}>
+                        <Table.Td colSpan={7} py={2} style={{ textAlign: "center" }}>
                           <Text size="9px" fw={700} c="rgba(251,146,60,0.8)" tt="uppercase" style={{ letterSpacing: "0.08em" }}>▲ ITM ▲</Text>
                         </Table.Td>
                       </Table.Tr>
@@ -1550,6 +1656,7 @@ function PutsTable({
                       <Table.Td ta="right" style={firstPos && firstExpanded ? { borderTop: POSITION_BORDER } : undefined}>
                         <Text size="xs">{mask(`$${row.strike.toFixed(2)}`)}</Text>
                       </Table.Td>
+                      <YieldCell econ={econ} style={firstPos && firstExpanded ? { borderTop: POSITION_BORDER } : undefined} />
                       <Table.Td ta="right" style={firstPos && firstExpanded ? { borderTop: POSITION_BORDER } : undefined}>
                         {row.contracts > 0 ? (
                           <Badge color="gray" variant="light" size="sm">{row.contracts}</Badge>
@@ -1563,7 +1670,7 @@ function PutsTable({
                     </Table.Tr>
                     {firstPos && firstExpanded && (
                       <Table.Tr bg={rowBg} style={{ opacity: dim ? 0.4 : 1 }}>
-                        <Table.Td colSpan={6} py={4} style={{ borderTop: "1px dashed var(--mantine-color-dark-3)", borderLeft: POSITION_BORDER, borderRight: POSITION_BORDER, borderBottom: POSITION_BORDER }}>
+                        <Table.Td colSpan={7} py={4} style={{ borderTop: "1px dashed var(--mantine-color-dark-3)", borderLeft: POSITION_BORDER, borderRight: POSITION_BORDER, borderBottom: POSITION_BORDER }}>
                           <PositionAdvice position={firstPos} inSafeZone={row.inSafeZone} itm={row.itm} levelNums={row.levelNums} currentLevel={currentLevel} privacyMode={privacyMode} />
                         </Table.Td>
                       </Table.Tr>
@@ -1582,11 +1689,12 @@ function PutsTable({
                             </Table.Td>
                             <Table.Td style={expanded ? { borderTop: POSITION_BORDER } : undefined} />
                             <Table.Td style={expanded ? { borderTop: POSITION_BORDER } : undefined} />
+                            <Table.Td style={expanded ? { borderTop: POSITION_BORDER } : undefined} />
                             <PositionCells position={pos} color={color} privacyMode={privacyMode} inSafeZone={row.inSafeZone} withBorder={expanded} />
                           </Table.Tr>
                           {expanded && (
                             <Table.Tr bg={rowBg}>
-                              <Table.Td colSpan={6} py={4} style={{ borderTop: "1px dashed var(--mantine-color-dark-3)", borderLeft: POSITION_BORDER, borderRight: POSITION_BORDER, borderBottom: POSITION_BORDER }}>
+                              <Table.Td colSpan={7} py={4} style={{ borderTop: "1px dashed var(--mantine-color-dark-3)", borderLeft: POSITION_BORDER, borderRight: POSITION_BORDER, borderBottom: POSITION_BORDER }}>
                                 <PositionAdvice position={pos} inSafeZone={row.inSafeZone} itm={row.itm} levelNums={row.levelNums} currentLevel={currentLevel} privacyMode={privacyMode} />
                               </Table.Td>
                             </Table.Tr>
@@ -1633,6 +1741,29 @@ function OptionsPageInner() {
 
   const callSafety = activeAccount?.settings.callSafetyLevels ?? 8;
   const putSafety = activeAccount?.settings.putSafetyLevels ?? 8;
+
+  // IV rank (^VXN percentile) drives sizing guidance; loaded once on mount.
+  const [ivData, setIvData] = useState<{ vxnPct: number | null; ivRank: number | null } | null>(null);
+  const [ivLoading, setIvLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/iv-rank");
+        const json = await res.json();
+        if (!cancelled && res.ok) setIvData({ vxnPct: json.vxnPct, ivRank: json.ivRank });
+      } catch {
+        // best-effort — Yield columns just show "—" without live IV
+      } finally {
+        if (!cancelled) setIvLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+  const baseIv = tqqqBaseIv(ivData?.vxnPct ?? null);
+
+  // Target DTE used to model the Yield/Δ columns below.
+  const [targetDte, setTargetDte] = useState(7);
 
   const handleCallSafety = (v: number) => {
     if (activeAccount)
@@ -1891,6 +2022,20 @@ function OptionsPageInner() {
     );
   }
 
+  const dteControl = (
+    <Group gap="xs" align="center">
+      <Text size="xs" c="dimmed">Target DTE</Text>
+      <NumberInput
+        value={targetDte}
+        onChange={(v) => setTargetDte(typeof v === "number" && v > 0 ? v : 1)}
+        min={1}
+        max={365}
+        size="xs"
+        w={64}
+      />
+    </Group>
+  );
+
   if (isMobile) {
     return (
       <Stack gap="md">
@@ -1903,6 +2048,10 @@ function OptionsPageInner() {
           daysOfWeek30={quote.daysOfWeek30}
           loading={quote.loading}
         />
+        <Group justify="space-between" align="center">
+          <IvRankBanner ivRank={ivData?.ivRank ?? null} loading={ivLoading} />
+          {dteControl}
+        </Group>
         <SegmentedControl
           fullWidth
           color={color}
@@ -1927,6 +2076,9 @@ function OptionsPageInner() {
             riskStrike={riskStrikeCall}
             riskStrikeAvg={riskStrikeAvgCall}
             currentLevel={levelsSummary?.currentLevel ?? -1}
+            spot={quote.price}
+            baseIv={baseIv}
+            targetDte={targetDte}
           />
         ) : (
           <PutsTable
@@ -1941,6 +2093,9 @@ function OptionsPageInner() {
             riskStrike={riskStrikePut}
             riskStrikeAvg={riskStrikeAvgPut}
             currentLevel={levelsSummary?.currentLevel ?? -1}
+            spot={quote.price}
+            baseIv={baseIv}
+            targetDte={targetDte}
           />
         )}
       </Stack>
@@ -1958,6 +2113,10 @@ function OptionsPageInner() {
         daysOfWeek30={quote.daysOfWeek30}
         loading={quote.loading}
       />
+      <Group justify="space-between" align="center">
+        <IvRankBanner ivRank={ivData?.ivRank ?? null} loading={ivLoading} />
+        {dteControl}
+      </Group>
       <SimpleGrid cols={2} spacing="xl">
         <Paper
           p="md"
@@ -1976,6 +2135,9 @@ function OptionsPageInner() {
             riskStrike={riskStrikeCall}
             riskStrikeAvg={riskStrikeAvgCall}
             currentLevel={levelsSummary?.currentLevel ?? -1}
+            spot={quote.price}
+            baseIv={baseIv}
+            targetDte={targetDte}
           />
         </Paper>
         <Paper
@@ -1995,6 +2157,9 @@ function OptionsPageInner() {
             riskStrike={riskStrikePut}
             riskStrikeAvg={riskStrikeAvgPut}
             currentLevel={levelsSummary?.currentLevel ?? -1}
+            spot={quote.price}
+            baseIv={baseIv}
+            targetDte={targetDte}
           />
         </Paper>
       </SimpleGrid>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normCdf, normPdf, bsPut, bsPutGreeks, strikeForDelta } from "./putHedge";
+import { normCdf, normPdf, bsPut, bsPutGreeks, bsCallGreeks, strikeForDelta } from "./putHedge";
 
 describe("normCdf", () => {
   it("is 0.5 at the mean and symmetric", () => {
@@ -84,6 +84,42 @@ describe("bsPutGreeks", () => {
   it("at expiry returns intrinsic with delta -1 (ITM) / 0 (OTM)", () => {
     expect(bsPutGreeks(90, 100, 0, 0.3)).toMatchObject({ price: 10, delta: -1, theta: 0, vega: 0 });
     expect(bsPutGreeks(110, 100, 0, 0.3)).toMatchObject({ price: 0, delta: 0 });
+  });
+});
+
+describe("bsCallGreeks", () => {
+  it("satisfies put-call parity against bsPutGreeks", () => {
+    const s = 100, k = 95, t = 0.75, sigma = 0.2, r = 0.04, q = 0.01;
+    const call = bsCallGreeks(s, k, t, sigma, r, q);
+    const put = bsPutGreeks(s, k, t, sigma, r, q);
+    // C - P = S e^-qT - K e^-rT
+    expect(call.price - put.price).toBeCloseTo(
+      s * Math.exp(-q * t) - k * Math.exp(-r * t),
+      6,
+    );
+    // delta_call - delta_put = e^-qT
+    expect(call.delta - put.delta).toBeCloseTo(Math.exp(-q * t), 6);
+  });
+
+  it("delta is positive and bounded by [0, 1]; deeper OTM calls have smaller delta", () => {
+    const atm = bsCallGreeks(100, 100, 0.5, 0.3).delta;
+    const otm = bsCallGreeks(100, 120, 0.5, 0.3).delta;
+    expect(atm).toBeGreaterThan(0);
+    expect(atm).toBeLessThan(1);
+    expect(otm).toBeLessThan(atm);
+  });
+
+  it("delta matches a finite-difference of price wrt spot", () => {
+    const s = 100, k = 110, t = 0.5, sig = 0.3;
+    const h = 0.01;
+    const fd =
+      (bsCallGreeks(s + h, k, t, sig).price - bsCallGreeks(s - h, k, t, sig).price) / (2 * h);
+    expect(bsCallGreeks(s, k, t, sig).delta).toBeCloseTo(fd, 4);
+  });
+
+  it("at expiry returns intrinsic with delta 1 (ITM) / 0 (OTM)", () => {
+    expect(bsCallGreeks(110, 100, 0, 0.3)).toMatchObject({ price: 10, delta: 1, theta: 0, vega: 0 });
+    expect(bsCallGreeks(90, 100, 0, 0.3)).toMatchObject({ price: 0, delta: 0 });
   });
 });
 
