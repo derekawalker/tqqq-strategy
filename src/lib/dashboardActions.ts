@@ -18,7 +18,6 @@ export type QueueSource = "hedge" | "options" | "ladder" | "regime";
 export type QueueActionKind =
   | HedgeActionItem["kind"]
   | "option-close-profit"
-  | "option-manage-dte"
   | "ladder-buy-due"
   | "ladder-sell-due"
   | "regime-caution";
@@ -49,33 +48,23 @@ export function hedgeQueueActions(actions: HedgeActionItem[]): QueueAction[] {
   }));
 }
 
-/** Close at 50–65% of max profit captured, or manage at 21 DTE — whichever fires first. */
+/** Close at 50–65% of max profit captured. */
 export const OPTION_PROFIT_CAPTURE_PCT = 0.5;
-export const OPTION_MANAGE_DTE = 21;
-/** Only surface positions coming due soon, not every healthy position far from expiry. */
-const OPTION_LOOKAHEAD_DAYS = 14;
 
 /**
- * Exit-mechanics signals for the short TQQQ option book (covered calls / CSPs).
- * `dteFor` is injected so this module stays a pure function of its inputs
- * (no `Date.now()` call baked in), matching the crashStress.ts convention.
+ * Exit-mechanics signal for the short TQQQ option book (covered calls / CSPs).
+ * Unlike the QQQ hedge, these are tied to ladder levels and mostly get held
+ * to expiration or assignment by design — so this only flags the profit-take
+ * line, not a DTE management window.
  */
-export function optionQueueActions(
-  shortOptions: OptionPosition[],
-  dteFor: (position: OptionPosition) => number,
-): QueueAction[] {
+export function optionQueueActions(shortOptions: OptionPosition[]): QueueAction[] {
   const actions: QueueAction[] = [];
   for (const pos of shortOptions) {
     if (pos.shortQty <= 0) continue;
-    const dte = dteFor(pos);
     const credit = pos.averagePrice * pos.shortQty * 100;
     const costToClose = Math.abs(pos.marketValue);
     const capturedPct = credit > 0 ? (credit - costToClose) / credit : 0;
     const label = `${pos.underlyingSymbol} $${pos.strike} ${pos.putCall === "PUT" ? "put" : "call"}`;
-    // Negative capture means the position has moved against the seller (costs more to close
-    // than was collected) — phrase as "down X%", not a confusing negative "captured" number.
-    const captureLabel =
-      capturedPct >= 0 ? `${(capturedPct * 100).toFixed(0)}% captured` : `down ${(-capturedPct * 100).toFixed(0)}%`;
 
     if (capturedPct >= OPTION_PROFIT_CAPTURE_PCT) {
       actions.push({
@@ -86,28 +75,6 @@ export function optionQueueActions(
         title: `${label} — ${(capturedPct * 100).toFixed(0)}% captured, close & redeploy`,
         detail: `Credit ${credit.toFixed(0)}, cost to close ${costToClose.toFixed(0)}. Past the 50% capture line — diminishing theta from here isn't worth the remaining gamma risk.`,
         color: "teal",
-        href: "/options",
-      });
-    } else if (dte <= OPTION_MANAGE_DTE) {
-      actions.push({
-        kind: "option-manage-dte",
-        source: "options",
-        priority: 2,
-        daysAway: Math.max(0, dte - OPTION_MANAGE_DTE),
-        title: `${label} — ${dte}d DTE, roll or close`,
-        detail: `${captureLabel}, and inside the ${OPTION_MANAGE_DTE}-day management window — gamma risk rises fast from here.`,
-        color: "yellow",
-        href: "/options",
-      });
-    } else if (dte - OPTION_MANAGE_DTE <= OPTION_LOOKAHEAD_DAYS) {
-      actions.push({
-        kind: "option-manage-dte",
-        source: "options",
-        priority: 4,
-        daysAway: dte - OPTION_MANAGE_DTE,
-        title: `${label} — reaches ${OPTION_MANAGE_DTE}d DTE soon`,
-        detail: `${dte}d left. Will need management in ${dte - OPTION_MANAGE_DTE}d if not closed for profit first.`,
-        color: "gray",
         href: "/options",
       });
     }

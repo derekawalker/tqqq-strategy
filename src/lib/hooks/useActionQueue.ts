@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
 import { buildTranchePlan } from "@/lib/hedgeTranches";
-import { buildHedgeActions, daysUntil as hedgeDaysUntil } from "@/lib/hedgeActions";
+import { buildHedgeActions } from "@/lib/hedgeActions";
 import type { Regime } from "@/lib/sentiment";
 import {
   hedgeQueueActions,
@@ -27,10 +27,6 @@ interface SentimentData {
   regime: Regime;
   daysInRegime: number;
   error?: string;
-}
-
-function daysUntilOption(expiry: string): number {
-  return hedgeDaysUntil(expiry);
 }
 
 /**
@@ -97,7 +93,7 @@ export function useActionQueue(): QueueAction[] | null {
 
     return buildActionQueue(
       hedgeQueueActions(hedgeItems),
-      optionQueueActions(shortOptions, (p) => daysUntilOption(p.expiry)),
+      optionQueueActions(shortOptions),
       ladderQueueActions(levelsSummary.levels, ownedLevelIndices, quote.price, workingOrders),
       sentiment ? regimeQueueActions(sentiment.regime, sentiment.daysInRegime) : [],
     );

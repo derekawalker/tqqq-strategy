@@ -6,7 +6,6 @@ import {
   hedgeQueueActions,
   buildActionQueue,
   OPTION_PROFIT_CAPTURE_PCT,
-  OPTION_MANAGE_DTE,
 } from "./dashboardActions";
 import type { Level } from "./levels";
 import type { OptionPosition } from "./schwab/parse";
@@ -38,41 +37,27 @@ describe("optionQueueActions", () => {
   it("flags close-profit once captured percentage clears the threshold", () => {
     // credit = 2*1*100 = 200; costToClose 80 -> captured = (200-80)/200 = 0.60 >= 0.5
     const pos = position({ averagePrice: 2, shortQty: 1, marketValue: -80 });
-    const actions = optionQueueActions([pos], () => 60);
+    const actions = optionQueueActions([pos]);
     expect(actions).toHaveLength(1);
     expect(actions[0].kind).toBe("option-close-profit");
     expect(actions[0].daysAway).toBe(0);
   });
 
-  it("flags manage-dte when inside the management window even with low capture", () => {
+  it("produces no action for a position below the capture threshold, regardless of DTE", () => {
+    // TQQQ options are tied to ladder levels and mostly held to expiration/assignment
+    // by design, so nearness to expiry alone should never trigger a warning here.
     const pos = position({ averagePrice: 2, shortQty: 1, marketValue: -180 }); // captured = 10%
-    const actions = optionQueueActions([pos], () => 10); // OPTION_MANAGE_DTE = 21
-    expect(actions).toHaveLength(1);
-    expect(actions[0].kind).toBe("option-manage-dte");
-    expect(actions[0].daysAway).toBe(0);
-  });
-
-  it("flags an upcoming manage-dte within the lookahead window, at lower priority", () => {
-    const pos = position({ averagePrice: 2, shortQty: 1, marketValue: -180 });
-    const actions = optionQueueActions([pos], () => 30); // 30 - 21 = 9 <= 14-day lookahead
-    expect(actions).toHaveLength(1);
-    expect(actions[0].daysAway).toBe(9);
-  });
-
-  it("produces no action for a healthy position far from both thresholds", () => {
-    const pos = position({ averagePrice: 2, shortQty: 1, marketValue: -180 });
-    const actions = optionQueueActions([pos], () => 60); // far from DTE line, low capture
+    const actions = optionQueueActions([pos]);
     expect(actions).toHaveLength(0);
   });
 
   it("ignores positions with no short quantity", () => {
     const pos = position({ shortQty: 0 });
-    expect(optionQueueActions([pos], () => 5)).toHaveLength(0);
+    expect(optionQueueActions([pos])).toHaveLength(0);
   });
 
-  it("threshold constants match the documented exit rule", () => {
+  it("threshold constant matches the documented exit rule", () => {
     expect(OPTION_PROFIT_CAPTURE_PCT).toBe(0.5);
-    expect(OPTION_MANAGE_DTE).toBe(21);
   });
 });
 
