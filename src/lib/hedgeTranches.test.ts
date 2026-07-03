@@ -4,6 +4,7 @@ import {
   classifyTranche,
   buildTranchePlan,
   planAnnualCost,
+  PUT_SPREAD_VXN_THRESHOLD,
 } from "./hedgeTranches";
 
 describe("TRANCHES", () => {
@@ -140,6 +141,53 @@ describe("buildTranchePlan", () => {
     for (let i = 0; i < qqq.length; i++) {
       expect(tqqq[i].strike / base.spot).toBeLessThan(qqq[i].strike / base.spot);
     }
+  });
+});
+
+describe("catastrophe put-spread financing", () => {
+  const base = { tqqqValue: 100_000, spot: 500, annualBudgetPct: 0.02 };
+
+  it("stays naked (no spread) in calm markets", () => {
+    const plan = buildTranchePlan({ ...base, vxnPct: PUT_SPREAD_VXN_THRESHOLD });
+    const catastrophe = plan.find((t) => t.def.key === "catastrophe")!;
+    expect(catastrophe.spread).toBeNull();
+  });
+
+  it("finances the catastrophe leg as a spread once VXN clears the threshold", () => {
+    const naked = buildTranchePlan({ ...base, vxnPct: 22 });
+    const spread = buildTranchePlan({ ...base, vxnPct: PUT_SPREAD_VXN_THRESHOLD + 5 });
+    const nakedCat = naked.find((t) => t.def.key === "catastrophe")!;
+    const spreadCat = spread.find((t) => t.def.key === "catastrophe")!;
+
+    expect(nakedCat.spread).toBeNull();
+    expect(spreadCat.spread).not.toBeNull();
+    // Short leg sits deeper OTM (lower strike) than the long leg.
+    expect(spreadCat.spread!.shortStrike).toBeLessThan(spreadCat.spread!.longStrike);
+    expect(spreadCat.spread!.longStrike).toBe(spreadCat.strike);
+    // Net premium (long − short) replaces the naked estimate, and must be
+    // strictly cheaper than paying for the long leg alone.
+    expect(spreadCat.estPremiumPerContract).toBeCloseTo(
+      spreadCat.spread!.longPremiumPerContract - spreadCat.spread!.shortPremiumPerContract,
+      6,
+    );
+    expect(spreadCat.estPremiumPerContract).toBeLessThan(spreadCat.spread!.longPremiumPerContract);
+    // Payoff is capped at the strike width, not unlimited like the naked leg.
+    expect(spreadCat.spread!.maxPayoffPerContract).toBeCloseTo(
+      (spreadCat.spread!.longStrike - spreadCat.spread!.shortStrike) * 100,
+      6,
+    );
+  });
+
+  it("leaves the crash leg naked regardless of VXN — only catastrophe gets financed", () => {
+    const plan = buildTranchePlan({ ...base, vxnPct: PUT_SPREAD_VXN_THRESHOLD + 15 });
+    const crash = plan.find((t) => t.def.key === "crash")!;
+    expect(crash.spread).toBeNull();
+  });
+
+  it("cheaper net premium under high vol still respects the annual budget", () => {
+    const plan = buildTranchePlan({ ...base, vxnPct: PUT_SPREAD_VXN_THRESHOLD + 10 });
+    const budget = base.tqqqValue * base.annualBudgetPct;
+    expect(planAnnualCost(plan)).toBeLessThanOrEqual(budget + 1e-6);
   });
 });
 

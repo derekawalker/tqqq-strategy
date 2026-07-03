@@ -28,6 +28,11 @@
  * a mild linear skew so deep-OTM tranches aren't priced too cheaply — or
  * replaced by live option-chain marks via an optional resolver.
  *
+ * Above PUT_SPREAD_VXN_THRESHOLD, the catastrophe leg finances itself as a
+ * put spread (sell a further-OTM put against the long tail put) instead of a
+ * naked long put, cutting net cost while capping the payoff at the strike
+ * width. Left naked in calm markets — the naked deep tail is the point there.
+ *
  * All functions here are pure — feed them current prices and a budget.
  */
 
@@ -170,6 +175,19 @@ export const MONETIZE_DELTA = 0.45;
 /** Linear vol skew used for live greeks/pricing (matches the model SKEW). */
 export const LIVE_SKEW = 0.8;
 
+/**
+ * ^VXN level above which the catastrophe leg finances itself as a put spread
+ * (buy the usual deep tail put, sell a further-OTM put against it) instead of
+ * a naked long put. High vol inflates both legs' premium, but the short leg
+ * — already far from the money — inflates *faster* in relative terms, so the
+ * spread's net cost drops 30–40% while keeping most of the payoff down to the
+ * short strike. In calm markets the naked deep tail is the point: don't cap
+ * the payoff to save premium you can afford anyway.
+ */
+export const PUT_SPREAD_VXN_THRESHOLD = 35;
+/** Short leg's target delta as a fraction of the long leg's (0.07Δ long → ~0.03Δ short). */
+export const PUT_SPREAD_SHORT_DELTA_RATIO = 0.43;
+
 const RISK_FREE = 0.04;
 /** Linear vol skew: deeper-OTM puts carry richer IV than the ATM ^VXN level. */
 const SKEW = 0.8;
@@ -263,6 +281,21 @@ export interface TranchePlan {
   perBuyCost: number;
   /** True when the premium came from a live option-chain mark, not the model. */
   live: boolean;
+  /**
+   * Set on the catastrophe leg when ^VXN > PUT_SPREAD_VXN_THRESHOLD: finance
+   * the tail insurance as a put spread instead of a naked long put. `strike`
+   * above is still the long (buy) leg; `estPremiumPerContract` above is the
+   * *net* spread cost (long premium minus this short leg's premium) so all
+   * budget/sizing math downstream needs no special-casing.
+   */
+  spread: {
+    longStrike: number;
+    longPremiumPerContract: number;
+    shortStrike: number;
+    shortPremiumPerContract: number;
+    /** Payoff caps out at this width once QQQ falls through the short strike. */
+    maxPayoffPerContract: number;
+  } | null;
 }
 
 /**
@@ -310,6 +343,37 @@ export function buildTranchePlan(opts: {
       estPremiumPerContract = bsPut(spot, strike, dte / 365, iv, RISK_FREE, div) * 100;
     }
 
+    // High-vol only: finance the catastrophe leg as a put spread (sell a
+    // further-OTM put against the long tail put) instead of paying full
+    // freight for a naked long put. Left null in calm markets — the naked
+    // deep tail is the point there.
+    let spread: TranchePlan["spread"] = null;
+    if (def.key === "catastrophe" && vxnPct != null && vxnPct > PUT_SPREAD_VXN_THRESHOLD) {
+      const shortDelta = def.targetDelta * PUT_SPREAD_SHORT_DELTA_RATIO;
+      const idealShortStrike = deltaStrike(spot, shortDelta, dte, baseIv, div);
+      const shortQuote = resolver?.(idealShortStrike) ?? null;
+      let shortStrike: number;
+      let shortPremiumPerContract: number;
+      if (shortQuote != null && shortQuote.mark > 0) {
+        shortStrike = shortQuote.strike;
+        shortPremiumPerContract = shortQuote.mark * 100;
+      } else {
+        shortStrike = idealShortStrike;
+        const shortIv = ivFor(baseIv, shortStrike / spot);
+        shortPremiumPerContract = bsPut(spot, shortStrike, dte / 365, shortIv, RISK_FREE, div) * 100;
+      }
+      if (shortStrike < strike) {
+        spread = {
+          longStrike: strike,
+          longPremiumPerContract: estPremiumPerContract,
+          shortStrike,
+          shortPremiumPerContract,
+          maxPayoffPerContract: (strike - shortStrike) * 100,
+        };
+        estPremiumPerContract = Math.max(0, estPremiumPerContract - shortPremiumPerContract);
+      }
+    }
+
     const annualPerContract = estPremiumPerContract * rollsPerYear;
     const annualBudget = totalBudget * def.budgetShare;
 
@@ -346,6 +410,7 @@ export function buildTranchePlan(opts: {
       annualBudget,
       perBuyCost,
       live,
+      spread,
     };
   });
 }

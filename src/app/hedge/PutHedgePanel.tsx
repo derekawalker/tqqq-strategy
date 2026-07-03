@@ -48,6 +48,7 @@ import {
   VIX_PAUSE_THRESHOLD,
   PROFIT_TAKE_PCT,
   MONETIZE_DELTA,
+  PUT_SPREAD_VXN_THRESHOLD,
   buildTranchePlan,
   classifyTranche,
   type TrancheKey,
@@ -356,9 +357,14 @@ function EmptyPutCard({ tranche, spot }: { tranche: TranchePlan; spot: number | 
       }}
     >
       <Group justify="space-between" mb="sm" wrap="nowrap">
-        <Badge color="gray" variant="outline" size="xs" style={{ opacity: 0.6 }}>
-          {tranche.def.label}
-        </Badge>
+        <Group gap={6}>
+          <Badge color="gray" variant="outline" size="xs" style={{ opacity: 0.6 }}>
+            {tranche.def.label}
+          </Badge>
+          {tranche.spread && (
+            <Badge color="grape" variant="light" size="xs">spread-financed</Badge>
+          )}
+        </Group>
         <Text size="9px" c="dimmed">unfilled</Text>
       </Group>
 
@@ -395,6 +401,16 @@ function EmptyPutCard({ tranche, spot }: { tranche: TranchePlan; spot: number | 
           <Text size="sm" fw={600} c="dimmed">{spacingLabel(tranche.spacingDays)}</Text>
         </Box>
       </Group>
+
+      {tranche.spread && (
+        <Text size="9px" c="grape.3" mt="sm">
+          High vol — buy the ~${Math.round(tranche.spread.longStrike)} put, sell the ~$
+          {Math.round(tranche.spread.shortStrike)} put against it. Net cost{" "}
+          {fmtMoney(tranche.estPremiumPerContract)}/ct vs.{" "}
+          {fmtMoney(tranche.spread.longPremiumPerContract)} naked — payoff caps at{" "}
+          {fmtMoney(tranche.spread.maxPayoffPerContract)}/ct if QQQ falls through the short strike.
+        </Text>
+      )}
 
       <Text size="9px" c="dimmed" mt="sm">
         Snap to the nearest listed strike and check the bid/ask before buying — skip the clip if the
@@ -439,6 +455,14 @@ function TrancheSection({
       <Group justify="space-between" align="flex-start" mb="md" wrap="wrap" gap="xs">
         <Group gap="xs" align="center">
           <Badge color={tranche.def.color} variant="light" size="sm">{tranche.def.label}</Badge>
+          {tranche.spread && (
+            <Tooltip
+              label={`High vol (>${PUT_SPREAD_VXN_THRESHOLD} VXN) — next buy is spread-financed: long $${Math.round(tranche.spread.longStrike)} / short $${Math.round(tranche.spread.shortStrike)}, net ${fmtMoney(tranche.estPremiumPerContract)}/ct.`}
+              withArrow multiline w={260}
+            >
+              <Badge color="grape" variant="light" size="sm" style={{ cursor: "help" }}>spread-financed</Badge>
+            </Tooltip>
+          )}
           <Tooltip label={tranche.def.desc} withArrow multiline w={220}>
             <Text size="xs" c="dimmed" style={{ cursor: "help" }}>{tranche.def.desc}</Text>
           </Tooltip>
