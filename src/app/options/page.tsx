@@ -49,6 +49,7 @@ import { estimateCallSale, estimatePutSale, type SaleEconomics } from "@/lib/opt
 import { ivFor, IV_SCALE, DIV_YIELD } from "@/lib/hedgeTranches";
 import { ivRankGuidance, IV_RANK_GUIDANCE_LABEL } from "@/lib/ivRank";
 import { nextEvent, eventGuidance, MARKET_EVENTS } from "@/lib/marketEvents";
+import { snapToListedStrike } from "@/lib/schwab/chains";
 
 // ── day change + sparkline banner ──────────────────────────────────────────
 
@@ -795,6 +796,7 @@ function buildCallRows(
   safetyLevels: number,
   positions: OptionPosition[],
   currentPrice: number,
+  listedStrikes: number[] = [],
 ): CallRow[] {
   const maxSafe = currentLevel - safetyLevels;
 
@@ -831,9 +833,10 @@ function buildCallRows(
       : itmFirstStrike;
   const extendedLowStrike = Math.min(itmExtension, itmFirstStrike - 0.5);
 
-  const rows: CallRow[] = [];
-  let carryIn = 0;
-
+  // Pass 1 — walk the ideal $0.50 model grid, gating owned shares by the true
+  // (ideal-strike) safe zone exactly as before.
+  interface RawRow { idealStrike: number; levelNums: number[]; ownedShares: number; isCurrent: boolean }
+  const raw: RawRow[] = [];
   for (
     let s = highStrike;
     s >= extendedLowStrike - 0.01;
@@ -842,28 +845,49 @@ function buildCallRows(
     const strike = Math.round(s * 100) / 100;
     const levelNums = strikeToLevels.get(strike) ?? [];
     const inSafeZone = strike >= safeEdge;
-    const itm = strike < currentPrice;
     const isCurrent = levelNums.includes(currentLevel);
-
     const ownedShares = levelNums
       .filter((n) => inSafeZone && n <= maxSafe && ownedSet.has(n))
       .reduce((sum, n) => sum + levels[n].shares, 0);
+    raw.push({ idealStrike: strike, levelNums, ownedShares, isCurrent });
+  }
 
-    const total = ownedShares + carryIn;
+  // Pass 2 — snap each ideal strike to a real listed contract and merge model
+  // rows that collapse onto the same tradable strike (e.g. TQQQ's $1 bands).
+  const mergedRows: { strike: number; levelNums: number[]; ownedShares: number; isCurrent: boolean }[] = [];
+  for (const r of raw) {
+    const strike = snapToListedStrike(r.idealStrike, listedStrikes);
+    const last = mergedRows[mergedRows.length - 1];
+    if (last && last.strike === strike) {
+      last.levelNums = last.levelNums.concat(r.levelNums);
+      last.ownedShares += r.ownedShares;
+      last.isCurrent = last.isCurrent || r.isCurrent;
+    } else {
+      mergedRows.push({ strike, levelNums: [...r.levelNums], ownedShares: r.ownedShares, isCurrent: r.isCurrent });
+    }
+  }
+
+  // Pass 3 — carry/contracts math runs over the merged, real-strike rows.
+  const rows: CallRow[] = [];
+  let carryIn = 0;
+  for (const m of mergedRows) {
+    const inSafeZone = m.strike >= safeEdge;
+    const itm = m.strike < currentPrice;
+    const total = m.ownedShares + carryIn;
     const contracts = inSafeZone ? Math.floor(total / 100) : 0;
     const carryOut = inSafeZone ? total % 100 : 0;
 
     rows.push({
-      strike,
-      levelNums,
-      ownedShares,
+      strike: m.strike,
+      levelNums: m.levelNums,
+      ownedShares: m.ownedShares,
       carryIn,
       contracts,
       carryOut,
       inSafeZone,
       itm,
-      isCurrent,
-      positions: matchPositions(positions, strike),
+      isCurrent: m.isCurrent,
+      positions: matchPositions(positions, m.strike),
     });
 
     carryIn = carryOut;
@@ -893,6 +917,7 @@ function buildPutRows(
   safetyLevels: number,
   positions: OptionPosition[],
   currentPrice: number,
+  listedStrikes: number[] = [],
 ): PutRow[] {
   const minSafe = currentLevel + safetyLevels; // first level index in safe zone
 
@@ -923,9 +948,10 @@ function buildPutRows(
       : itmNearStrike + 0.5;
   const extendedHighStrike = itmCeiling;
 
-  const rows: PutRow[] = [];
-  let carryIn = 0;
-
+  // Pass 1 — walk the ideal $0.50 model grid, gating shares by the true
+  // (ideal-strike) safe zone exactly as before.
+  interface RawRow { idealStrike: number; levelNums: number[]; levelShares: number; isCurrent: boolean }
+  const raw: RawRow[] = [];
   for (
     let s = extendedHighStrike;
     s >= lowStrike - 0.01;
@@ -934,12 +960,40 @@ function buildPutRows(
     const strike = Math.round(s * 100) / 100;
     const levelNums = strikeToLevels.get(strike) ?? [];
     const inSafeZone = strike <= safeEdge;
-    const itm = strike > currentPrice;
     const isCurrent = levelNums.includes(currentLevel);
-
     const levelShares = levelNums
       .filter((n) => inSafeZone && n >= minSafe)
       .reduce((sum, n) => sum + levels[n].shares, 0);
+    raw.push({ idealStrike: strike, levelNums, levelShares, isCurrent });
+  }
+
+  // Pass 2 — snap each ideal strike to a real listed contract and merge model
+  // rows that collapse onto the same tradable strike (e.g. TQQQ's $1 bands).
+  const mergedRows: { strike: number; levelNums: number[]; levelShares: number; isCurrent: boolean }[] = [];
+  for (const r of raw) {
+    const strike = snapToListedStrike(r.idealStrike, listedStrikes);
+    const last = mergedRows[mergedRows.length - 1];
+    if (last && last.strike === strike) {
+      last.levelNums = last.levelNums.concat(r.levelNums);
+      last.levelShares += r.levelShares;
+      last.isCurrent = last.isCurrent || r.isCurrent;
+    } else {
+      mergedRows.push({ strike, levelNums: [...r.levelNums], levelShares: r.levelShares, isCurrent: r.isCurrent });
+    }
+  }
+
+  // Pass 3 — carry/contracts math runs over the merged, real-strike rows.
+  const rows: PutRow[] = [];
+  let carryIn = 0;
+
+  for (const m of mergedRows) {
+    const strike = m.strike;
+    const levelNums = m.levelNums;
+    const inSafeZone = strike <= safeEdge;
+    const itm = strike > currentPrice;
+    const isCurrent = m.isCurrent;
+
+    const levelShares = m.levelShares;
 
     const total = levelShares + carryIn;
     const contracts = inSafeZone ? Math.floor(total / 100) : 0;
@@ -1779,6 +1833,23 @@ function OptionsPageInner() {
   // Target DTE used to model the Yield/Δ columns below.
   const [targetDte, setTargetDte] = useState(7);
 
+  // Real listed TQQQ strikes near targetDte — snaps the modeled $0.50-grid
+  // rows onto tradable contracts (TQQQ lists $1 strikes in some price bands).
+  const [listedStrikes, setListedStrikes] = useState<number[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/schwab/chains?symbol=TQQQ&targetDte=${targetDte}`);
+        const json = await res.json();
+        if (!cancelled && res.ok && Array.isArray(json.strikes)) setListedStrikes(json.strikes);
+      } catch {
+        // best-effort — rows fall back to the modeled $0.50 grid
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [targetDte]);
+
   const handleCallSafety = (v: number) => {
     if (activeAccount)
       updateAccountSettings(activeAccount.accountNumber, {
@@ -1882,15 +1953,16 @@ function OptionsPageInner() {
       callSafety,
       calls,
       quote.price,
+      listedStrikes,
     );
-  }, [levelsSummary, callSafety, calls, quote.price]);
+  }, [levelsSummary, callSafety, calls, quote.price, listedStrikes]);
 
   const putRows = useMemo(() => {
     const levels = levelsSummary?.levels ?? [];
     const currentLevel = levelsSummary?.currentLevel ?? -1;
     if (levels.length === 0 || currentLevel < 0) return [];
-    return buildPutRows(levels, currentLevel, putSafety, puts, quote.price);
-  }, [levelsSummary, putSafety, puts, quote.price]);
+    return buildPutRows(levels, currentLevel, putSafety, puts, quote.price, listedStrikes);
+  }, [levelsSummary, putSafety, puts, quote.price, listedStrikes]);
 
   const activeBalance = useMemo(
     () =>
