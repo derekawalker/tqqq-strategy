@@ -9,6 +9,7 @@ import {
   vixHysteresisThrottle,
   combineThrottles,
 } from "@/lib/strategySignals";
+import { computeSeries, regimeSellTargetPct, type SeriesInput } from "@/lib/sentiment";
 import type { SimBar } from "@/lib/intradayBacktest";
 
 // ---------------------------------------------------------------------------
@@ -55,6 +56,11 @@ interface ScenarioParams {
   reservePct?: number;
   tranche1Pct?: number;
   tranche2Pct?: number;
+  // Regime-dependent sell target: sellPct (Risk-On) / regimeOtherSellPct
+  // (Neutral or Risk-Off) per lot, based on the sentiment model's regime on
+  // the day the lot was bought — see sentiment.ts's regimeSellTargetPct.
+  regimeSellTargetEnabled?: boolean;
+  regimeOtherSellPct?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -164,12 +170,38 @@ export async function POST(request: Request) {
     // ------------------------------------------------------------------
     // External VIX data (only fetched when at least one scenario needs it)
     // ------------------------------------------------------------------
-    const needsVix = rawScenarios.some((s) => s.vixGateEnabled);
+    const needsRegime = rawScenarios.some((s) => s.regimeSellTargetEnabled);
+    const needsVix = rawScenarios.some((s) => s.vixGateEnabled) || needsRegime;
     const externalRange: number | "max" = timeframe === "intraday" ? 3 : DAILY_RANGE[timeframe];
     const vixBars = needsVix
       ? await fetchYahooDaily("^VIX", externalRange).catch(() => [])
       : [];
     const vixByDate = yahooByDate(vixBars);
+
+    // ------------------------------------------------------------------
+    // Regime series (only computed when at least one scenario needs it) —
+    // scored off QQQ + ^VIX + ^VIX3M, same model as the Sentiment page.
+    // Extended range (+1y) gives the 200-day SMA time to warm up.
+    // ------------------------------------------------------------------
+    const regimeByDate = new Map<string, ReturnType<typeof computeSeries>[number]["regime"]>();
+    if (needsRegime) {
+      const regimeRange: number | "max" =
+        timeframe === "intraday" ? 3 : DAILY_RANGE[timeframe] === "max" ? "max" : (DAILY_RANGE[timeframe] as number) + 1;
+      const [qqqBars, vix3mBars] = await Promise.all([
+        fetchYahooDaily("QQQ", regimeRange).catch(() => []),
+        fetchYahooDaily("^VIX3M", regimeRange).catch(() => []),
+      ]);
+      if (qqqBars.length > 0) {
+        const vix3mByDate = yahooByDate(vix3mBars);
+        const input: SeriesInput = {
+          dates: qqqBars.map((b) => b.date),
+          closes: qqqBars.map((b) => b.close),
+          vix: qqqBars.map((b) => vixByDate.get(b.date) ?? null),
+          vix3m: qqqBars.map((b) => vix3mByDate.get(b.date) ?? null),
+        };
+        for (const day of computeSeries(input)) regimeByDate.set(day.date.slice(0, 10), day.regime);
+      }
+    }
 
     // ------------------------------------------------------------------
     // Run each scenario
@@ -212,7 +244,17 @@ export async function POST(request: Request) {
         } : {}),
       };
 
-      const result = simulateLadder(bars, params, throttle);
+      const sellPctOverride = s.regimeSellTargetEnabled
+        ? bars.map((b) =>
+            regimeSellTargetPct(
+              regimeByDate.get(b.date.slice(0, 10)) ?? "Risk-On",
+              Number(s.sellPct),
+              Number(s.regimeOtherSellPct) > 0 ? Number(s.regimeOtherSellPct) : 3,
+            ),
+          )
+        : undefined;
+
+      const result = simulateLadder(bars, params, throttle, sellPctOverride);
 
       // Visual-only signals for strategies that don't produce a throttle.
       const visualSignals: number[][] = [];
@@ -255,6 +297,7 @@ export async function POST(request: Request) {
           ...(s.vixGateEnabled   ? [`VIX gate: stop >${s.vixStop ?? 25}, resume <${s.vixResume ?? 20}`] : []),
           ...(s.balanceGateEnabled  ? [`Balance gate: stop <${s.balanceGatePct ?? 85}% of start, resume +${s.balanceResumeReboundPct ?? 5}%`] : []),
           ...(s.reserveEnabled && Number(s.reservePct) > 0 ? [`Reserve: hold ${s.reservePct}%, deploy at −${Math.abs(Number(s.tranche1Pct)) || "?"}% / −${Math.abs(Number(s.tranche2Pct)) || "?"}%`] : []),
+          ...(s.regimeSellTargetEnabled ? [`Regime sell target: ${s.sellPct}% Risk-On / ${Number(s.regimeOtherSellPct) > 0 ? s.regimeOtherSellPct : 3}% Neutral-Risk-Off`] : []),
         ],
       };
     });

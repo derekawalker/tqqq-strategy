@@ -210,6 +210,18 @@ export function regimeThrottle(regime: Regime): RegimeThrottle {
   return { multiplier: 0, label: "Paused — consider holding off new buys until the regime improves." };
 }
 
+/**
+ * Regime-dependent sell-target percent for the ladder: a looser target in
+ * Risk-On (let winners run with the trend) and a tighter one in Neutral/
+ * Risk-Off (turn lots over faster for cash before a downtrend resumes,
+ * rather than waiting for a bigger bounce that may not come). See
+ * ladderSim.ts's `sellPctOverride` — each lot keeps the target it was
+ * bought with even if the regime changes before it sells.
+ */
+export function regimeSellTargetPct(regime: Regime, riskOnPct = 5, otherPct = 3): number {
+  return regime === "Risk-On" ? riskOnPct : otherPct;
+}
+
 // ---------------------------------------------------------------------------
 // Per-signal scorers (pure)
 // ---------------------------------------------------------------------------

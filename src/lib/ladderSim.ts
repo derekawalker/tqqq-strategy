@@ -94,11 +94,18 @@ function levelsAt(anchor: number, p: LadderParams): Level[] {
  * (the buy throttle / circuit breaker). A boolean[] is also accepted for backward
  * compatibility (true = paused = 0). Returns the equity curve and stats.
  *
+ * `sellPctOverride[i]` (optional, aligned to bars) sets the sell-target percent
+ * used for any lot *bought* on bar `i`, in place of `p.sellPct` — e.g. a
+ * regime-dependent target (tighter in Neutral/Risk-Off for faster turnover
+ * before a downtrend resumes, looser in Risk-On). Each lot keeps the target it
+ * was bought with even if the override changes before it sells; omit for the
+ * original fixed-`sellPct` behavior.
  */
 export function simulateLadder(
   bars: Bar[],
   p: LadderParams = DEFAULT_LADDER,
   throttle?: (number | boolean)[],
+  sellPctOverride?: number[],
 ): LadderResult {
   if (bars.length === 0) {
     return { equity: [], finalValue: 0, totalReturn: 0, maxDrawdown: 0, realizedProfit: 0, buys: 0, sells: 0, peakInvested: 0 } as LadderResult;
@@ -114,6 +121,9 @@ export function simulateLadder(
   // Actual shares held per level (0 = flat); may be a fraction of the nominal lot
   // when bought on a throttled (partial) day.
   const ownedShares = new Array(levels.length).fill(0);
+  // Sell price actually applied to the currently-owned lot at each level — equals
+  // levels[n].sellPrice unless sellPctOverride set a different target on purchase.
+  const ownedSellPrice = new Array(levels.length).fill(0);
 
   // Reserve + tranche setup (Strategy 4).
   const reserveFraction = Math.max(0, Math.min(1, (p.reservePct ?? 0) / 100));
@@ -150,8 +160,8 @@ export function simulateLadder(
 
     // 1) Sells: any owned lot whose sell limit is inside the day's range.
     for (let n = 0; n < levels.length; n++) {
-      if (ownedShares[n] > 0 && hi >= levels[n].sellPrice) {
-        const proceeds = ownedShares[n] * levels[n].sellPrice * (1 - slip);
+      if (ownedShares[n] > 0 && hi >= ownedSellPrice[n]) {
+        const proceeds = ownedShares[n] * ownedSellPrice[n] * (1 - slip);
         const buyCost = ownedShares[n] * levels[n].buyPrice * (1 + slip);
         const profit = proceeds - buyCost;
         cash += proceeds;
@@ -182,6 +192,7 @@ export function simulateLadder(
     // 2) Buys: un-owned lots whose buy limit is touched, sized by the day's rate.
     //    A lot bought today is NOT eligible to sell today (no same-day round trip).
     if (rate > 0 && !bgPaused) {
+      const sellPct = sellPctOverride?.[i] ?? p.sellPct;
       for (let n = 0; n < levels.length; n++) {
         if (ownedShares[n] === 0 && lo <= levels[n].buyPrice) {
           const shares = Math.round(levels[n].shares * rate);
@@ -189,6 +200,7 @@ export function simulateLadder(
           if (shares > 0 && cash >= cost) {
             cash -= cost;
             ownedShares[n] = shares;
+            ownedSellPrice[n] = levels[n].buyPrice * (1 + sellPct / 100);
             buys++;
             barBuys++;
           }

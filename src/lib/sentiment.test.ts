@@ -9,6 +9,7 @@ import {
   backtestRegimes,
   daysInRegime,
   regimeThrottle,
+  regimeSellTargetPct,
   type SeriesInput,
 } from "./sentiment";
 
@@ -125,5 +126,18 @@ describe("regimeThrottle", () => {
     const off = regimeThrottle("Risk-Off").multiplier;
     expect(on).toBeGreaterThan(neutral);
     expect(neutral).toBeGreaterThan(off);
+  });
+});
+
+describe("regimeSellTargetPct", () => {
+  it("uses the looser Risk-On target and the tighter target otherwise", () => {
+    expect(regimeSellTargetPct("Risk-On")).toBe(5);
+    expect(regimeSellTargetPct("Neutral")).toBe(3);
+    expect(regimeSellTargetPct("Risk-Off")).toBe(3);
+  });
+
+  it("respects custom risk-on/other percentages", () => {
+    expect(regimeSellTargetPct("Risk-On", 7, 2)).toBe(7);
+    expect(regimeSellTargetPct("Neutral", 7, 2)).toBe(2);
   });
 });

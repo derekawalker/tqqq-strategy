@@ -76,4 +76,50 @@ describe("simulateLadder", () => {
   it("DEFAULT_LADDER is a sane uniform ladder", () => {
     expect(DEFAULT_LADDER).toMatchObject({ stepPct: 1, sellPct: 5, reductionFactor: 1 });
   });
+
+  describe("sellPctOverride", () => {
+    it("uses the override's sell target instead of p.sellPct for a lot bought that day", () => {
+      // level0 buys @100. With p.sellPct=5 it needs 105 to sell; with a 3% override
+      // it only needs 103, so it should sell a day earlier.
+      const bars = [
+        { date: "d0", close: 100 }, // buy level0 @100
+        { date: "d1", close: 103 }, // sells only under the 3% override (needs >=103)
+      ];
+      const withOverride = simulateLadder(bars, P, undefined, [3, 3]);
+      const withoutOverride = simulateLadder(bars, P);
+      expect(withOverride.sells).toBe(1);
+      expect(withoutOverride.sells).toBe(0);
+    });
+
+    it("keeps the target a lot was bought with even if the override later changes", () => {
+      // level0 buys @100 under a 3% override (sell target 103). Day 2's override (5%)
+      // must NOT retroactively raise that lot's target to 105.
+      const bars = [
+        { date: "d0", close: 100 }, // buy level0 @100 under override[0]=3 -> target 103
+        { date: "d1", close: 103, high: 103 }, // hits the original 3% target, not a 5% one
+      ];
+      const r = simulateLadder(bars, P, undefined, [3, 5]);
+      expect(r.sells).toBe(1);
+    });
+
+    it("falls back to p.sellPct for bars beyond the override array's length", () => {
+      const bars = [
+        { date: "d0", close: 100 }, // no override[0] -> uses p.sellPct (5%) -> target 105
+        { date: "d1", close: 103 }, // below the 5% target, should not sell yet
+      ];
+      const r = simulateLadder(bars, P, undefined, []);
+      expect(r.sells).toBe(0);
+    });
+
+    it("is a no-op (identical result to omitting it) when absent", () => {
+      const bars = [
+        { date: "d0", close: 100 },
+        { date: "d1", close: 99 },
+        { date: "d2", close: 105 },
+      ];
+      const withUndefined = simulateLadder(bars, P);
+      const explicitlyOmitted = simulateLadder(bars, P, undefined, undefined);
+      expect(explicitlyOmitted).toEqual(withUndefined);
+    });
+  });
 });
