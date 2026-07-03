@@ -122,4 +122,57 @@ describe("simulateLadder", () => {
       expect(explicitlyOmitted).toEqual(withUndefined);
     });
   });
+
+  describe("corePct", () => {
+    const bars = [
+      { date: "d0", close: 100 },
+      { date: "d1", close: 99 },
+      { date: "d2", close: 150 }, // strong rally the ladder mostly sits out (sold, in cash)
+    ];
+
+    it("is a no-op (identical result) when omitted or zero", () => {
+      const omitted = simulateLadder(bars, P);
+      const zero = simulateLadder(bars, { ...P, corePct: 0 });
+      expect(zero).toEqual(omitted);
+    });
+
+    it("buys the core once at the anchor price and never sells it", () => {
+      const r = simulateLadder(bars, { ...P, corePct: 50 });
+      // 50% of 100000 = 50000 at anchor 100 -> 500 core shares, held the whole way;
+      // final value must include their full mark-to-market at the last close (150).
+      const noCoreLadderOnly = simulateLadder(bars, { ...P, startingCash: 50000 });
+      const coreMtm = 500 * 150;
+      expect(r.finalValue).toBeCloseTo(noCoreLadderOnly.finalValue + coreMtm, 0);
+    });
+
+    it("sizes the ladder off the remaining cash, not the full startingCash", () => {
+      // With half the cash walled off into the core, the ladder-only side (a
+      // separate sim run at that half-sized cash pool) should match the ladder
+      // portion of the core-and-ladder run almost exactly.
+      const halfCore = simulateLadder(bars, { ...P, corePct: 50 });
+      const ladderOnlyAtHalfCash = simulateLadder(bars, { ...P, startingCash: 50000 });
+      const coreMtm = 500 * bars[bars.length - 1].close; // 500 core shares from the 50% carve-out
+      expect(halfCore.finalValue - coreMtm).toBeCloseTo(ladderOnlyAtHalfCash.finalValue, 0);
+    });
+
+    it("peak-invested rises with a permanent core, since it's always fully deployed", () => {
+      const noCore = simulateLadder(bars, P);
+      const withCore = simulateLadder(bars, { ...P, corePct: 50 });
+      expect(withCore.peakInvested).toBeGreaterThan(noCore.peakInvested);
+    });
+
+    it("a larger core captures more of a rally the ladder itself sits out", () => {
+      const noCore = simulateLadder(bars, { ...P, corePct: 0 });
+      const bigCore = simulateLadder(bars, { ...P, corePct: 80 });
+      // Both start at the same equity; after the rally, more core = more upside
+      // captured that a sold-out ladder would otherwise miss entirely.
+      expect(bigCore.totalReturn).toBeGreaterThan(noCore.totalReturn);
+    });
+
+    it("clamps out-of-range corePct to [0, 100]", () => {
+      const over = simulateLadder(bars, { ...P, corePct: 150 });
+      const capped = simulateLadder(bars, { ...P, corePct: 100 });
+      expect(over.finalValue).toBeCloseTo(capped.finalValue, 0);
+    });
+  });
 });

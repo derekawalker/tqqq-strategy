@@ -40,6 +40,15 @@ export interface LadderParams {
   // resume when price rebounds balanceResumeReboundPct% from its trough during the pause.
   balanceGatePct?: number;
   balanceResumeReboundPct?: number;
+  /**
+   * Fraction of startingCash (0-100) bought once at the anchor price and held
+   * for the entire backtest — never sold, never re-bought. The remainder runs
+   * the ladder exactly as before (levels sized off the remaining cash, not
+   * the full startingCash). Models a core-and-ladder split: the core captures
+   * trend during bull-market grinds the ladder sits out (sold, in cash), at
+   * the cost of taking full drawdown on that slice with no ladder discipline.
+   */
+  corePct?: number;
 }
 
 export const DEFAULT_LADDER: LadderParams = {
@@ -117,7 +126,17 @@ export function simulateLadder(
     return Math.max(0, Math.min(1, t));
   };
   let anchor = bars[0].close;
-  let levels = levelsAt(anchor, p);
+
+  // Core-and-ladder split: a fixed fraction is bought once at the anchor and
+  // held for good; the ladder is sized off (and only ever draws from) what's
+  // left, not the full startingCash.
+  const coreFraction = Math.max(0, Math.min(1, (p.corePct ?? 0) / 100));
+  const coreCash = p.startingCash * coreFraction;
+  const ladderCash = p.startingCash - coreCash;
+  const coreShares = coreFraction > 0 ? Math.floor(coreCash / anchor) : 0;
+  const lp: LadderParams = coreFraction > 0 ? { ...p, startingCash: ladderCash } : p;
+
+  let levels = levelsAt(anchor, lp);
   // Actual shares held per level (0 = flat); may be a fraction of the nominal lot
   // when bought on a throttled (partial) day.
   const ownedShares = new Array(levels.length).fill(0);
@@ -125,10 +144,10 @@ export function simulateLadder(
   // levels[n].sellPrice unless sellPctOverride set a different target on purchase.
   const ownedSellPrice = new Array(levels.length).fill(0);
 
-  // Reserve + tranche setup (Strategy 4).
+  // Reserve + tranche setup (Strategy 4) — drawn from the ladder's share of cash.
   const reserveFraction = Math.max(0, Math.min(1, (p.reservePct ?? 0) / 100));
-  let reserve = p.startingCash * reserveFraction;
-  let cash = p.startingCash * (1 - reserveFraction);
+  let reserve = ladderCash * reserveFraction;
+  let cash = ladderCash * (1 - reserveFraction);
   let tranche1Deployed = false;
   let tranche2Deployed = false;
   let peakPrice = bars[0].close;
@@ -139,12 +158,12 @@ export function simulateLadder(
   let peakInvested = 0;
   const slip = Math.max(0, (p.slippageBps ?? 0) / 10000); // per-side friction on notional
 
-  // Balance gate state
+  // Balance gate state — measures the ladder's own cash+lots pool, independent of the core.
   const balanceGatePausedArr: boolean[] = [];
   let bgPaused = false;
   let bgPriceLow = 0;
   const bgThreshold = p.balanceGatePct != null
-    ? p.startingCash * (p.balanceGatePct / 100)
+    ? ladderCash * (p.balanceGatePct / 100)
     : null;
 
   const equity: { date: string; value: number; barBuys: number; barSells: number; barProfit: number }[] = [];
@@ -230,16 +249,17 @@ export function simulateLadder(
     const anyOwned = ownedShares.some((s) => s > 0);
     if (!anyOwned && close > anchor * (1 + p.reanchorPct)) {
       anchor = close;
-      levels = levelsAt(anchor, p);
+      levels = levelsAt(anchor, lp);
       ownedShares.fill(0);
     }
 
-    // 5) Mark to market at the close.
+    // 5) Mark to market at the close — core position (if any) is never sold.
     let lotValue = 0;
     for (let n = 0; n < levels.length; n++) if (ownedShares[n] > 0) lotValue += ownedShares[n] * close;
-    const value = cash + lotValue + reserve;
+    const coreValue = coreShares * close;
+    const value = cash + lotValue + reserve + coreValue;
     equity.push({ date: bars[i].date, value, barBuys, barSells, barProfit });
-    if (value > 0) peakInvested = Math.max(peakInvested, lotValue / value);
+    if (value > 0) peakInvested = Math.max(peakInvested, (lotValue + coreValue) / value);
   }
 
   const start = equity[0].value;

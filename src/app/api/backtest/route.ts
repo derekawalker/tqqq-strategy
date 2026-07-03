@@ -61,6 +61,9 @@ interface ScenarioParams {
   // the day the lot was bought — see sentiment.ts's regimeSellTargetPct.
   regimeSellTargetEnabled?: boolean;
   regimeOtherSellPct?: number;
+  // Core-and-ladder split: this fraction (0-100) of startingCash is bought
+  // once at the anchor and held for good; the ladder runs on the remainder.
+  corePct?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,6 +245,7 @@ export async function POST(request: Request) {
           ...(Number(s.tranche1Pct) > 0 ? { tranche1Threshold: -Math.abs(Number(s.tranche1Pct)) } : {}),
           ...(Number(s.tranche2Pct) > 0 ? { tranche2Threshold: -Math.abs(Number(s.tranche2Pct)) } : {}),
         } : {}),
+        ...(Number(s.corePct) > 0 ? { corePct: Math.min(100, Number(s.corePct)) } : {}),
       };
 
       const sellPctOverride = s.regimeSellTargetEnabled
@@ -298,6 +302,7 @@ export async function POST(request: Request) {
           ...(s.balanceGateEnabled  ? [`Balance gate: stop <${s.balanceGatePct ?? 85}% of start, resume +${s.balanceResumeReboundPct ?? 5}%`] : []),
           ...(s.reserveEnabled && Number(s.reservePct) > 0 ? [`Reserve: hold ${s.reservePct}%, deploy at −${Math.abs(Number(s.tranche1Pct)) || "?"}% / −${Math.abs(Number(s.tranche2Pct)) || "?"}%`] : []),
           ...(s.regimeSellTargetEnabled ? [`Regime sell target: ${s.sellPct}% Risk-On / ${Number(s.regimeOtherSellPct) > 0 ? s.regimeOtherSellPct : 3}% Neutral-Risk-Off`] : []),
+          ...(Number(s.corePct) > 0 ? [`Core-and-ladder: ${Math.min(100, Number(s.corePct))}% held permanently, ladder runs on the rest`] : []),
         ],
       };
     });
