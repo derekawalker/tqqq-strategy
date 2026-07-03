@@ -160,10 +160,17 @@ hedge buys disappears.
   NVDA-class earnings). A small static list of dates + a banner ("FOMC in 2
   days — elevated premium; don't be short gamma into the print"). Prevents
   opening 5-DTE positions across a Fed decision.
-- **Push notifications** — PWA + service worker already exist. Vercel cron →
-  check endpoint → Web Push for: hedge monetize trigger (|Δ| ≥ 0.45 —
-  time-critical, crash spikes mean-revert fast), roll-due (21 DTE), ITM options
-  near expiry, VXN threshold crossings.
+- ~~**Push notifications**~~ — done. `/api/push/check` computes hedge
+  monetize (|Δ| ≥ 0.45), roll-due (21 DTE), ITM-near-expiry, and ^VXN band
+  crossings, and sends Web Push via `src/lib/webpush.ts`. Polled every 15min
+  around the clock (TQQQ/QQQ trade the extended 24x5 session) by a free
+  GitHub Actions schedule
+  (`.github/workflows/push-check.yml`), with the `vercel.json` Vercel cron
+  (Hobby-plan cap: 1 run/day) as a fallback. Subscriptions live in the
+  settings table (`src/lib/pushSubscriptions.ts`); opt-in toggle is in the
+  settings modal. Requires `NEXT_PUBLIC_VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/
+  `VAPID_SUBJECT` and a `CRON_SECRET` set in `.env.local`, the Vercel
+  project's env vars, and as a GitHub Actions repo secret.
 - **Snap income strikes to the listed chain** — `buildCallRows`/`buildPutRows`
   assume a $0.50 strike grid; TQQQ lists $1 strikes in some price bands. Reuse
   the `ChainResolver` pattern from hedgeTranches.ts to snap to real contracts.
@@ -173,10 +180,10 @@ hedge buys disappears.
 - **Regime-dependent sell target (backtest first)** — 5% sell target in
   Risk-On, 3% in Neutral/Risk-Off for faster turnover before trend resumes.
   Cheap sweep in the existing sim.
-- **Put-spread financing for the catastrophe leg, high-vol only** — when VXN >
-  35 and a roll is due, buying 0.07Δ / selling ~0.03Δ cuts cost 30–40% while
-  keeping most of the −30% payoff. Do NOT do this in calm markets — the naked
-  deep tail is the point.
+- ~~**Put-spread financing for the catastrophe leg, high-vol only**~~ — done.
+  `buildTranchePlan` (`src/lib/hedgeTranches.ts`) finances the catastrophe leg
+  as a put spread once ^VXN > `PUT_SPREAD_VXN_THRESHOLD` (35), surfaced on the
+  Hedge page with a "spread-financed" badge.
 
 ---
 

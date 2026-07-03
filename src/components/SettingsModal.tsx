@@ -16,6 +16,7 @@ import { useMediaQuery } from "@mantine/hooks";
 import { DatePickerInput } from "@mantine/dates";
 import { IconCheck } from "@tabler/icons-react";
 import { useApp, type AccountSettings } from "@/lib/context/AppContext";
+import PushNotificationSettings from "@/components/PushNotificationSettings";
 
 const COLORS = [
   "red",
@@ -84,9 +85,13 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
         size="md"
         padding="lg"
       >
-        <Text size="sm" c="dimmed">
-          Select an account to configure settings.
-        </Text>
+        <Stack gap="lg">
+          <Text size="sm" c="dimmed">
+            Select an account to configure settings.
+          </Text>
+          <Divider />
+          <PushNotificationSettings />
+        </Stack>
       </Modal>
     );
   }
@@ -213,6 +218,10 @@ export default function SettingsModal({ opened, onClose }: SettingsModalProps) {
             ))}
           </Group>
         </div>
+
+        <Divider />
+
+        <PushNotificationSettings />
 
         <Button onClick={handleSave} fullWidth>
           Save

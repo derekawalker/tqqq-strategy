@@ -1,0 +1,27 @@
+name: Push notification check
+
+# Vercel's Hobby-plan cron is capped at 1 run/day, which can't catch an
+# intraday hedge spike-and-reverse. GitHub Actions' scheduler is free and
+# supports 5-minute granularity, so it does the frequent polling here; the
+# Vercel cron in vercel.json stays as a once-daily fallback in case this
+# workflow ever gets disabled (GitHub auto-disables scheduled workflows after
+# 60 days without any repo activity).
+on:
+  schedule:
+    # Every 15 min, all day every day. TQQQ/QQQ trade in the extended 24x5
+    # session (not just 9:30am-4pm ET RTH), and that session's UTC boundaries
+    # shift with US/exchange DST in ways that are error-prone to hardcode —
+    # simplest and safest is to just run around the clock. The handful of
+    # checks that land outside any session are cheap no-ops (nothing to alert
+    # on) and still free at this volume.
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit /api/push/check
+        run: |
+          curl -sf -X GET "https://tqqq-strategy.vercel.app/api/push/check" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}"
