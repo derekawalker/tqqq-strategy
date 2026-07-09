@@ -34,14 +34,20 @@ describe("closeRec", () => {
 
   it("flags monetize when delta crosses the threshold", () => {
     const pos = put({ expiry: isoInDays(180) });
-    const rec = closeRec(pos, 500, { price: 20, delta: -0.5, theta: 0, vega: 0 });
+    const rec = closeRec(pos, 500, { price: 20, delta: -0.65, theta: 0, vega: 0 });
     expect(rec.action).toBe("close-profit");
   });
 
+  it("does not monetize on delta below the threshold", () => {
+    const pos = put({ expiry: isoInDays(180) });
+    const rec = closeRec(pos, 500, { price: 20, delta: -0.5, theta: 0, vega: 0 });
+    expect(rec.action).toBe("hold");
+  });
+
   it("flags monetize on a large percentage gain even with modest delta", () => {
-    // averagePrice 5, marketValue must be > 2.5x cost (250% of 500 = 1250) to clear PROFIT_TAKE_PCT (1.5)
-    const pos = put({ expiry: isoInDays(180), averagePrice: 5, longQty: 1, marketValue: 1300 });
-    const rec = closeRec(pos, 500, { price: 13, delta: -0.1, theta: 0, vega: 0 });
+    // averagePrice 5, marketValue must be > 4x cost (400% of 500 = 2000) to clear PROFIT_TAKE_PCT (3.0)
+    const pos = put({ expiry: isoInDays(180), averagePrice: 5, longQty: 1, marketValue: 2100 });
+    const rec = closeRec(pos, 500, { price: 21, delta: -0.1, theta: 0, vega: 0 });
     expect(rec.action).toBe("close-profit");
   });
 

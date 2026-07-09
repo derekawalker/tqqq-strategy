@@ -168,10 +168,20 @@ export const ROLL_AT_DTE = 21;
  * catastrophe leg is exempt entirely — it's a lottery ticket you always keep on.
  */
 export const VIX_PAUSE_THRESHOLD = 50;
-/** Close half a position when it has gained this fraction of its cost basis. */
-export const PROFIT_TAKE_PCT = 1.5;
-/** Monetize a put once its |delta| reaches this — the crash harvest trigger. */
-export const MONETIZE_DELTA = 0.45;
+/**
+ * Close half a position when it has gained this fraction of its cost basis.
+ * Raised from 1.5 (2026-07): at +150% the catastrophe leg's vega spike fires
+ * the harvest far too early in a fast crash — the 2018–25 backtest shows
+ * +300% adds ~1.3pts of drawdown spared in 2020 at no full-cycle cost.
+ */
+export const PROFIT_TAKE_PCT = 3.0;
+/**
+ * Monetize a put once its |delta| reaches this — the crash harvest trigger.
+ * Raised from 0.45 (2026-07): backtest shows 0.60 adds ~1pt of drawdown
+ * spared in a slow bear (2022) with the best full-cycle equity; 0.75 adds
+ * little more and sits where deep-ITM spreads make model marks least real.
+ */
+export const MONETIZE_DELTA = 0.60;
 /** Linear vol skew used for live greeks/pricing (matches the model SKEW). */
 export const LIVE_SKEW = 0.8;
 
