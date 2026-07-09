@@ -11,6 +11,7 @@ import SettingsModal from "@/components/SettingsModal";
 import { SideNav, BottomNav } from "@/components/AppNav";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
+import { countOrdersByLevel, matchLevel } from "@/lib/levels";
 import { usePendingBuyCost } from "@/lib/hooks/usePendingBuyCost";
 import { useCSPCollateral } from "@/lib/hooks/useCSPCollateral";
 
@@ -33,18 +34,11 @@ function AppShellInner({ children }: { children: ReactNode }) {
     const bufferSize = s?.orderBuffer ?? 0;
     const currentLevel = levelsSummary?.currentLevel ?? -1;
 
-    const counts = new Map<number, { buys: number; sells: number }>();
-    for (const o of workingOrders) {
-      const c = counts.get(o.shares) ?? { buys: 0, sells: 0 };
-      if (o.side === "BUY") c.buys++; else c.sells++;
-      counts.set(o.shares, c);
-    }
-
     let hasWarning = false;
     if (levelsSummary) {
+      const { byLevel } = countOrdersByLevel(levelsSummary.levels, workingOrders);
       for (let i = 0; i < levelsSummary.levels.length; i++) {
-        const level = levelsSummary.levels[i];
-        const c = counts.get(level.shares) ?? { buys: 0, sells: 0 };
+        const c = byLevel.get(i) ?? { buys: 0, sells: 0 };
         const inBuffer = bufferSize > 0 && i !== currentLevel && Math.abs(i - currentLevel) <= bufferSize;
         const bufferMissing = isTastytrade
           ? (c.buys === 0 && c.sells === 0)
@@ -53,11 +47,13 @@ function AppShellInner({ children }: { children: ReactNode }) {
         if ((c.buys > 0 || c.sells > 0) && threshold > 0 && (c.buys < threshold || c.sells < threshold)) { hasWarning = true; break; }
       }
     }
-    // Duplicate detection: count WORKING-status orders with same side + shares
+    // Duplicate detection: WORKING-status orders with same side + level
+    // (same share count alone isn't a duplicate — two levels can share a qty)
     const workingOnly = workingOrders.filter((o) => o.status === "WORKING");
     const workingCounts = new Map<string, number>();
     for (const o of workingOnly) {
-      const key = `${o.side}-${o.shares}`;
+      const idx = levelsSummary ? matchLevel(levelsSummary.levels, o.shares, o.limitPrice) : -1;
+      const key = idx >= 0 ? `${o.side}-L${idx}` : `${o.side}-S${o.shares}`;
       workingCounts.set(key, (workingCounts.get(key) ?? 0) + 1);
     }
     const duplicateCount = [...workingCounts.values()].filter((n) => n > 1).length;

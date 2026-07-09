@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeLevels, matchLevel, computeCurrentLevel } from "./levels";
+import { computeLevels, matchLevel, computeCurrentLevel, countOrdersByLevel } from "./levels";
 
 // ── computeLevels ─────────────────────────────────────────────────────────────
 
@@ -112,5 +112,61 @@ describe("computeCurrentLevel", () => {
       { side: "SELL" as const, shares: levels[1].shares, fillPrice: levels[1].sellPrice },
     ];
     expect(computeCurrentLevel(levels, orders)).toBe(2);
+  });
+});
+
+// ── countOrdersByLevel ────────────────────────────────────────────────────────
+
+describe("countOrdersByLevel", () => {
+  const levels = computeLevels(200000, 70, 5, 0.95);
+
+  // Find two levels that share the same share count (they exist with a 0.95
+  // reduction factor); otherwise construct them manually.
+  function twoLevelsSameShares() {
+    for (let i = 0; i < levels.length - 1; i++) {
+      for (let j = i + 1; j < levels.length; j++) {
+        if (levels[i].shares === levels[j].shares) return [i, j] as const;
+      }
+    }
+    throw new Error("no duplicate share counts in fixture");
+  }
+
+  it("assigns an order only to the level whose price is closest", () => {
+    const [i, j] = twoLevelsSameShares();
+    const { byLevel, unmatched } = countOrdersByLevel(levels, [
+      { side: "BUY", shares: levels[i].shares, limitPrice: levels[i].buyPrice },
+      { side: "SELL", shares: levels[j].shares, limitPrice: levels[j].sellPrice },
+    ]);
+    expect(byLevel.get(i)).toEqual({ buys: 1, sells: 0 });
+    expect(byLevel.get(j)).toEqual({ buys: 0, sells: 1 });
+    expect(unmatched.size).toBe(0);
+  });
+
+  it("does not show one order on two levels with the same share count", () => {
+    const [i, j] = twoLevelsSameShares();
+    const { byLevel } = countOrdersByLevel(levels, [
+      { side: "BUY", shares: levels[i].shares, limitPrice: levels[i].buyPrice },
+    ]);
+    expect(byLevel.get(i)).toEqual({ buys: 1, sells: 0 });
+    expect(byLevel.has(j)).toBe(false);
+  });
+
+  it("groups orders matching no level under unmatched by share count", () => {
+    const bogusShares = 999999;
+    const { byLevel, unmatched } = countOrdersByLevel(levels, [
+      { side: "BUY", shares: bogusShares, limitPrice: 50 },
+      { side: "SELL", shares: bogusShares, limitPrice: 55 },
+    ]);
+    expect(byLevel.size).toBe(0);
+    expect(unmatched.get(bogusShares)).toEqual({ buys: 1, sells: 1 });
+  });
+
+  it("counts multiple orders on the same level", () => {
+    const { byLevel } = countOrdersByLevel(levels, [
+      { side: "BUY", shares: levels[3].shares, limitPrice: levels[3].buyPrice },
+      { side: "BUY", shares: levels[3].shares, limitPrice: levels[3].buyPrice },
+      { side: "SELL", shares: levels[3].shares, limitPrice: levels[3].sellPrice },
+    ]);
+    expect(byLevel.get(3)).toEqual({ buys: 2, sells: 1 });
   });
 });

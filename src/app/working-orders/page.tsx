@@ -33,6 +33,7 @@ import {
 import { OrderQueue, type QueueItem } from "@/components/OrderQueue";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
+import { countOrdersByLevel, matchLevel } from "@/lib/levels";
 import { useSentiment } from "@/lib/hooks/useSentiment";
 import { fmt, createMask } from "@/lib/format";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
@@ -303,16 +304,15 @@ export default function WorkingOrdersPage() {
     });
 
   const rows = useMemo<LevelRow[]>(() => {
-    const counts = new Map<number, { buys: number; sells: number }>();
-    for (const o of workingOrders) {
-      const c = counts.get(o.shares) ?? { buys: 0, sells: 0 };
-      if (o.side === "BUY") c.buys++;
-      else c.sells++;
-      counts.set(o.shares, c);
-    }
-
     if (!levelsSummary) {
       // No settings — show orders without level matching
+      const counts = new Map<number, { buys: number; sells: number }>();
+      for (const o of workingOrders) {
+        const c = counts.get(o.shares) ?? { buys: 0, sells: 0 };
+        if (o.side === "BUY") c.buys++;
+        else c.sells++;
+        counts.set(o.shares, c);
+      }
       const rows: LevelRow[] = Array.from(counts.entries()).map(
         ([shares, c]) => ({
           levelIndex: -1,
@@ -326,9 +326,13 @@ export default function WorkingOrdersPage() {
       return rows;
     }
 
+    const { byLevel, unmatched } = countOrdersByLevel(
+      levelsSummary.levels,
+      workingOrders,
+    );
+
     let maxOrderLevel = -1;
-    for (const [shares] of counts) {
-      const idx = levelsSummary.levels.findIndex((l) => l.shares === shares);
+    for (const idx of byLevel.keys()) {
       if (idx > maxOrderLevel) maxOrderLevel = idx;
     }
 
@@ -340,7 +344,7 @@ export default function WorkingOrdersPage() {
     const visibleLevels = levelsSummary.levels.slice(0, maxLevel + 1);
 
     const rows: LevelRow[] = visibleLevels.map((level, i) => {
-      const c = counts.get(level.shares) ?? { buys: 0, sells: 0 };
+      const c = byLevel.get(i) ?? { buys: 0, sells: 0 };
       return {
         levelIndex: i,
         shares: level.shares,
@@ -351,17 +355,14 @@ export default function WorkingOrdersPage() {
       };
     });
 
-    for (const [shares, c] of counts) {
-      const matched = levelsSummary.levels.some((l) => l.shares === shares);
-      if (!matched) {
-        rows.push({
-          levelIndex: -1,
-          shares,
-          buyPrice: null,
-          sellPrice: null,
-          ...c,
-        });
-      }
+    for (const [shares, c] of unmatched) {
+      rows.push({
+        levelIndex: -1,
+        shares,
+        buyPrice: null,
+        sellPrice: null,
+        ...c,
+      });
     }
 
     rows.sort((a, b) => a.shares - b.shares || b.levelIndex - a.levelIndex);
@@ -370,19 +371,24 @@ export default function WorkingOrdersPage() {
 
   const mask = createMask(privacyMode);
 
-  const duplicateShares = useMemo(() => {
+  // Duplicate = more than one WORKING order on the same side of the same level
+  // (or same share count when no level matches). Keys: "L<index>" / "S<shares>".
+  const duplicateKeys = useMemo(() => {
     const workingOnly = workingOrders.filter((o) => o.status === "WORKING");
     const counts = new Map<string, number>();
     for (const o of workingOnly) {
-      const key = `${o.side}-${o.shares}`;
-      counts.set(key, (counts.get(key) ?? 0) + 1);
+      const idx = levelsSummary
+        ? matchLevel(levelsSummary.levels, o.shares, o.limitPrice)
+        : -1;
+      const rowKey = idx >= 0 ? `L${idx}` : `S${o.shares}`;
+      counts.set(`${o.side}-${rowKey}`, (counts.get(`${o.side}-${rowKey}`) ?? 0) + 1);
     }
-    const dupes = new Set<number>();
+    const dupes = new Set<string>();
     for (const [key, n] of counts) {
-      if (n > 1) dupes.add(Number(key.split("-")[1]));
+      if (n > 1) dupes.add(key.slice(key.indexOf("-") + 1));
     }
     return dupes;
-  }, [workingOrders]);
+  }, [workingOrders, levelsSummary]);
 
   if (snapshotLoading) {
     const colWidths = [40, 55, 30, 30, 70, 70, 60];
@@ -876,7 +882,9 @@ export default function WorkingOrdersPage() {
                         row.levelIndex >= 0 &&
                         currentLevel >= 0 &&
                         row.levelIndex <= currentLevel;
-                      const hasDuplicate = duplicateShares.has(row.shares);
+                      const hasDuplicate = duplicateKeys.has(
+                        row.levelIndex >= 0 ? `L${row.levelIndex}` : `S${row.shares}`,
+                      );
 
                       const progressColor = bufferMissing ? "orange" : accountColor;
 

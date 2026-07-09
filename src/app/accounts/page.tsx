@@ -17,6 +17,7 @@ import type { Account } from "@/lib/context/AppContext";
 import type { FilledOrder, WorkingOrder } from "@/lib/schwab/parse";
 import type { AccountBalance } from "@/app/api/schwab/data/route";
 import { computeLevels, computeCurrentLevel, matchLevel } from "@/lib/levels";
+import { computeAccountGain } from "@/lib/accountGain";
 import type { Level } from "@/lib/levels";
 import { fmt, createMask, toDateKey } from "@/lib/format";
 import { useCardBg } from "@/lib/hooks/useCardBg";
@@ -53,6 +54,7 @@ interface AccountData {
   gain: number | null;
   gainPct: number | null;
   annualROI: number | null;
+  deposits: number;
 }
 
 // ── per-account computation helpers ──────────────────────────────────────
@@ -99,25 +101,20 @@ function buildPendingBuyCost(
   ownedLevels: Set<number>,
 ): number | null {
   if (levels.length === 0) return null;
-  const shareToIdx = new Map(levels.map((l, i) => [l.shares, i]));
   const accountBuys = workingOrders.filter(
     (o) => o.accountNumber === account.accountNumber && o.side === "BUY",
   );
 
-  const counts = new Map<number, { buys: number; buyPrice: number | null }>();
+  // Each level counts once even with duplicate orders on it.
+  const pendingIndices = new Set<number>();
   for (const o of accountBuys) {
-    const idx = shareToIdx.get(o.shares) ?? -1;
-    const buyPrice = idx >= 0 ? levels[idx].buyPrice : null;
-    const existing = counts.get(o.shares);
-    counts.set(o.shares, { buys: (existing?.buys ?? 0) + 1, buyPrice });
+    const idx = matchLevel(levels, o.shares, o.limitPrice);
+    if (idx >= 0 && !ownedLevels.has(idx)) pendingIndices.add(idx);
   }
 
   let total = 0;
-  for (const [shares, { buys, buyPrice }] of counts) {
-    if (buys === 0 || buyPrice == null) continue;
-    const idx = shareToIdx.get(shares) ?? -1;
-    if (idx >= 0 && ownedLevels.has(idx)) continue;
-    total += shares * buyPrice;
+  for (const idx of pendingIndices) {
+    total += levels[idx].shares * levels[idx].buyPrice;
   }
   return total;
 }
@@ -657,6 +654,7 @@ function AccountsPageInner() {
     allWorkingOrders,
     allOptionPositions,
     allTqqqShares,
+    allTransactions,
     privacyMode,
     snapshotLoading,
   } = useApp();
@@ -739,20 +737,19 @@ function AccountsPageInner() {
             : null;
         })();
 
-        const initialCash = account.settings.initialCash;
-        const startingDate = account.settings.startingDate;
-        const totalValue = balance?.totalValue ?? null;
-        const gain =
-          initialCash != null && totalValue != null
-            ? totalValue - initialCash
-            : null;
-        const gainPct =
-          gain != null && initialCash ? (gain / initialCash) * 100 : null;
-        const daysIn = startingDate
-          ? Math.max(1, (now - startingDate.getTime()) / 86400000)
-          : null;
-        const annualROI =
-          gainPct != null && daysIn != null ? (gainPct / daysIn) * 365 : null;
+        const {
+          totalGain: gain,
+          totalGainPct: gainPct,
+          annualROI,
+          deposits,
+        } = computeAccountGain({
+          initialCash: account.settings.initialCash,
+          startingDate: account.settings.startingDate,
+          currentValue: balance?.totalValue ?? null,
+          transactions: allTransactions,
+          accountNumber: account.accountNumber,
+          now,
+        });
 
         return {
           account,
@@ -767,6 +764,7 @@ function AccountsPageInner() {
           gain,
           gainPct,
           annualROI,
+          deposits,
         };
       }),
     [
@@ -776,6 +774,7 @@ function AccountsPageInner() {
       allWorkingOrders,
       allOptionPositions,
       allTqqqShares,
+      allTransactions,
       today,
       now,
     ],
@@ -800,8 +799,8 @@ function AccountsPageInner() {
     const totalGain = allHaveGain
       ? enabled.reduce((s, d) => s + (d.gain ?? 0), 0)
       : null;
-    const totalInitialCash = enabled.reduce(
-      (s, d) => s + (d.account.settings.initialCash ?? 0),
+    const totalBasis = enabled.reduce(
+      (s, d) => s + (d.account.settings.initialCash ?? 0) + d.deposits,
       0,
     );
 
@@ -823,8 +822,8 @@ function AccountsPageInner() {
       return earliest == null || sd < earliest ? sd : earliest;
     }, null);
     const gainPct =
-      totalGain != null && totalInitialCash > 0
-        ? (totalGain / totalInitialCash) * 100
+      totalGain != null && totalBasis > 0
+        ? (totalGain / totalBasis) * 100
         : null;
     const daysIn = earliestDate
       ? Math.max(1, (now - earliestDate.getTime()) / 86400000)
@@ -839,10 +838,7 @@ function AccountsPageInner() {
       pendingBuyCost: enabled.reduce((s, d) => s + (d.pendingBuyCost ?? 0), 0),
       cspCollateral: enabled.reduce((s, d) => s + (d.cspCollateral ?? 0), 0),
       gain: totalGain,
-      gainPct:
-        totalGain != null && totalInitialCash > 0
-          ? (totalGain / totalInitialCash) * 100
-          : null,
+      gainPct,
       annualROI,
       avgLevel,
       anyLevels,
