@@ -97,10 +97,30 @@ function fmtMoney(n: number, showPlus = false) {
   return `${prefix}$${Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-function DayCard({ day, privacyMode, color, selected, onClick }: { day: DaySummary; privacyMode: boolean; color: string; selected?: boolean; onClick?: () => void }) {
-  const total = day.equity + day.options + day.interest + day.dividends;
-  const totalTrades = day.equityTrades + day.optionsTrades;
-  const hasActivity = totalTrades > 0 || day.interest !== 0 || day.dividends !== 0;
+// Shared totals shape for day / week / month summary cards.
+interface PeriodSummary {
+  equity: number;
+  equityTrades: number;
+  options: number;
+  optionsTrades: number;
+  interest: number;
+  dividends: number;
+  intDivTxns: number;
+}
+
+function PeriodCard({ summary, header, privacyMode, color, selected, onClick, minWidth = 130 }: {
+  summary: PeriodSummary;
+  header: React.ReactNode;
+  privacyMode: boolean;
+  color: string;
+  selected?: boolean;
+  onClick?: () => void;
+  minWidth?: number;
+}) {
+  const s = summary;
+  const total = s.equity + s.options + s.interest + s.dividends;
+  const hasActivity =
+    s.equityTrades > 0 || s.optionsTrades > 0 || s.options !== 0 || s.interest !== 0 || s.dividends !== 0;
   const mask = createMask(privacyMode);
   const c = (n: number) => n < 0 ? "red" : color;
   const bg = useCardBg(color);
@@ -111,7 +131,8 @@ function DayCard({ day, privacyMode, color, selected, onClick }: { day: DaySumma
       radius={CARD_RADIUS}
       onClick={onClick}
       style={{
-        minWidth: 110,
+        minWidth,
+        flexShrink: 0,
         height: "100%",
         opacity: hasActivity ? 1 : 0.5,
         background: bg,
@@ -120,130 +141,27 @@ function DayCard({ day, privacyMode, color, selected, onClick }: { day: DaySumma
       }}
     >
       <Stack gap={4} justify="flex-start">
-        <Group justify="space-between" gap={4} wrap="nowrap" align="flex-start">
-          <Text size="xs" c="dimmed" fw={500}>{day.dayOfWeek}</Text>
-          <Text size="xs" c="dimmed" fw={500}>{day.label.split(" ")[1]}</Text>
-        </Group>
+        {header}
         <Text fw={700} ta="right" c={!hasActivity ? "dimmed" : total < 0 ? "red" : "white"} className={outfit.className} style={{ fontSize: "1rem" }}>
           {hasActivity ? mask(fmtMoney(total, true)) : "—"}
         </Text>
         <Divider />
-        {day.equityTrades > 0 && (
+        {s.equityTrades > 0 && (
           <Group justify="space-between" gap={4} wrap="nowrap">
-            <Text span size="xs" c="dimmed" fw={400}>({day.equityTrades})</Text>
-            <Text span size="xs" c={c(day.equity)}>{mask(fmtMoney(day.equity, true))}</Text>
+            <Text span size="xs" c="dimmed" fw={400}>({s.equityTrades})</Text>
+            <Text span size="xs" c={c(s.equity)}>{mask(fmtMoney(s.equity, true))}</Text>
           </Group>
         )}
-        {day.options !== 0 && (
+        {s.options !== 0 && (
           <Group justify="space-between" gap={4} wrap="nowrap">
-            {day.optionsTrades > 0 && <Text span size="xs" c="dimmed" fw={400}>({day.optionsTrades})</Text>}
-            <Text span size="xs" c={day.options < 0 ? "red" : "orange"} ml="auto">{mask(fmtMoney(day.options, true))}</Text>
+            {s.optionsTrades > 0 && <Text span size="xs" c="dimmed" fw={400}>({s.optionsTrades})</Text>}
+            <Text span size="xs" c={s.options < 0 ? "red" : "orange"} ml="auto">{mask(fmtMoney(s.options, true))}</Text>
           </Group>
         )}
-        {(day.interest !== 0 || day.dividends !== 0) && (
+        {(s.interest !== 0 || s.dividends !== 0) && (
           <Group justify="space-between" gap={4} wrap="nowrap">
-            <Text span size="xs" c="dimmed" fw={400}>({day.intDivTxns})</Text>
-            <Text span size="xs" c="lime">{mask(fmtMoney(day.interest + day.dividends, true))}</Text>
-          </Group>
-        )}
-      </Stack>
-    </Paper>
-  );
-}
-
-function WeekCard({ week, privacyMode, color, selected, onClick }: { week: WeekSummary; privacyMode: boolean; color: string; selected?: boolean; onClick?: () => void }) {
-  const total = week.equity + week.options + week.interest + week.dividends;
-  const hasActivity = week.equityTrades > 0 || week.options !== 0 || week.interest !== 0 || week.dividends !== 0;
-  const mask = createMask(privacyMode);
-  const c = (n: number) => n < 0 ? "red" : color;
-  const bg = useCardBg(color);
-
-  return (
-    <Paper
-      p="md"
-      radius={CARD_RADIUS}
-      onClick={onClick}
-      style={{
-        minWidth: 130,
-        flexShrink: 0,
-        opacity: hasActivity ? 1 : 0.5,
-        background: bg,
-        cursor: onClick ? "pointer" : undefined,
-        outline: selected ? `2px solid var(--mantine-color-${color}-5)` : undefined,
-      }}
-    >
-      <Stack gap={4} justify="flex-start">
-        <Text size="xs" c="dimmed" fw={500} ta="right">{week.label}</Text>
-        <Text fw={700} ta="right" c={!hasActivity ? "dimmed" : total < 0 ? "red" : "white"} className={outfit.className} style={{ fontSize: "1rem" }}>
-          {hasActivity ? mask(fmtMoney(total, true)) : "—"}
-        </Text>
-        <Divider />
-        {week.equityTrades > 0 && (
-          <Group justify="space-between" gap={4} wrap="nowrap">
-            <Text span size="xs" c="dimmed" fw={400}>({week.equityTrades})</Text>
-            <Text span size="xs" c={c(week.equity)}>{mask(fmtMoney(week.equity, true))}</Text>
-          </Group>
-        )}
-        {week.options !== 0 && (
-          <Group justify="space-between" gap={4} wrap="nowrap">
-            {week.optionsTrades > 0 && <Text span size="xs" c="dimmed" fw={400}>({week.optionsTrades})</Text>}
-            <Text span size="xs" c={week.options < 0 ? "red" : "orange"} ml="auto">{mask(fmtMoney(week.options, true))}</Text>
-          </Group>
-        )}
-        {(week.interest !== 0 || week.dividends !== 0) && (
-          <Group justify="space-between" gap={4} wrap="nowrap">
-            <Text span size="xs" c="dimmed" fw={400}>({week.intDivTxns})</Text>
-            <Text span size="xs" c="lime">{mask(fmtMoney(week.interest + week.dividends, true))}</Text>
-          </Group>
-        )}
-      </Stack>
-    </Paper>
-  );
-}
-
-function MonthCard({ month, privacyMode, color, selected, onClick }: { month: MonthSummary; privacyMode: boolean; color: string; selected?: boolean; onClick?: () => void }) {
-  const total = month.equity + month.options + month.interest + month.dividends;
-  const hasActivity = month.equityTrades > 0 || month.options !== 0 || month.interest !== 0 || month.dividends !== 0;
-  const mask = createMask(privacyMode);
-  const c = (n: number) => n < 0 ? "red" : color;
-  const bg = useCardBg(color);
-
-  return (
-    <Paper
-      p="md"
-      radius={CARD_RADIUS}
-      onClick={onClick}
-      style={{
-        minWidth: 130,
-        flexShrink: 0,
-        opacity: hasActivity ? 1 : 0.5,
-        background: bg,
-        cursor: onClick ? "pointer" : undefined,
-        outline: selected ? `2px solid var(--mantine-color-${color}-5)` : undefined,
-      }}
-    >
-      <Stack gap={4} justify="flex-start">
-        <Text size="xs" c="dimmed" fw={500} ta="right">{month.label}</Text>
-        <Text fw={700} ta="right" c={!hasActivity ? "dimmed" : total < 0 ? "red" : "white"} className={outfit.className} style={{ fontSize: "1rem" }}>
-          {hasActivity ? mask(fmtMoney(total, true)) : "—"}
-        </Text>
-        <Divider />
-        {month.equityTrades > 0 && (
-          <Group justify="space-between" gap={4} wrap="nowrap">
-            <Text span size="xs" c="dimmed" fw={400}>({month.equityTrades})</Text>
-            <Text span size="xs" c={c(month.equity)}>{mask(fmtMoney(month.equity, true))}</Text>
-          </Group>
-        )}
-        {month.options !== 0 && (
-          <Group justify="space-between" gap={4} wrap="nowrap">
-            {month.optionsTrades > 0 && <Text span size="xs" c="dimmed" fw={400}>({month.optionsTrades})</Text>}
-            <Text span size="xs" c={month.options < 0 ? "red" : "orange"} ml="auto">{mask(fmtMoney(month.options, true))}</Text>
-          </Group>
-        )}
-        {(month.interest !== 0 || month.dividends !== 0) && (
-          <Group justify="space-between" gap={4} wrap="nowrap">
-            <Text span size="xs" c="dimmed" fw={400}>({month.intDivTxns})</Text>
-            <Text span size="xs" c="lime">{mask(fmtMoney(month.interest + month.dividends, true))}</Text>
+            <Text span size="xs" c="dimmed" fw={400}>({s.intDivTxns})</Text>
+            <Text span size="xs" c="lime">{mask(fmtMoney(s.interest + s.dividends, true))}</Text>
           </Group>
         )}
       </Stack>
@@ -635,8 +553,15 @@ export default function ProfitPage() {
             <Group gap="xs" wrap="nowrap" pb={4} pt={2} px={2} align="stretch">
               {last7Days.map((day) => (
                 <Box key={day.dateKey} style={{ minWidth: 110, flex: "1 0 110px" }}>
-                  <DayCard
-                    day={day}
+                  <PeriodCard
+                    summary={day}
+                    minWidth={110}
+                    header={
+                      <Group justify="space-between" gap={4} wrap="nowrap" align="flex-start">
+                        <Text size="xs" c="dimmed" fw={500}>{day.dayOfWeek}</Text>
+                        <Text size="xs" c="dimmed" fw={500}>{day.label.split(" ")[1]}</Text>
+                      </Group>
+                    }
                     privacyMode={privacyMode}
                     color={accountColor}
                     selected={day.dateKey === effectiveDay}
@@ -655,9 +580,10 @@ export default function ProfitPage() {
           <ScrollArea type="scroll">
             <Group gap="xs" wrap="nowrap" pb={4} pt={2} px={2} align="stretch">
               {last12Weeks.map((week) => (
-                <WeekCard
+                <PeriodCard
                   key={week.weekKey}
-                  week={week}
+                  summary={week}
+                  header={<Text size="xs" c="dimmed" fw={500} ta="right">{week.label}</Text>}
                   privacyMode={privacyMode}
                   color={accountColor}
                   selected={week.weekKey === effectiveWeek}
@@ -829,9 +755,10 @@ export default function ProfitPage() {
           <ScrollArea type="scroll">
             <Group gap="xs" wrap="nowrap" pb={4} pt={2} px={2} align="stretch">
               {last12Months.map((month) => (
-                <MonthCard
+                <PeriodCard
                   key={month.monthKey}
-                  month={month}
+                  summary={month}
+                  header={<Text size="xs" c="dimmed" fw={500} ta="right">{month.label}</Text>}
                   privacyMode={privacyMode}
                   color={accountColor}
                   selected={month.monthKey === effectiveMonth}
