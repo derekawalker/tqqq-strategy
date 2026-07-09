@@ -131,13 +131,13 @@ async function fetchAllPages(baseUrl: string): Promise<any[]> {
 
 async function fetchAccountData(accountNumber: string, from365: string, to: string) {
   // Filled orders are paginated — fetch all pages; other endpoints fit in one page
-  const [filledRaw, workingRes, positionsRes, rxDeliverRes, divIntRes, balanceRes] =
+  const [filledRaw, workingRes, positionsRes, rxDeliverRes, moneyMovementRaw, balanceRes] =
     await Promise.all([
       fetchAllPages(`/accounts/${accountNumber}/orders?status[]=Filled&status[]=Partially+Filled&start-date=${from365}&end-date=${to}`),
       tastyFetch(`/accounts/${accountNumber}/orders?status[]=Live&status[]=Pending&status[]=Received`),
       tastyFetch(`/accounts/${accountNumber}/positions`),
       tastyFetch(`/accounts/${accountNumber}/transactions?types[]=Receive+Deliver&start-date=${from365}&end-date=${to}`),
-      tastyFetch(`/accounts/${accountNumber}/transactions?types[]=Dividend&types[]=Interest&start-date=${from365}&end-date=${to}`),
+      fetchAllPages(`/accounts/${accountNumber}/transactions?types[]=Money+Movement&start-date=${from365}&end-date=${to}`),
       tastyFetch(`/accounts/${accountNumber}/balances`),
     ]);
 
@@ -147,8 +147,6 @@ async function fetchAccountData(accountNumber: string, from365: string, to: stri
   const positionsRaw: any[] = positionsRes.ok ? (await positionsRes.json()).data?.items ?? [] : [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rxDeliverRaw: any[] = rxDeliverRes.ok ? (await rxDeliverRes.json()).data?.items ?? [] : [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const divIntRaw: any[] = divIntRes.ok ? (await divIntRes.json()).data?.items ?? [] : [];
   const balanceData = balanceRes.ok ? (await balanceRes.json()).data : null;
 
   // Build openedAt map from filled option orders (earliest Sell to Open per symbol)
@@ -237,7 +235,7 @@ async function fetchAccountData(accountNumber: string, from365: string, to: stri
       }
     : null;
 
-  const transactions: Transaction[] = divIntRaw
+  const transactions: Transaction[] = moneyMovementRaw
     .map((tx) => parseTransaction(tx, accountNumber))
     .filter((t): t is Transaction => t !== null);
 

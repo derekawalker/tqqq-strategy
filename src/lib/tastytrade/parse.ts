@@ -178,17 +178,32 @@ export function parseExpiredOptionOrder(tx: any, accountNumber: string): Expired
   };
 }
 
+// Dividends, interest, and cash transfers all arrive as "Money Movement"
+// transactions distinguished by sub-type (dividends/interest are NOT top-level
+// transaction types in the tastytrade API).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function parseTransaction(tx: any, accountNumber: string) {
-  const type: string = tx["transaction-type"] ?? "";
-  if (type !== "Dividend" && type !== "Interest") return null;
+  if ((tx["transaction-type"] ?? "") !== "Money Movement") return null;
+  const subType: string = tx["transaction-sub-type"] ?? "";
+  const symbol: string | null = tx.symbol ?? tx["underlying-symbol"] ?? null;
+
+  let category: "dividend" | "interest" | "transfer";
+  if (subType === "Dividend") {
+    // Only TQQQ dividends — money market fund distributions etc. are excluded.
+    if (symbol !== "TQQQ") return null;
+    category = "dividend";
+  } else if (subType === "Credit Interest" || subType === "Debit Interest") {
+    category = "interest";
+  } else if (subType === "Deposit" || subType === "Withdrawal") {
+    category = "transfer";
+  } else {
+    return null;
+  }
+
   const netValue = parseFloat(tx["net-value"] ?? "0");
   if (netValue === 0) return null;
   const effect: string = tx["net-value-effect"] ?? "Credit";
   const amount = effect === "Debit" ? -netValue : netValue;
-  const category: "dividend" | "interest" = type === "Interest" ? "interest" : "dividend";
-  const legs = tx.legs ?? [];
-  const symbol: string | null = legs[0]?.symbol ?? null;
   return {
     activityId: tx.id,
     accountNumber,

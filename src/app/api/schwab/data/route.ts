@@ -34,7 +34,7 @@ export interface Transaction {
   description: string;
   symbol: string | null;
   amount: number;
-  category: "dividend" | "interest";
+  category: "dividend" | "interest" | "transfer";
 }
 
 export interface SchwabData {
