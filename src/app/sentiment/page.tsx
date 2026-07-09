@@ -41,6 +41,7 @@ import {
   CartesianGrid,
   Tooltip as ChartTooltip,
   ReferenceLine,
+  ReferenceArea,
 } from "recharts";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { useCardBg } from "@/lib/hooks/useCardBg";
@@ -102,6 +103,7 @@ interface HistoryPoint {
   rsi: number;
   vix: number | null;
   score: number;
+  regime?: Regime;
 }
 
 interface RegimeStat {
@@ -244,16 +246,25 @@ export default function SentimentPage() {
   const [data, setData] = useState<SentimentData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [chartMode, setChartMode] = useState<ChartMode>("price");
+  const [chartMode, setChartMode] = useState<ChartMode>(() => {
+    if (typeof window === "undefined") return "price";
+    const saved = localStorage.getItem("tqqq-sentiment-chart");
+    return saved === "score" || saved === "rsi" || saved === "vix" ? saved : "price";
+  });
+
+  const handleChartMode = (mode: ChartMode) => {
+    setChartMode(mode);
+    localStorage.setItem("tqqq-sentiment-chart", mode);
+  };
 
   // Hooks must run unconditionally — keep them above any early return.
   const heroBg = useCardBg(data ? regimeColor(data.regime) : "gray");
 
-  async function load() {
+  async function load(fresh = false) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/sentiment");
+      const res = await fetch(fresh ? "/api/sentiment?fresh=1" : "/api/sentiment");
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Failed to load");
       setData(json as SentimentData);
@@ -298,6 +309,20 @@ export default function SentimentPage() {
         h.sma200 != null ? Math.round((h.sma200 / first) * 1000) / 10 : null,
     }));
   }, [data, chartMode]);
+
+  // Contiguous Risk-On / Risk-Off stretches, shaded behind every chart mode.
+  // Neutral stays unshaded so the extremes stand out.
+  const regimeBands = useMemo(() => {
+    if (!data) return [];
+    const bands: { x1: string; x2: string; regime: Regime }[] = [];
+    for (const h of data.history) {
+      if (!h.regime) continue;
+      const last = bands[bands.length - 1];
+      if (last && last.regime === h.regime) last.x2 = h.date;
+      else bands.push({ x1: h.date, x2: h.date, regime: h.regime });
+    }
+    return bands.filter((b) => b.regime !== "Neutral");
+  }, [data]);
 
   if (loading) {
     return (
@@ -347,7 +372,7 @@ export default function SentimentPage() {
           color="gray"
           size="xs"
           leftSection={<IconRefresh size={14} />}
-          onClick={load}
+          onClick={() => load(true)}
           loading={loading}
         >
           Refresh
@@ -916,7 +941,7 @@ export default function SentimentPage() {
                 size="xs"
                 variant={chartMode === mode ? "filled" : "subtle"}
                 color={chartMode === mode ? color : "gray"}
-                onClick={() => setChartMode(mode)}
+                onClick={() => handleChartMode(mode)}
               >
                 {mode === "price"
                   ? "QQQ + MAs"
@@ -937,6 +962,16 @@ export default function SentimentPage() {
                 strokeDasharray="3 3"
                 stroke="var(--mantine-color-dark-4)"
               />
+              {regimeBands.map((b) => (
+                <ReferenceArea
+                  key={b.x1}
+                  x1={b.x1}
+                  x2={b.x2}
+                  fill={`var(--mantine-color-${regimeColor(b.regime)}-5)`}
+                  fillOpacity={0.07}
+                  stroke="none"
+                />
+              ))}
               <XAxis
                 dataKey="date"
                 tickFormatter={tickFormatter}

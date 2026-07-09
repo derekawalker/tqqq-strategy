@@ -20,9 +20,22 @@ import {
   regimeAction,
   type SeriesInput,
 } from "@/lib/sentiment";
+import { getCached, setCached } from "@/lib/ttlCache";
 
-export async function GET() {
+const CACHE_KEY = "sentiment-data";
+// Daily-bar data — a short server cache still keeps the page fresh while
+// collapsing the bursts from the dashboard, working-orders, and sentiment
+// pages each triggering their own 3-symbol Yahoo fetch.
+const CACHE_TTL_MS = 10 * 60_000;
+
+export async function GET(req: Request) {
   try {
+    // ?fresh=1 (the page's Refresh button) forces a live pull.
+    const fresh = new URL(req.url).searchParams.get("fresh") === "1";
+    if (!fresh) {
+      const cached = getCached<Record<string, unknown>>(CACHE_KEY, CACHE_TTL_MS);
+      if (cached) return Response.json(cached);
+    }
     // ~6 years gives a meaningful backtest sample while staying a single fetch.
     const [qqqBars, vixBars, vix3mBars] = await Promise.all([
       fetchYahooDaily("QQQ", 6),
@@ -92,9 +105,10 @@ export async function GET() {
       rsi: d.rsi,
       vix: d.vix,
       score: d.total,
+      regime: d.regime,
     }));
 
-    return Response.json({
+    const payload = {
       asOf: latest.date,
       regime: latest.regime,
       score: latest.total,
@@ -141,7 +155,9 @@ export async function GET() {
       },
       backtest,
       history,
-    });
+    };
+    setCached(CACHE_KEY, payload);
+    return Response.json(payload);
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
     return Response.json({ error: message }, { status: 500 });
