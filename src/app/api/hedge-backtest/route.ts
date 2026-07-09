@@ -8,6 +8,7 @@
 
 import { fetchYahooDailyRange } from "@/lib/yahoo";
 import { runHedgeBacktest, type HedgeBar, type HedgeBacktestConfig } from "@/lib/hedgeBacktest";
+import { VIX_PAUSE_THRESHOLD } from "@/lib/hedgeTranches";
 
 export async function POST(request: Request) {
   try {
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
       rollAtDte: Number(body.rollAtDte) > 0 ? Number(body.rollAtDte) : 21,
       monetizeDelta: Number(body.monetizeDelta) > 0 ? Number(body.monetizeDelta) : 0.45,
       monetizeGainPct: Number(body.monetizeGainPct) > 0 ? Number(body.monetizeGainPct) : 1.5,
-      vxnPauseThreshold: Number(body.vxnPauseThreshold) > 0 ? Number(body.vxnPauseThreshold) : 25,
+      vxnPauseThreshold: Number(body.vxnPauseThreshold) > 0 ? Number(body.vxnPauseThreshold) : VIX_PAUSE_THRESHOLD,
     };
 
     const result = runHedgeBacktest(qqq, tqqq, vxnByDate, cfg);
