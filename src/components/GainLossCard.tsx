@@ -11,6 +11,7 @@ import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { useCardBg } from "@/lib/hooks/useCardBg";
 import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
 import { useBalances } from "@/lib/hooks/useBalances";
+import { computeAccountGain } from "@/lib/accountGain";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 
 const outfit = Outfit({ subsets: ["latin"] });
@@ -21,32 +22,24 @@ function fmtMoney(n: number) {
 }
 
 export function GainLossCard() {
-  const { activeAccount, privacyMode, snapshotLoading } = useApp();
+  const { activeAccount, privacyMode, snapshotLoading, transactions } = useApp();
   const accountColor = useAccountColor("dark");
   const { balance, loading: balanceLoading } = useBalances();
   const mask = createMask(privacyMode);
   const [now] = useState(() => Date.now());
 
-  const { totalGain, totalGainPct, annualROI } = useMemo(() => {
-    const initialCash = activeAccount?.settings.initialCash ?? null;
-    const startingDate = activeAccount?.settings.startingDate ?? null;
-    const currentValue = balance?.totalValue ?? null;
-
-    if (initialCash == null || currentValue == null) {
-      return { totalGain: null, totalGainPct: null, annualROI: null };
-    }
-
-    const totalGain = currentValue - initialCash;
-    const totalGainPct = initialCash > 0 ? (totalGain / initialCash) * 100 : null;
-
-    let annualROI: number | null = null;
-    if (totalGainPct != null && startingDate) {
-      const daysInStrategy = Math.max(1, (now - new Date(startingDate).getTime()) / 86400000);
-      annualROI = (totalGainPct / daysInStrategy) * 365;
-    }
-
-    return { totalGain, totalGainPct, annualROI };
-  }, [balance, activeAccount, now]);
+  const { totalGain, totalGainPct, annualROI } = useMemo(
+    () =>
+      computeAccountGain({
+        initialCash: activeAccount?.settings.initialCash ?? null,
+        startingDate: activeAccount?.settings.startingDate ?? null,
+        currentValue: balance?.totalValue ?? null,
+        transactions,
+        accountNumber: activeAccount?.accountNumber ?? null,
+        now,
+      }),
+    [balance, activeAccount, transactions, now],
+  );
 
   const gainColor = (totalGain ?? 0) >= 0 ? "white" : "var(--mantine-color-red-6)";
   const bg = useCardBg(accountColor);
@@ -57,7 +50,7 @@ export function GainLossCard() {
       <Stack gap="md" align="center">
         <Group gap={4} align="center">
           <Text c="dimmed" tt="uppercase" fw={600} style={CARD_LABEL_STYLE}>Gain / Loss</Text>
-          <Tooltip label="Difference between your starting cash (set in Settings) and current account liquidation value" withArrow multiline w={260} radius="xs">
+          <Tooltip label="Difference between your starting cash (set in Settings) and current account liquidation value, adjusted for deposits and withdrawals" withArrow multiline w={260} radius="xs">
             <IconInfoCircle size={13} style={{ color: "var(--mantine-color-dimmed)", cursor: "default", marginTop: 1 }} />
           </Tooltip>
         </Group>

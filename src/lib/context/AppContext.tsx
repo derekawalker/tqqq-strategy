@@ -138,6 +138,7 @@ interface AppContextValue {
   allFilledOrders: FilledOrder[];
   allWorkingOrders: WorkingOrder[];
   allOptionPositions: OptionPosition[];
+  allTransactions: Transaction[];
   snapshotLoading: boolean;
   balances: AccountBalance[];
   balancesLoading: boolean;
@@ -792,6 +793,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       allFilledOrders,
       allWorkingOrders,
       allOptionPositions,
+      allTransactions,
       snapshotLoading,
       balances: allBalances,
       balancesLoading: snapshotLoading,
@@ -828,6 +830,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       allFilledOrders,
       allWorkingOrders,
       allOptionPositions,
+      allTransactions,
       snapshotLoading,
       allBalances,
       balanceHistory,
