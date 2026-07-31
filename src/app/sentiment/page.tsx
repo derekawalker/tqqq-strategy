@@ -30,6 +30,7 @@ import {
   IconShieldCheck,
   IconShieldExclamation,
   IconShieldOff,
+  IconZoomReset,
 } from "@tabler/icons-react";
 import {
   ResponsiveContainer,
@@ -42,6 +43,7 @@ import {
   Tooltip as ChartTooltip,
   ReferenceLine,
   ReferenceArea,
+  Brush,
 } from "recharts";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { useCardBg } from "@/lib/hooks/useCardBg";
@@ -257,6 +259,13 @@ export default function SentimentPage() {
     localStorage.setItem("tqqq-sentiment-chart", mode);
   };
 
+  // Chart zoom: either drag across the plot or drag the brush handles under it.
+  // The window is a pair of indices into `history`; null means the full year.
+  // The in-progress plot drag is tracked as dates (what recharts hands back).
+  const [zoom, setZoom] = useState<{ start: number; end: number } | null>(null);
+  const [dragFrom, setDragFrom] = useState<string | null>(null);
+  const [dragTo, setDragTo] = useState<string | null>(null);
+
   // Hooks must run unconditionally — keep them above any early return.
   const heroBg = useCardBg(data ? regimeColor(data.regime) : "gray");
 
@@ -281,48 +290,76 @@ export default function SentimentPage() {
     load();
   }, []);
 
-  const tickFormatter = (iso: string) =>
-    new Date(iso).toLocaleDateString("en-US", {
-      month: "short",
-      year: "2-digit",
-    });
+  // The chart always holds the full year — the brush indices below narrow what
+  // it draws — so the window is a clamped slice of the same history.
+  const lastIndex = Math.max((data?.history.length ?? 1) - 1, 0);
+  const view = useMemo(() => {
+    const start = Math.min(Math.max(zoom?.start ?? 0, 0), lastIndex);
+    const end = Math.min(Math.max(zoom?.end ?? lastIndex, start), lastIndex);
+    return { start, end };
+  }, [zoom, lastIndex]);
 
-  // Normalise QQQ / SMA lines for the price chart (start = 100)
+  const visibleHistory = useMemo(
+    (): HistoryPoint[] => data?.history.slice(view.start, view.end + 1) ?? [],
+    [data, view],
+  );
+
+  // Every series for every mode lives in one array: recharts snaps the brush
+  // back to the full range whenever the `data` prop changes identity, so this
+  // must not be rebuilt per mode or switching tabs would drop the zoom. Only
+  // the series rendered below decide what's drawn and what the axes scale to.
+  // QQQ / SMAs are normalised to the first day of the year (start = 100).
   const chartData = useMemo((): Record<string, unknown>[] => {
     if (!data) return [];
-    if (chartMode === "score") {
-      return data.history.map((h) => ({ date: h.date, Score: h.score }));
-    }
-    if (chartMode === "rsi") {
-      return data.history.map((h) => ({ date: h.date, RSI: h.rsi }));
-    }
-    if (chartMode === "vix") {
-      return data.history.map((h) => ({ date: h.date, VIX: h.vix }));
-    }
     const first = data.history[0]?.qqq ?? 1;
     return data.history.map((h) => ({
       date: h.date,
+      Score: h.score,
+      RSI: h.rsi,
+      VIX: h.vix,
       QQQ: Math.round((h.qqq / first) * 1000) / 10,
       "50 SMA":
         h.sma50 != null ? Math.round((h.sma50 / first) * 1000) / 10 : null,
       "200 SMA":
         h.sma200 != null ? Math.round((h.sma200 / first) * 1000) / 10 : null,
     }));
-  }, [data, chartMode]);
+  }, [data]);
 
   // Contiguous Risk-On / Risk-Off stretches, shaded behind every chart mode.
-  // Neutral stays unshaded so the extremes stand out.
+  // Neutral stays unshaded so the extremes stand out. Built from the visible
+  // slice so a zoomed band stops at the edge of the window.
   const regimeBands = useMemo(() => {
-    if (!data) return [];
     const bands: { x1: string; x2: string; regime: Regime }[] = [];
-    for (const h of data.history) {
+    for (const h of visibleHistory) {
       if (!h.regime) continue;
       const last = bands[bands.length - 1];
       if (last && last.regime === h.regime) last.x2 = h.date;
       else bands.push({ x1: h.date, x2: h.date, regime: h.regime });
     }
     return bands.filter((b) => b.regime !== "Neutral");
-  }, [data]);
+  }, [visibleHistory]);
+
+  // Month + year reads fine across a year; a zoomed window needs the day.
+  const tickFormatter = (iso: string) =>
+    new Date(iso).toLocaleDateString(
+      "en-US",
+      visibleHistory.length > 70
+        ? { month: "short", year: "2-digit" }
+        : { month: "short", day: "numeric" },
+    );
+
+  // Commit a plot drag as a zoom window — ignore a click or a sliver of a drag.
+  const commitZoom = () => {
+    if (data && dragFrom && dragTo && dragFrom !== dragTo) {
+      const i = data.history.findIndex((h) => h.date === dragFrom);
+      const j = data.history.findIndex((h) => h.date === dragTo);
+      if (i !== -1 && j !== -1 && Math.abs(i - j) >= 2) {
+        setZoom({ start: Math.min(i, j), end: Math.max(i, j) });
+      }
+    }
+    setDragFrom(null);
+    setDragTo(null);
+  };
 
   if (loading) {
     return (
@@ -350,6 +387,7 @@ export default function SentimentPage() {
   if (!data) return null;
 
   const { regime, score, action, signals, backtest } = data;
+  const zoomed = view.start > 0 || view.end < lastIndex;
   const rc = regimeColor(regime);
   const ringPct = scoreToRingPct(score);
   const stale = isStale(data.asOf);
@@ -931,9 +969,30 @@ export default function SentimentPage() {
         style={{ background: PANEL_BG }}
       >
         <Group justify="space-between" mb="sm">
-          <Text size="sm" fw={500}>
-            1-Year Chart
-          </Text>
+          <Group gap="xs" wrap="nowrap">
+            <Text size="sm" fw={500}>
+              {zoomed && visibleHistory.length > 0
+                ? `${fmtDate(visibleHistory[0].date)} – ${fmtDate(visibleHistory[visibleHistory.length - 1].date)}`
+                : "1-Year Chart"}
+            </Text>
+            {zoomed ? (
+              <Button
+                size="compact-xs"
+                variant="subtle"
+                color="gray"
+                leftSection={<IconZoomReset size={13} />}
+                onClick={() => setZoom(null)}
+              >
+                Reset
+              </Button>
+            ) : (
+              !isMobile && (
+                <Text size="xs" c="dimmed">
+                  · drag the chart or the handles below to zoom
+                </Text>
+              )
+            )}
+          </Group>
           <Group gap="xs">
             {(["price", "score", "rsi", "vix"] as const).map((mode) => (
               <Button
@@ -952,11 +1011,28 @@ export default function SentimentPage() {
             ))}
           </Group>
         </Group>
-        <Box h={isMobile ? 220 : 300}>
+        {/* Extra height over the old chart covers the brush strip below the axis */}
+        <Box h={isMobile ? 250 : 330} style={{ userSelect: "none" }}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart
               data={chartData}
               margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
+              onMouseDown={(s, e) => {
+                // Grabbing a brush handle must not also start a plot selection.
+                const target = e?.target as Element | null;
+                if (target?.closest?.(".recharts-brush")) return;
+                if (typeof s?.activeLabel === "string") {
+                  setDragFrom(s.activeLabel);
+                  setDragTo(null);
+                }
+              }}
+              onMouseMove={(s) => {
+                if (dragFrom && typeof s?.activeLabel === "string")
+                  setDragTo(s.activeLabel);
+              }}
+              onMouseUp={commitZoom}
+              onMouseLeave={commitZoom}
+              onDoubleClick={() => setZoom(null)}
             >
               <CartesianGrid
                 strokeDasharray="3 3"
@@ -972,6 +1048,15 @@ export default function SentimentPage() {
                   stroke="none"
                 />
               ))}
+              {dragFrom && dragTo && (
+                <ReferenceArea
+                  x1={dragFrom}
+                  x2={dragTo}
+                  fill={`var(--mantine-color-${color}-4)`}
+                  fillOpacity={0.18}
+                  stroke="none"
+                />
+              )}
               <XAxis
                 dataKey="date"
                 tickFormatter={tickFormatter}
@@ -1138,6 +1223,24 @@ export default function SentimentPage() {
                   />
                 </>
               )}
+              <Brush
+                dataKey="date"
+                height={22}
+                travellerWidth={8}
+                stroke={`var(--mantine-color-${color}-5)`}
+                fill="var(--mantine-color-dark-8)"
+                startIndex={view.start}
+                endIndex={view.end}
+                tickFormatter={(v) => fmtDate(String(v))}
+                onChange={({ startIndex, endIndex }) => {
+                  if (startIndex == null || endIndex == null) return;
+                  setZoom(
+                    startIndex === 0 && endIndex === lastIndex
+                      ? null
+                      : { start: startIndex, end: endIndex },
+                  );
+                }}
+              />
             </ComposedChart>
           </ResponsiveContainer>
         </Box>
