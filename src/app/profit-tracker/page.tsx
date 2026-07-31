@@ -9,7 +9,7 @@ import { useApp } from "@/lib/context/AppContext";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { useCardBg } from "@/lib/hooks/useCardBg";
 import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
-import { computeLevels } from "@/lib/levels";
+import { computeLevels, matchLevel } from "@/lib/levels";
 import { fmt, weekStart, createMask } from "@/lib/format";
 
 const fmtDate = (iso: string) =>
@@ -317,14 +317,18 @@ export default function ProfitPage() {
 
     const levels = computeLevels(levelStartingCash, initialLotPrice, sellPercentage, reductionFactor);
 
+    // Sells that belong to no level (share count matches nothing — e.g. a manual
+    // bulk sale) are dropped: their "profit" against a guessed level would be
+    // meaningless, so they're excluded from both the table and the totals.
     return sells
-      .map((o) => {
-        const level = levels.reduce((best, l) =>
-          Math.abs(l.sellPrice - o.fillPrice) < Math.abs(best.sellPrice - o.fillPrice) ? l : best
-        );
+      .map((o): ProfitRow | null => {
+        const idx = matchLevel(levels, o.shares, o.fillPrice);
+        if (idx === -1) return null;
+        const level = levels[idx];
         const profit = (o.fillPrice - level.buyPrice) * o.shares + o.fees;
         return { orderId: o.orderId, date: new Date(o.time).toLocaleDateString("en-CA"), time: o.time, shares: o.shares, buyPrice: level.buyPrice, sellPrice: o.fillPrice, fees: o.fees, profit };
       })
+      .filter((r): r is ProfitRow => r !== null)
       .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
   }, [filledOrders, activeAccount]);
 
