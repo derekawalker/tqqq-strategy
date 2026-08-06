@@ -3,10 +3,8 @@
  * trade the extended 24x5 session, not just RTH), by a free GitHub Actions
  * schedule (.github/workflows/push-check.yml), with a Vercel cron
  * (vercel.json) as a once-daily fallback since Hobby-plan crons are capped at
- * one run/day. Not called by the browser. Computes the four triggers from
- * the roadmap:
- *   - hedge monetize trigger (|delta| >= MONETIZE_DELTA on an open QQQ put)
- *   - roll-due (any open hedge/ladder option at <= ROLL_AT_DTE)
+ * one run/day. Not called by the browser. Computes the triggers from the
+ * roadmap:
  *   - ITM short options near expiry (assignment risk)
  *   - ^VXN threshold-band crossings
  * and sends a Web Push notification for anything newly true, deduping via a
@@ -19,27 +17,32 @@ import { getAllAccountPositions } from "@/lib/schwab/positions";
 import { getPushSubscriptions, pruneDeadSubscriptions } from "@/lib/pushSubscriptions";
 import { broadcastPush, type PushPayload } from "@/lib/webpush";
 import { readSetting, writeSetting } from "@/lib/settings";
-import { daysUntil, greeksFor } from "@/lib/hedgeActions";
-import { MONETIZE_DELTA, ROLL_AT_DTE, PUT_SPREAD_VXN_THRESHOLD, VIX_PAUSE_THRESHOLD } from "@/lib/hedgeTranches";
 import type { OptionPosition } from "@/lib/schwab/parse";
 
 type VxnBand = "calm" | "elevated" | "high" | "panic";
 
 interface PushNotifiedState {
-  monetized: string[];
-  rollDue: string[];
   itmNearExpiry: string[];
   vxnBand: VxnBand | null;
 }
 
 const STATE_KEY = "pushNotifiedState";
 const ITM_NEAR_EXPIRY_DTE = 5;
+/** ^VXN levels that separate the notification bands. */
 const VXN_ELEVATED_THRESHOLD = 25;
+const VXN_HIGH_THRESHOLD = 35;
+const VXN_PANIC_THRESHOLD = 50;
+
+/** Calendar days until an option's expiry, floored at 0. */
+function daysUntil(expiry: string): number {
+  const ms = new Date(expiry + "T23:59:59").getTime() - Date.now();
+  return Math.max(0, Math.ceil(ms / 86_400_000));
+}
 
 /** Exported for testing — pure band classification used to detect VXN crossings. */
 export function vxnBand(vxnPct: number): VxnBand {
-  if (vxnPct >= VIX_PAUSE_THRESHOLD) return "panic";
-  if (vxnPct >= PUT_SPREAD_VXN_THRESHOLD) return "high";
+  if (vxnPct >= VXN_PANIC_THRESHOLD) return "panic";
+  if (vxnPct >= VXN_HIGH_THRESHOLD) return "high";
   if (vxnPct >= VXN_ELEVATED_THRESHOLD) return "elevated";
   return "calm";
 }
@@ -71,55 +74,18 @@ export async function GET(req: Request) {
     return Response.json({ sent: subs.length, test: true });
   }
 
-  const [qqq, vxn, accounts, state] = await Promise.all([
-    fetchYahooDaily("QQQ", 1),
+  const [vxn, accounts, state] = await Promise.all([
     fetchYahooDaily("^VXN", 1),
     getAllAccountPositions(),
     readSetting<PushNotifiedState>(STATE_KEY),
   ]);
 
-  const qqqSpot = qqq.at(-1)?.close ?? null;
   const vxnPct = vxn.at(-1)?.close ?? null;
   const allOptions: OptionPosition[] = accounts.flatMap((a) => a.options);
 
-  const prev: PushNotifiedState = state ?? {
-    monetized: [], rollDue: [], itmNearExpiry: [], vxnBand: null,
-  };
-  const next: PushNotifiedState = {
-    monetized: [], rollDue: [], itmNearExpiry: [], vxnBand: prev.vxnBand,
-  };
+  const prev: PushNotifiedState = state ?? { itmNearExpiry: [], vxnBand: null };
+  const next: PushNotifiedState = { itmNearExpiry: [], vxnBand: prev.vxnBand };
   const payloads: PushPayload[] = [];
-
-  // --- Hedge monetize + roll-due (open QQQ puts, i.e. the tail hedge) ---
-  const hedgePuts = allOptions.filter((p) => p.underlyingSymbol === "QQQ" && p.longQty > 0);
-  for (const pos of hedgePuts) {
-    const dte = daysUntil(pos.expiry);
-    const greeks = greeksFor(pos, qqqSpot, vxnPct);
-
-    if (greeks !== null && Math.abs(greeks.delta) >= MONETIZE_DELTA) {
-      next.monetized.push(pos.symbol);
-      if (!prev.monetized.includes(pos.symbol)) {
-        payloads.push({
-          title: "Hedge: monetize the spike",
-          body: `${pos.symbol} — |Δ| ${Math.abs(greeks.delta).toFixed(2)}. Close ~half and stage into the ladder.`,
-          url: "/hedge",
-          tag: `monetize-${pos.symbol}`,
-        });
-      }
-    }
-
-    if (dte <= ROLL_AT_DTE) {
-      next.rollDue.push(pos.symbol);
-      if (!prev.rollDue.includes(pos.symbol)) {
-        payloads.push({
-          title: "Hedge: roll due",
-          body: `${pos.symbol} — ${dte}d left. Open the replacement, then close this one.`,
-          url: "/hedge",
-          tag: `roll-${pos.symbol}`,
-        });
-      }
-    }
-  }
 
   // --- ITM short options near expiry (assignment risk on the TQQQ income book) ---
   const shortOptions = allOptions.filter((p) => p.underlyingSymbol === "TQQQ" && p.shortQty > 0);

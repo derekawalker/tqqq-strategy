@@ -1,22 +1,20 @@
 /**
- * Unified daily action queue: aggregates hedge actions, short-option exit
- * signals, near-spot ladder buys/sells, and regime changes into one ordered
- * checklist so the dashboard answers "what do I need to do today?" without
- * visiting four separate pages. Pure — the UI layer supplies already-fetched
- * data and maps `kind` to an icon/href.
+ * Unified daily action queue: aggregates short-option exit signals, near-spot
+ * ladder buys/sells, and regime changes into one ordered checklist so the
+ * dashboard answers "what do I need to do today?" without visiting three
+ * separate pages. Pure — the UI layer supplies already-fetched data and maps
+ * `kind` to an icon/href.
  */
 
 import type { Level } from "./levels";
 import type { OptionPosition } from "./schwab/parse";
 import type { WorkingOrder } from "./schwab/parse";
-import { type HedgeActionItem } from "./hedgeActions";
 import type { Regime } from "./sentiment";
 import { regimeAction, regimeThrottle } from "./sentiment";
 
-export type QueueSource = "hedge" | "options" | "ladder" | "regime";
+export type QueueSource = "options" | "ladder" | "regime";
 
 export type QueueActionKind =
-  | HedgeActionItem["kind"]
   | "option-close-profit"
   | "ladder-buy-due"
   | "ladder-sell-due"
@@ -34,28 +32,14 @@ export interface QueueAction {
   href: string;
 }
 
-/** Wrap the hedge panel's own prioritized list into unified queue items. */
-export function hedgeQueueActions(actions: HedgeActionItem[]): QueueAction[] {
-  return actions.map((a) => ({
-    kind: a.kind,
-    source: "hedge",
-    priority: a.priority,
-    daysAway: a.daysAway,
-    title: a.title,
-    detail: a.detail,
-    color: a.color,
-    href: "/hedge",
-  }));
-}
-
 /** Close at 50–65% of max profit captured. */
 export const OPTION_PROFIT_CAPTURE_PCT = 0.5;
 
 /**
  * Exit-mechanics signal for the short TQQQ option book (covered calls / CSPs).
- * Unlike the QQQ hedge, these are tied to ladder levels and mostly get held
- * to expiration or assignment by design — so this only flags the profit-take
- * line, not a DTE management window.
+ * These are tied to ladder levels and mostly get held to expiration or
+ * assignment by design — so this only flags the profit-take line, not a DTE
+ * management window.
  */
 export function optionQueueActions(shortOptions: OptionPosition[]): QueueAction[] {
   const actions: QueueAction[] = [];

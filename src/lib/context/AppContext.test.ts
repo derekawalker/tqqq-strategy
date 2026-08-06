@@ -16,10 +16,9 @@ function makeAccount(overrides: Partial<Account["settings"]> = {}): Account {
       reductionFactor: 0.95,
       orderWarnBelow: 3,
       orderBuffer: 5,
-      callSafetyLevels: 15,
       putSafetyLevels: 15,
       levelResetDate: null,
-      hedgeBudgetFlippedOrderIds: null,
+      hedgeSettings: null,
       ...overrides,
     },
   };

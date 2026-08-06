@@ -207,11 +207,15 @@ async function fetchAccountData(
   const tqqqShares: number = tqqqPosition?.longQuantity ?? 0;
   const tqqqAvgPrice: number = tqqqPosition?.averagePrice ?? 0;
 
+  // Earliest open per symbol, in both directions: the hedge collar's long put
+  // and long call fence are bought to open, and their open date is what groups
+  // them into a collar.
   const optionOpenDates = new Map<string, string>();
   for (const order of flatFilled) {
     if (order.status !== "FILLED") continue;
     const leg = order.orderLegCollection?.[0];
-    if (!leg || leg.orderLegType !== "OPTION" || leg.instruction !== "SELL_TO_OPEN") continue;
+    if (!leg || leg.orderLegType !== "OPTION") continue;
+    if (leg.instruction !== "SELL_TO_OPEN" && leg.instruction !== "BUY_TO_OPEN") continue;
     const sym = leg.instrument?.symbol;
     if (!sym) continue;
     if (!optionOpenDates.has(sym) || order.closeTime < optionOpenDates.get(sym)!) {

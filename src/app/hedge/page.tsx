@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, memo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useMediaQuery } from "@mantine/hooks";
 import {
   Paper,
@@ -9,26 +9,24 @@ import {
   Group,
   Box,
   SimpleGrid,
-  NumberInput,
-  TextInput,
-  Button,
+  Badge,
   Alert,
   Center,
   Loader,
+  Slider,
+  SegmentedControl,
   Table,
-  ScrollArea,
-  Tabs,
-  Tooltip,
   Divider,
-  Menu,
-  Checkbox,
+  Progress,
+  ThemeIcon,
 } from "@mantine/core";
 import {
   IconAlertTriangle,
-  IconPlayerPlayFilled,
-  IconInfoCircle,
-  IconCopy,
-  IconChevronDown,
+  IconShieldCheck,
+  IconShoppingCart,
+  IconTrash,
+  IconCheck,
+  IconLock,
 } from "@tabler/icons-react";
 import {
   ResponsiveContainer,
@@ -38,970 +36,913 @@ import {
   YAxis,
   CartesianGrid,
   Tooltip as ChartTooltip,
-  ReferenceArea,
+  ReferenceLine,
 } from "recharts";
 import { useApp } from "@/lib/context/AppContext";
+import { useBalances } from "@/lib/hooks/useBalances";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
-import { CARD_RADIUS } from "@/lib/cardStyles";
-import { fmtDate } from "@/lib/format";
-import PutHedgePanel from "./PutHedgePanel";
-import HedgeBacktestPanel from "./HedgeBacktestPanel";
-import CrashStressPanel from "./CrashStressPanel";
+import { useCardBg } from "@/lib/hooks/useCardBg";
+import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
+import { createMask, fmt } from "@/lib/format";
+import {
+  planProgram,
+  scenarioTable,
+  hedgeSpendSince,
+  budgetStatus,
+  tqqqIvFromVxn,
+  type RebalanceAction,
+} from "@/lib/putProgram";
+import { planVixLayer, vixPayoff, EPISODES } from "@/lib/vixLayer";
+import { mergeHedgeSettings, type HedgeSettings } from "@/lib/hedgeSettings";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+const DTE_CHOICES = ["30", "45", "60", "90"];
 
+/**
+ * Mantine positions slider mark labels absolutely, so they reserve no layout
+ * height and would sit on top of the caption below.
+ */
+const SLIDER_MB = 26;
 
-const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const ACTION_STYLE: Record<
+  RebalanceAction,
+  { color: string; label: string; Icon: typeof IconCheck }
+> = {
+  buy: { color: "teal", label: "Buy", Icon: IconShoppingCart },
+  sell: { color: "orange", label: "Sell", Icon: IconTrash },
+  hold: { color: "gray", label: "Hold", Icon: IconCheck },
+};
 
-function cacheGet(key: string): BacktestResponse | null {
-  try {
-    const raw = localStorage.getItem(`bt:${key}`);
-    if (!raw) return null;
-    const { ts, data } = JSON.parse(raw) as { ts: number; data: BacktestResponse };
-    if (Date.now() - ts > CACHE_TTL_MS) { localStorage.removeItem(`bt:${key}`); return null; }
-    return data;
-  } catch { return null; }
-}
-
-function cacheSet(key: string, data: BacktestResponse) {
-  try { localStorage.setItem(`bt:${key}`, JSON.stringify({ ts: Date.now(), data })); } catch { /* quota exceeded — skip */ }
-}
-
-/** Group a throttle curve into contiguous restricted spans for ReferenceArea shading. */
-function throttleSpans(curve: { date: string; value: number }[]) {
-  const spans: { x1: string; x2: string; opacity: number }[] = [];
-  let start: string | null = null;
-  let minT = 1;
-  for (const { date, value } of curve) {
-    if (value < 1) {
-      if (!start) { start = date; minT = value; }
-      else minT = Math.min(minT, value);
-    } else if (start) {
-      spans.push({ x1: start, x2: date, opacity: (1 - minT) * 0.18 });
-      start = null; minT = 1;
-    }
-  }
-  if (start && curve.length > 0)
-    spans.push({ x1: start, x2: curve[curve.length - 1].date, opacity: (1 - minT) * 0.18 });
-  return spans;
-}
-
-const TIMEFRAMES = [
-  { value: "intraday", label: "6mo intraday", note: "5-min bars · Schwab / Polygon" },
-  { value: "1y",       label: "1Y daily",      note: "daily bars · Yahoo Finance" },
-  { value: "3y",       label: "3Y daily",      note: "daily bars · Yahoo Finance" },
-  { value: "5y",       label: "5Y daily",      note: "daily bars · Yahoo Finance" },
-  { value: "10y",      label: "10Y daily",     note: "daily bars · Yahoo Finance" },
-  { value: "max",      label: "Max daily",     note: "since inception (2010) · Yahoo Finance" },
-] as const;
-
-type Timeframe = (typeof TIMEFRAMES)[number]["value"];
-
-interface PeriodPreset { label: string; desc: string; start: string; end: string; tf: Timeframe }
-
-const PERIOD_PRESETS: PeriodPreset[] = [
-  { label: "COVID crash",     desc: "TQQQ −75% in 23 days",                start: "2020-01-15", end: "2020-05-01", tf: "10y" },
-  { label: "Full 2020",       desc: "Crash + full V-shaped recovery",       start: "2020-01-01", end: "2020-12-31", tf: "10y" },
-  { label: "Post-COVID bull", desc: "TQQQ +1000% run Apr 2020 → Nov 2021", start: "2020-04-01", end: "2021-11-30", tf: "10y" },
-  { label: "2022 bear",       desc: "Rate hike cycle, TQQQ −77%",           start: "2022-01-01", end: "2022-12-31", tf: "5y"  },
-  { label: "Rate hike cycle", desc: "Full hike cycle Nov 2021 → Dec 2022",  start: "2021-11-01", end: "2022-12-31", tf: "10y" },
-  { label: "2018 Q4",         desc: "Sharp tech selloff −40% then recovery",start: "2018-09-01", end: "2019-03-31", tf: "10y" },
-  { label: "2015–16 chop",    desc: "China scare + oil crash, sideways",    start: "2015-07-01", end: "2016-03-31", tf: "max" },
-  { label: "2011 volatility", desc: "Euro debt crisis, extreme chop",       start: "2011-05-01", end: "2012-02-28", tf: "max" },
-];
-
-const SCENARIO_COLORS = [
-  "var(--mantine-color-teal-4)",
-  "var(--mantine-color-orange-4)",
-  "var(--mantine-color-violet-4)",
-];
-
-// Mantine dot-notation versions of the same colors (for component color props).
-const SCENARIO_MANTINE_COLORS = ["teal.4", "orange.4", "violet.4"];
-
-interface CurvePoint { date: string; value: number }
-interface DailyRow { date: string; buys: number; sells: number; profit: number; balance: number }
-
-interface ScenarioResult {
+function StatTile({
+  label,
+  value,
+  sub,
+  color,
+}: {
   label: string;
-  stats: {
-    finalValue: number; totalReturn: number; maxDrawdown: number;
-    realizedProfit: number; buys: number; sells: number; peakInvested: number;
-  };
-  strategy: CurvePoint[];
-  daily: DailyRow[];
-  signalCurve?: { date: string; value: number }[];
-  strategyLabels?: string[];
-}
-
-interface TqqqPricePoint {
-  date: string;
-  value: number;
-  sma50: number | null;
-  sma200: number | null;
-}
-
-interface BacktestResponse {
-  span: { earliest: string | null; latest: string | null; tradingDays: number; bars: number; barFreq?: string };
-  benchmark: CurvePoint[];
-  tqqqPrice: TqqqPricePoint[];
-  scenarios: ScenarioResult[];
-}
-
-interface ScenarioInputs {
-  label: string;
-  startingCash: number | "";
-  sellPct: number | "";
-  reductionFactor: number | "";
-  // Ladder shape
-  stepPct: number | "";
-  levels: number | "";
-  reanchorPct: number | "";
-  slippageBps: number | "";
-}
-
-function defaultScenario(label: string): ScenarioInputs {
-  return {
-    label,
-    startingCash: "", sellPct: "", reductionFactor: "",
-    stepPct: 1, levels: 88, reanchorPct: 0, slippageBps: 0,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Formatters
-// ---------------------------------------------------------------------------
-
-const usd = (v: number) => `$${Math.round(v).toLocaleString()}`;
-const pct = (v: number, decimals = 1) =>
-  `${v >= 0 ? "+" : ""}${(v * 100).toFixed(decimals)}%`;
-const pctUnsigned = (v: number, decimals = 1) => `${(v * 100).toFixed(decimals)}%`;
-const pctRaw = (v: number) => `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
-
-function groupProfits(daily: DailyRow[], keyFn: (date: string) => string): number[] {
-  const groups = new Map<string, number>();
-  for (const row of daily) {
-    const key = keyFn(row.date);
-    groups.set(key, (groups.get(key) ?? 0) + row.profit);
-  }
-  return [...groups.values()];
-}
-
-function weekKey(date: string): string {
-  const d = new Date(date + "T12:00:00Z");
-  const dow = d.getUTCDay();
-  d.setUTCDate(d.getUTCDate() + (dow === 0 ? -6 : 1 - dow));
-  return d.toISOString().slice(0, 10);
-}
-
-function profitStats(values: number[]): { low: number; avg: number; high: number } {
-  if (values.length === 0) return { low: 0, avg: 0, high: 0 };
-  return {
-    low: Math.min(...values),
-    high: Math.max(...values),
-    avg: values.reduce((a, b) => a + b, 0) / values.length,
-  };
-}
-
-const STAT_ROWS: { key: keyof ScenarioResult["stats"]; label: string; fmt: (v: number) => string }[] = [
-  { key: "finalValue",     label: "Final value",     fmt: usd },
-  { key: "totalReturn",    label: "Total return",    fmt: pct },
-  { key: "maxDrawdown",    label: "Max drawdown",    fmt: (v) => pct(v) },
-  { key: "realizedProfit", label: "Realized profit", fmt: usd },
-  { key: "buys",           label: "Buys",            fmt: (v) => v.toLocaleString() },
-  { key: "sells",          label: "Sells",           fmt: (v) => v.toLocaleString() },
-  { key: "peakInvested",  label: "Peak invested",   fmt: pctUnsigned },
-];
-
-// ---------------------------------------------------------------------------
-// Chart panel — memoized so form-input re-renders don't touch Recharts
-// ---------------------------------------------------------------------------
-
-type PricePoint = { date: string; price: number; sma50: number | null; sma200: number | null };
-type ChartRow = Record<string, string | number>;
-
-interface ChartPanelProps {
-  result: BacktestResponse;
-  isMobile: boolean;
-  color: string;
-  priceChartData: PricePoint[];
-  chartData: ChartRow[];
-  ma50: boolean;
-  ma200: boolean;
-  onMa50Change: (v: boolean) => void;
-  onMa200Change: (v: boolean) => void;
-  signalVisible: boolean[];
-  onSignalVisibleChange: (i: number, checked: boolean) => void;
-  zoomedRange: [string, string] | null;
-  onZoomChange: (range: [string, string] | null) => void;
-}
-
-const tickFormatter = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-
-const ChartPanel = memo(function ChartPanel({
-  result, isMobile, priceChartData, chartData,
-  ma50, ma200, onMa50Change, onMa200Change,
-  signalVisible, onSignalVisibleChange,
-  zoomedRange, onZoomChange,
-}: ChartPanelProps) {
-  const [isSelecting, setIsSelecting] = useState(false);
-  const [selectStart, setSelectStart] = useState<string | null>(null);
-  const [selectEnd, setSelectEnd] = useState<string | null>(null);
-
-  const displayPriceData = useMemo(() => {
-    if (!zoomedRange) return priceChartData;
-    const [a, b] = zoomedRange;
-    return priceChartData.filter((d) => d.date >= a && d.date <= b);
-  }, [priceChartData, zoomedRange]);
-
-  const displayChartData = useMemo(() => {
-    if (!zoomedRange) return chartData;
-    const [a, b] = zoomedRange;
-    return chartData.filter((d) => String(d.date) >= a && String(d.date) <= b);
-  }, [chartData, zoomedRange]);
-
-  const spansByScenario = useMemo(
-    () => result.scenarios.map((sc) => (sc.signalCurve ? throttleSpans(sc.signalCurve) : [])),
-    [result.scenarios],
-  );
-
-  // Per-scenario date → throttle lookup for tooltip descriptions.
-  const signalMaps = useMemo(
-    () => result.scenarios.map((sc) => {
-      const m = new Map<string, number>();
-      for (const { date, value } of sc.signalCurve ?? []) m.set(date, value);
-      return m;
-    }),
-    [result.scenarios],
-  );
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const priceTooltip = useCallback(({ active, label, payload }: any) => {
-    if (!active || !label) return null;
-    const date = String(label);
-    const shadingRows = result.scenarios
-      .map((sc, i) => {
-        const t = signalMaps[i].get(date);
-        if (t === undefined || t >= 1) return null;
-        const buysText = t === 0 ? "paused" : `at ${(t * 100).toFixed(0)}%`;
-        const strategies = sc.strategyLabels?.join(" · ") ?? "";
-        return (
-          <div key={sc.label} style={{ color: SCENARIO_COLORS[i % SCENARIO_COLORS.length], marginTop: 4 }}>
-            {sc.label}: buys {buysText}{strategies ? ` — ${strategies}` : ""}
-          </div>
-        );
-      })
-      .filter(Boolean);
-    return (
-      <div style={{ background: "var(--mantine-color-dark-7)", padding: "8px 12px", borderRadius: 8, fontSize: 10 }}>
-        <div style={{ color: "var(--mantine-color-dimmed)", marginBottom: 4 }}>{fmtDate(date)}</div>
-        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-        {payload?.map((e: any) => (
-          <div key={e.name} style={{ color: e.stroke ?? e.color }}>
-            {e.name === "price" ? "TQQQ" : e.name}: ${Number(e.value).toFixed(2)}
-          </div>
-        ))}
-        {shadingRows}
-      </div>
-    );
-  }, [result.scenarios, signalMaps]);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const equityTooltip = useCallback(({ active, label, payload }: any) => {
-    if (!active || !label) return null;
-    const date = String(label);
-    const shadingRows = result.scenarios
-      .map((sc, i) => {
-        const t = signalMaps[i].get(date);
-        if (t === undefined || t >= 1) return null;
-        const buysText = t === 0 ? "paused" : `at ${(t * 100).toFixed(0)}%`;
-        const strategies = sc.strategyLabels?.join(" · ") ?? "";
-        return (
-          <div key={sc.label} style={{ color: SCENARIO_COLORS[i % SCENARIO_COLORS.length], marginTop: 4 }}>
-            {sc.label}: buys {buysText}{strategies ? ` — ${strategies}` : ""}
-          </div>
-        );
-      })
-      .filter(Boolean);
-    return (
-      <div style={{ background: "var(--mantine-color-dark-7)", padding: "8px 12px", borderRadius: 8, fontSize: 10 }}>
-        <div style={{ color: "var(--mantine-color-dimmed)", marginBottom: 4 }}>{fmtDate(date)}</div>
-        {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-        {payload?.map((e: any) => (
-          <div key={e.name} style={{ color: e.stroke ?? e.color }}>
-            {e.name}: {Number(e.value).toFixed(1)}%
-          </div>
-        ))}
-        {shadingRows}
-      </div>
-    );
-  }, [result.scenarios, signalMaps]);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleMouseDown = (e: any) => {
-    const label = e?.activeLabel as string | undefined;
-    if (label) { setSelectStart(label); setIsSelecting(true); }
-  };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleMouseMove = (e: any) => {
-    if (!isSelecting) return;
-    const label = e?.activeLabel as string | undefined;
-    if (label) setSelectEnd(label);
-  };
-  const handleMouseUp = () => {
-    if (isSelecting && selectStart && selectEnd && selectStart !== selectEnd) {
-      const [a, b] = [selectStart, selectEnd].sort();
-      onZoomChange([a, b]);
-    }
-    setIsSelecting(false);
-    setSelectStart(null);
-    setSelectEnd(null);
-  };
-  const handleMouseLeave = () => {
-    setIsSelecting(false);
-    setSelectStart(null);
-    setSelectEnd(null);
-  };
-
-  const selectionArea = isSelecting && selectStart && selectEnd && selectStart !== selectEnd ? (
-    <ReferenceArea
-      x1={selectStart < selectEnd ? selectStart : selectEnd}
-      x2={selectStart < selectEnd ? selectEnd : selectStart}
-      fill="var(--mantine-color-blue-5)"
-      fillOpacity={0.15}
-      strokeOpacity={0}
-    />
-  ) : null;
-
+  value: string;
+  sub?: string;
+  color?: string;
+}) {
   return (
-    <Paper radius={CARD_RADIUS} withBorder style={{ overflow: "hidden" }}>
-      {/* Price chart header */}
-      <Group justify="space-between" px="md" pt="md" pb={4}>
-        <Text size="xs" c="dimmed">TQQQ price</Text>
-        <Group gap="md">
-          {result.scenarios.filter((sc) => sc.signalCurve).length > 0 && (
-            <Group gap="xs">
-              {result.scenarios.map((sc, i) =>
-                sc.signalCurve ? (
-                  <Checkbox
-                    key={sc.label}
-                    label={sc.label}
-                    size="xs"
-                    checked={signalVisible[i]}
-                    onChange={(e) => onSignalVisibleChange(i, e.currentTarget.checked)}
-                    color={SCENARIO_MANTINE_COLORS[i] ?? "gray"}
-                  />
-                ) : null
-              )}
-            </Group>
-          )}
-          <Checkbox label="50 MA" size="xs" checked={ma50} onChange={(e) => onMa50Change(e.currentTarget.checked)} color="orange" />
-          <Checkbox label="200 MA" size="xs" checked={ma200} onChange={(e) => onMa200Change(e.currentTarget.checked)} color="red" />
-        </Group>
-      </Group>
-
-      {/* Price chart */}
-      {priceChartData.length > 0 && (
-        <Box h={isMobile ? 110 : 160} style={{ cursor: "crosshair" }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart
-              data={displayPriceData}
-              margin={{ top: 4, right: 8, bottom: 0, left: 0 }}
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseLeave}
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" />
-              <XAxis dataKey="date" tickFormatter={tickFormatter} minTickGap={60} fontSize={10} hide />
-              <YAxis tickFormatter={(v) => `$${v.toFixed(0)}`} fontSize={10} width={48} domain={["auto", "auto"]} />
-              <ChartTooltip content={priceTooltip} />
-              <Line type="monotone" dataKey="price" name="price" stroke="var(--mantine-color-blue-4)" dot={false} strokeWidth={1.5} isAnimationActive={false} />
-              {ma50 && <Line type="monotone" dataKey="sma50" name="50 MA" stroke="var(--mantine-color-orange-4)" dot={false} strokeWidth={1.25} strokeDasharray="4 2" isAnimationActive={false} connectNulls />}
-              {ma200 && <Line type="monotone" dataKey="sma200" name="200 MA" stroke="var(--mantine-color-red-4)" dot={false} strokeWidth={1.25} strokeDasharray="4 2" isAnimationActive={false} connectNulls />}
-              {spansByScenario.map((spans, i) =>
-                signalVisible[i] && spans.map((span, j) => (
-                  <ReferenceArea
-                    key={`${result.scenarios[i].label}-${j}`}
-                    x1={span.x1}
-                    x2={span.x2}
-                    fill={SCENARIO_COLORS[i % SCENARIO_COLORS.length]}
-                    fillOpacity={span.opacity}
-                    strokeOpacity={0}
-                  />
-                ))
-              )}
-              {selectionArea}
-            </ComposedChart>
-          </ResponsiveContainer>
-        </Box>
+    <Box>
+      <Text c="dimmed" tt="uppercase" style={CARD_LABEL_STYLE}>
+        {label}
+      </Text>
+      <Text size="lg" fw={700} c={color} style={{ lineHeight: 1.2 }}>
+        {value}
+      </Text>
+      {sub && (
+        <Text size="xs" c="dimmed">
+          {sub}
+        </Text>
       )}
+    </Box>
+  );
+}
 
-      <Divider />
-
-      {/* Equity curve header */}
-      <Group justify="space-between" px="md" pt={6} pb={4}>
-        <Text size="xs" c="dimmed">% return vs. buy &amp; hold</Text>
-        {zoomedRange && (
-          <Button size="xs" variant="subtle" color="gray" onClick={() => onZoomChange(null)}>
-            Reset zoom
-          </Button>
-        )}
+function ActionCard({
+  title,
+  action,
+  headline,
+  detail,
+  note,
+  cost,
+  costLabel,
+  gated,
+  cardBg,
+  mask,
+}: {
+  title: string;
+  action: RebalanceAction;
+  headline: string;
+  detail: string;
+  note?: string;
+  cost: number;
+  costLabel: string;
+  gated?: boolean;
+  cardBg: string;
+  mask: (s: string) => string;
+}) {
+  const act = ACTION_STYLE[action];
+  const Icon = gated ? IconLock : act.Icon;
+  return (
+    <Paper p="lg" radius={CARD_RADIUS} style={{ background: cardBg }}>
+      <Group justify="space-between" align="flex-start" wrap="nowrap" mb="xs">
+        <Text c="dimmed" tt="uppercase" style={CARD_LABEL_STYLE}>
+          {title}
+        </Text>
+        <Text size="xs" c="dimmed">
+          {costLabel} {mask(`$${fmt(cost, 0)}`)}
+        </Text>
       </Group>
-
-      {/* Equity curve */}
-      <Box h={isMobile ? 240 : 320} style={{ cursor: "crosshair" }} px="md" pb="md">
-        <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart
-            data={displayChartData}
-            margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseUp={handleMouseUp}
-            onMouseLeave={handleMouseLeave}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" />
-            <XAxis dataKey="date" tickFormatter={tickFormatter} minTickGap={40} fontSize={11} />
-            <YAxis tickFormatter={(v) => `${v.toFixed(0)}%`} fontSize={11} width={52} domain={["auto", "auto"]} />
-            <ChartTooltip content={equityTooltip} />
-            {result.scenarios.map((sc, i) => (
-              <Line key={sc.label} type="monotone" dataKey={sc.label} name={sc.label} stroke={SCENARIO_COLORS[i % SCENARIO_COLORS.length]} dot={false} strokeWidth={1.75} isAnimationActive={false} />
-            ))}
-            <Line type="monotone" dataKey="benchmark" name="Buy & hold" stroke="var(--mantine-color-gray-5)" dot={false} strokeWidth={1.5} strokeDasharray="4 2" isAnimationActive={false} />
-            {spansByScenario.map((spans, i) =>
-              signalVisible[i] && spans.map((span, j) => (
-                <ReferenceArea
-                  key={`${result.scenarios[i].label}-${j}`}
-                  x1={span.x1}
-                  x2={span.x2}
-                  fill={SCENARIO_COLORS[i % SCENARIO_COLORS.length]}
-                  fillOpacity={span.opacity}
-                  strokeOpacity={0}
-                />
-              ))
-            )}
-            {selectionArea}
-          </ComposedChart>
-        </ResponsiveContainer>
-      </Box>
+      <Group gap="md" wrap="nowrap">
+        <ThemeIcon size={44} radius="xl" color={gated ? "yellow" : act.color} variant="light">
+          <Icon size={22} />
+        </ThemeIcon>
+        <Box style={{ minWidth: 0 }}>
+          <Text size="lg" fw={700} style={{ lineHeight: 1.2 }}>
+            {headline}
+          </Text>
+          <Text size="sm" c="dimmed">
+            {detail}
+          </Text>
+          {note && (
+            <Text size="xs" c={gated ? "yellow" : "dimmed"} mt={2}>
+              {note}
+            </Text>
+          )}
+        </Box>
+      </Group>
     </Paper>
   );
-});
+}
 
-// ---------------------------------------------------------------------------
-// Main page
-// ---------------------------------------------------------------------------
-
-function LadderBacktest() {
-  const isMobile = useMediaQuery("(max-width: 768px)");
-  const { activeAccount } = useApp();
+export default function HedgePage() {
+  const {
+    activeAccount,
+    quote,
+    privacyMode,
+    optionPositions,
+    filledOptionOrders,
+    tqqqShares,
+    updateAccountSettings,
+  } = useApp();
+  const { balance } = useBalances();
   const color = useAccountColor();
+  const cardBg = useCardBg(color);
+  const isMobile = useMediaQuery("(max-width: 768px)");
+  const mask = createMask(privacyMode);
 
-  const [timeframe, setTimeframe] = useState<Timeframe>("intraday");
-  const [activePeriod, setActivePeriod] = useState<PeriodPreset | null>(null);
-  const [ma50, setMa50] = useState(false);
-  const [ma200, setMa200] = useState(false);
-  const [signalVisible, setSignalVisible] = useState([true, true, true]);
-  const [zoomedRange, setZoomedRange] = useState<[string, string] | null>(null);
+  // ── controls ───────────────────────────────────────────────────────────────
+  // Held locally so dragging a slider stays responsive, then committed to the
+  // account on release — persisting every intermediate value would hammer
+  // Supabase with a write per pixel.
+  const saved = useMemo(
+    () => mergeHedgeSettings(activeAccount?.settings.hedgeSettings),
+    [activeAccount],
+  );
+  const [draft, setDraft] = useState<HedgeSettings>(saved);
 
-  const [scenarios, setScenarios] = useState<ScenarioInputs[]>([
-    defaultScenario("A"),
-    defaultScenario("B"),
-    defaultScenario("C"),
-  ]);
-  const [prefilled, setPrefilled] = useState(false);
+  // Re-sync when the active account changes, adjusted during render per React
+  // docs rather than in an effect.
+  const [syncKey, setSyncKey] = useState(activeAccount?.accountNumber ?? null);
+  if (syncKey !== (activeAccount?.accountNumber ?? null)) {
+    setSyncKey(activeAccount?.accountNumber ?? null);
+    setDraft(saved);
+  }
 
+  const set = <K extends keyof HedgeSettings>(key: K, value: HedgeSettings[K]) =>
+    setDraft((d) => ({ ...d, [key]: value }));
+
+  /** Write the whole blob back to the account. */
+  const commit = (next: HedgeSettings) => {
+    if (!activeAccount) return;
+    updateAccountSettings(activeAccount.accountNumber, { hedgeSettings: next });
+  };
+  const commitKey = <K extends keyof HedgeSettings>(key: K, value: HedgeSettings[K]) => {
+    const next = { ...draft, [key]: value };
+    setDraft(next);
+    commit(next);
+  };
+
+  const {
+    budgetPct,
+    putSharePct: putShare,
+    putDelta: targetDelta,
+    driftBandPct,
+    vixStrikeOffset,
+    volOfVol,
+    maxEntryVix,
+    monetizeVix,
+  } = draft;
+  const dte = String(draft.putDte);
+  const vixDte = String(draft.vixDte);
+
+  // ── live inputs ────────────────────────────────────────────────────────────
+  const [vxn, setVxn] = useState<number | null>(null);
+  const [vix, setVix] = useState<number | null>(null);
+  const [vix3m, setVix3m] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
-    if (prefilled || !activeAccount) return;
-    const s = activeAccount.settings;
-    if (s.levelStartingCash == null && s.sellPercentage == null && s.reductionFactor == null) return;
-    setScenarios((prev) =>
-      prev.map((sc) => ({
-        ...sc,
-        startingCash: s.levelStartingCash ?? sc.startingCash,
-        sellPct: s.sellPercentage ?? sc.sellPct,
-        reductionFactor: s.reductionFactor ?? sc.reductionFactor,
-      })),
-    );
-    setPrefilled(true);
-  }, [activeAccount, prefilled]);
-
-  function updateScenario(i: number, patch: Partial<ScenarioInputs>) {
-    setScenarios((prev) => prev.map((sc, idx) => (idx === i ? { ...sc, ...patch } : sc)));
-  }
-
-  function cloneScenario(from: number, to: number) {
-    const src = scenarios[from];
-    setScenarios((prev) =>
-      prev.map((sc, idx) =>
-        idx === to ? { ...src, label: sc.label } : sc,
-      ),
-    );
-  }
-
-  function reset() {
-    const s = activeAccount?.settings;
-    const base = {
-      startingCash: (s?.levelStartingCash ?? "") as number | "",
-      sellPct: (s?.sellPercentage ?? "") as number | "",
-      reductionFactor: (s?.reductionFactor ?? "") as number | "",
-    };
-    setScenarios([
-      { ...defaultScenario("A"), ...base },
-      { ...defaultScenario("B"), ...base },
-      { ...defaultScenario("C"), ...base },
-    ]);
-    setResult(null);
-    setError(null);
-    setZoomedRange(null);
-    setActivePeriod(null);
-    setTimeframe("intraday");
-  }
-
-  const canRun = scenarios.some(
-    (s) =>
-      typeof s.startingCash === "number" && s.startingCash > 0 &&
-      typeof s.sellPct === "number" && s.sellPct > 0 &&
-      typeof s.reductionFactor === "number" && s.reductionFactor > 0,
-  );
-
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<BacktestResponse | null>(null);
-
-  async function run() {
-    if (!canRun) return;
-    setLoading(true);
-    setError(null);
-    setZoomedRange(null);
-    const valid = scenarios.filter(
-      (s) =>
-        typeof s.startingCash === "number" && s.startingCash > 0 &&
-        typeof s.sellPct === "number" && s.sellPct > 0 &&
-        typeof s.reductionFactor === "number" && s.reductionFactor > 0,
-    );
-    const payload = {
-      timeframe,
-      startDate: activePeriod?.start ?? undefined,
-      endDate: activePeriod?.end ?? undefined,
-      scenarios: valid.map((s) => ({
-        label: s.label,
-        startingCash: s.startingCash,
-        sellPct: s.sellPct,
-        reductionFactor: s.reductionFactor,
-        stepPct: Number(s.stepPct) > 0 ? Number(s.stepPct) : 1,
-        levels: Number(s.levels) > 0 ? Number(s.levels) : 88,
-        reanchorPct: Number(s.reanchorPct) > 0 ? Number(s.reanchorPct) : 0,
-        slippageBps: Number(s.slippageBps) > 0 ? Number(s.slippageBps) : 0,
-      })),
-    };
-    const cacheKey = JSON.stringify(payload);
-    try {
-      const cached = cacheGet(cacheKey);
-      if (cached) {
-        setResult(cached);
-        setLoading(false);
-        return;
-      }
-      const res = await fetch("/api/backtest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: cacheKey,
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(
-          res.status === 401
-            ? "Connect to Schwab to pull intraday history (Settings → Connect)."
-            : (data.error ?? "Backtest failed."),
-        );
-        setResult(null);
-      } else {
-        const r = data as BacktestResponse;
-        cacheSet(cacheKey, r);
-        setResult(r);
-      }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Backtest failed.");
-      setResult(null);
-    } finally {
+    let cancelled = false;
+    (async () => {
+      const num = async (url: string, key: string) => {
+        try {
+          const r = await fetch(url);
+          if (!r.ok) return null;
+          const j = await r.json();
+          return typeof j[key] === "number" ? j[key] : null;
+        } catch {
+          return null;
+        }
+      };
+      const [iv, v, v3] = await Promise.all([
+        num("/api/iv-rank", "vxnPct"),
+        num("/api/quote?symbol=%5EVIX", "price"),
+        num("/api/quote?symbol=%5EVIX3M", "price"),
+      ]);
+      if (cancelled) return;
+      setVxn(iv);
+      setVix(v);
+      setVix3m(v3);
       setLoading(false);
-    }
-  }
-
-  const chartData = useMemo(() => {
-    if (!result) return [];
-    type Row = Record<string, string | number>;
-    const byDate = new Map<string, Row>();
-    for (const p of result.benchmark) byDate.set(p.date, { date: p.date, benchmark: p.value });
-    for (const sc of result.scenarios) {
-      for (const p of sc.strategy) {
-        const row = byDate.get(p.date) ?? { date: p.date };
-        row[sc.label] = p.value;
-        byDate.set(p.date, row);
-      }
-    }
-    return [...byDate.values()].sort((a, b) => String(a.date).localeCompare(String(b.date)));
-  }, [result]);
-
-  const priceChartData = useMemo(
-    () => (result?.tqqqPrice ?? []).map((p) => ({
-      date: p.date,
-      price: p.value,
-      sma50: p.sma50,
-      sma200: p.sma200,
-    })),
-    [result?.tqqqPrice],
-  );
-
-  const handleSignalVisibleChange = useCallback((i: number, checked: boolean) => {
-    setSignalVisible((prev) => { const next = [...prev]; next[i] = checked; return next; });
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
+  const tqqqSpot = quote.price;
+  const baseIv = vxn != null ? tqqqIvFromVxn(vxn) : null;
+  const dteNum = Number(dte);
+  const vixDteNum = Number(vixDte);
+  const accountValue = balance?.totalValue ?? 0;
+
+  /** Long TQQQ puts are the hedge; short ones belong to the options ladder. */
+  const currentPuts = useMemo(
+    () =>
+      optionPositions
+        .filter((p) => p.underlyingSymbol === "TQQQ" && p.putCall === "PUT" && p.longQty > 0)
+        .reduce((sum, p) => sum + p.longQty, 0),
+    [optionPositions],
+  );
+
+  const currentVixCalls = useMemo(
+    () =>
+      optionPositions
+        .filter(
+          (p) =>
+            p.underlyingSymbol.includes("VIX") && p.putCall === "CALL" && p.longQty > 0,
+        )
+        .reduce((sum, p) => sum + p.longQty, 0),
+    [optionPositions],
+  );
+
+  const putPlan = useMemo(() => {
+    if (!tqqqSpot || !baseIv || accountValue <= 0) return null;
+    return planProgram({
+      accountValue,
+      tqqqShares,
+      tqqqSpot,
+      baseIv,
+      dte: dteNum,
+      budgetPctPerYear: budgetPct,
+      budgetShare: putShare / 100,
+      targetDelta: targetDelta / 100,
+      driftBandPct,
+      currentContracts: currentPuts,
+    });
+  }, [
+    accountValue,
+    tqqqShares,
+    tqqqSpot,
+    baseIv,
+    dteNum,
+    budgetPct,
+    putShare,
+    targetDelta,
+    driftBandPct,
+    currentPuts,
+  ]);
+
+  const vixPlan = useMemo(() => {
+    if (vix == null || accountValue <= 0 || putShare >= 100) return null;
+    return planVixLayer({
+      accountValue,
+      budgetPctPerYear: budgetPct,
+      budgetShare: 1 - putShare / 100,
+      dte: vixDteNum,
+      vix,
+      vix3m,
+      strikeOffset: vixStrikeOffset,
+      volOfVol: volOfVol / 100,
+      maxEntryVix,
+      monetizeVix,
+      currentContracts: currentVixCalls,
+    });
+  }, [
+    accountValue,
+    budgetPct,
+    putShare,
+    vixDteNum,
+    vix,
+    vix3m,
+    vixStrikeOffset,
+    volOfVol,
+    maxEntryVix,
+    monetizeVix,
+    currentVixCalls,
+  ]);
+
+  const yearStart = useMemo(() => new Date(new Date().getFullYear(), 0, 1), []);
+  const spent = useMemo(
+    () => hedgeSpendSince(filledOptionOrders, yearStart, ["TQQQ", "VIX", "$VIX"]),
+    [filledOptionOrders, yearStart],
+  );
+  const budget = useMemo(
+    () => budgetStatus(accountValue * (budgetPct / 100), spent),
+    [accountValue, budgetPct, spent],
+  );
+
+  /** Each episode as it actually happened: real drawdown, real peak VIX. */
+  const episodes = useMemo(() => {
+    if (!putPlan || !baseIv || !tqqqSpot) return [];
+    return EPISODES.map((e) => {
+      // Mark the puts with the episode's vol and whatever time was left.
+      const daysLeft = Math.max(dteNum - e.days, 0);
+      const row = scenarioTable(putPlan, tqqqShares, tqqqSpot, [e.tqqqMove], {
+        iv: tqqqIvFromVxn(e.vixPeak),
+        daysLeft,
+      })[0];
+      const vixPl =
+        vixPlan && vixPlan.targetContracts > 0
+          ? vixPayoff(vixPlan, vixPlan.targetContracts, e.vixPeak)
+          : 0;
+      const total = row.putPl + vixPl;
+      return {
+        label: e.label,
+        tqqqMove: e.tqqqMove,
+        vixPeak: e.vixPeak,
+        sharesPl: row.sharesPl,
+        putPl: row.putPl,
+        vixPl,
+        total,
+        offsetPct: row.sharesPl < 0 ? (Math.min(total, -row.sharesPl) / -row.sharesPl) * 100 : 0,
+      };
+    });
+  }, [putPlan, vixPlan, baseIv, tqqqSpot, tqqqShares, dteNum]);
+
+  const curve = useMemo(() => {
+    if (!putPlan || !tqqqSpot) return [];
+    const moves: number[] = [];
+    for (let m = -0.8; m <= 0.2001; m += 0.01) moves.push(m);
+    return scenarioTable(putPlan, tqqqShares, tqqqSpot, moves).map((r) => ({
+      tqqqPct: r.tqqqMove * 100,
+      sharesPl: r.sharesPl,
+      net: r.net,
+    }));
+  }, [putPlan, tqqqShares, tqqqSpot]);
+
+  if (!activeAccount) {
+    return (
+      <Center h={300}>
+        <Text c="dimmed">Select an account to plan a hedge.</Text>
+      </Center>
+    );
+  }
+
+  if (quote.loading || loading) {
+    return (
+      <Center h={300}>
+        <Loader color={color} />
+      </Center>
+    );
+  }
+
+  if (!putPlan) {
+    return (
+      <Alert icon={<IconAlertTriangle size={18} />} color="yellow" radius={CARD_RADIUS}>
+        {accountValue <= 0
+          ? "Waiting on account balances — the budget is a percent of account value."
+          : "Waiting on ^VXN — premiums can't be modeled without an implied-vol input."}
+      </Alert>
+    );
+  }
+
+  const pacePct = budget.annualBudget > 0 ? (budget.spent / budget.annualBudget) * 100 : 0;
+  const totalCycleCost = putPlan.cycleCost + (vixPlan?.cycleCost ?? 0);
+
   return (
-    <Stack gap="lg">
-      <Box>
-        <Text size="xl" fw={700}>Backtest</Text>
-        <Text size="sm" c="dimmed">
-          TQQQ ladder sim — 5-min intraday bars (~2 years) or daily bars back to 2010.
-          Run up to 3 scenarios at once — chart shows % return, table shows dollars.
+    <Stack gap="md">
+      <Text fw={700} size="xl">
+        Hedge
+      </Text>
+
+      <Alert
+        icon={<IconShieldCheck size={18} />}
+        color={color}
+        radius={CARD_RADIUS}
+        title={`${fmt(budgetPct, 1)}% of account per year, split ${putShare}/${100 - putShare}`}
+      >
+        <Text size="sm">
+          <b>TQQQ puts</b> — budget sets the size, delta sets the strike. On TQQQ rather than QQQ
+          because one contract covers exactly 100 shares, so coverage tracks the ladder as it fills.
+          <br />
+          <b>VIX calls</b> — the convex sleeve, bought only when vol is cheap. New positions are
+          blocked above VIX {maxEntryVix} and flagged for harvest above {monetizeVix}: buying a
+          spike is how tail insurance loses money.
         </Text>
-      </Box>
+      </Alert>
 
-      {/* Timeframe selector */}
-      <Box>
-        <Text size="xs" c="dimmed" mb={6}>
-          Timeframe · {TIMEFRAMES.find((t) => t.value === timeframe)?.note}
-        </Text>
-        <Group gap="xs" wrap="wrap">
-          {TIMEFRAMES.map((tf) => (
-            <Button
-              key={tf.value}
-              size="xs"
-              variant={timeframe === tf.value ? "filled" : "light"}
-              color={timeframe === tf.value ? color : "gray"}
-              onClick={() => { setTimeframe(tf.value); setActivePeriod(null); }}
-            >
-              {tf.label}
-            </Button>
-          ))}
-        </Group>
-      </Box>
-
-      {/* Historical period presets */}
-      <Box>
-        <Group justify="space-between" mb={6}>
-          <Text size="xs" c="dimmed">
-            Historical period{activePeriod ? ` · ${activePeriod.start} → ${activePeriod.end}` : ""}
-          </Text>
-          {activePeriod && (
-            <Button size="xs" variant="subtle" color="gray" onClick={() => setActivePeriod(null)}>
-              Clear
-            </Button>
-          )}
-        </Group>
-        <Group gap="xs" wrap="wrap">
-          {PERIOD_PRESETS.map((p) => (
-            <Tooltip key={p.label} label={p.desc} withArrow>
-              <Button
-                size="xs"
-                variant={activePeriod?.label === p.label ? "filled" : "light"}
-                color={activePeriod?.label === p.label ? color : "gray"}
-                onClick={() => { setActivePeriod(p); setTimeframe(p.tf); }}
-              >
-                {p.label}
-              </Button>
-            </Tooltip>
-          ))}
-        </Group>
-      </Box>
-
-      {/* Scenario inputs */}
-      <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
-        {scenarios.map((sc, i) => (
-          <Paper key={i} p="md" radius={CARD_RADIUS} withBorder>
-            <Stack gap="xs">
-              {/* Card header: label + clone menu */}
-              <Group gap="xs" align="flex-end">
-                <TextInput
-                  label="Label"
-                  value={sc.label}
-                  onChange={(e) => updateScenario(i, { label: e.currentTarget.value })}
-                  size="xs"
-                  style={{ flex: 1 }}
-                  styles={{ input: { borderColor: SCENARIO_COLORS[i], borderWidth: 1.5 } }}
-                />
-                <Menu withinPortal position="bottom-end">
-                  <Menu.Target>
-                    <Button
-                      size="xs"
-                      variant="subtle"
-                      color="gray"
-                      rightSection={<IconChevronDown size={12} />}
-                      leftSection={<IconCopy size={12} />}
-                      mb={1}
-                    >
-                      Clone
-                    </Button>
-                  </Menu.Target>
-                  <Menu.Dropdown>
-                    <Menu.Label>Copy settings to</Menu.Label>
-                    {scenarios
-                      .map((other, j) => ({ other, j }))
-                      .filter(({ j }) => j !== i)
-                      .map(({ other, j }) => (
-                        <Menu.Item key={j} onClick={() => cloneScenario(i, j)}>
-                          {other.label || `Scenario ${j + 1}`}
-                        </Menu.Item>
-                      ))}
-                  </Menu.Dropdown>
-                </Menu>
-              </Group>
-              <NumberInput
-                label="Starting cash"
-                value={sc.startingCash}
-                onChange={(v) => updateScenario(i, { startingCash: v === "" ? "" : Number(v) })}
-                min={0} step={1000} thousandSeparator="," prefix="$" size="xs"
-              />
-              <NumberInput
-                label="Sell target %"
-                value={sc.sellPct}
-                onChange={(v) => updateScenario(i, { sellPct: v === "" ? "" : Number(v) })}
-                min={0} step={0.5} suffix="%" size="xs"
-              />
-              <NumberInput
-                label="Reduction factor"
-                value={sc.reductionFactor}
-                onChange={(v) => updateScenario(i, { reductionFactor: v === "" ? "" : Number(v) })}
-                min={0} max={2} step={0.01} decimalScale={3} size="xs"
-              />
-              <Group grow gap="xs">
-                <NumberInput
-                  label="Step %"
-                  value={sc.stepPct}
-                  onChange={(v) => updateScenario(i, { stepPct: v === "" ? "" : Number(v) })}
-                  min={0.1} max={10} step={0.25} decimalScale={2} size="xs" suffix="%"
-                />
-                <NumberInput
-                  label="Levels"
-                  value={sc.levels}
-                  onChange={(v) => updateScenario(i, { levels: v === "" ? "" : Number(v) })}
-                  min={5} max={200} step={1} size="xs"
-                />
-              </Group>
-              <Group grow gap="xs">
-                <NumberInput
-                  label="Re-anchor above peak"
-                  value={sc.reanchorPct}
-                  onChange={(v) => updateScenario(i, { reanchorPct: v === "" ? "" : Number(v) })}
-                  min={0} max={50} step={0.5} decimalScale={2} size="xs" suffix="%"
-                />
-                <NumberInput
-                  label="Slippage / trade"
-                  value={sc.slippageBps}
-                  onChange={(v) => updateScenario(i, { slippageBps: v === "" ? "" : Number(v) })}
-                  min={0} max={200} step={1} size="xs" suffix=" bps"
-                />
-              </Group>
-
-            </Stack>
+      {/* ── this week's actions ──────────────────────────────────────────── */}
+      <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+        <ActionCard
+          title="Put layer"
+          action={putPlan.action}
+          headline={
+            putPlan.action === "hold"
+              ? "Hold — inside the band"
+              : `${ACTION_STYLE[putPlan.action].label} ${putPlan.actionContracts} TQQQ put${putPlan.actionContracts === 1 ? "" : "s"}`
+          }
+          detail={`$${fmt(putPlan.strike, 0)} strike · ${dteNum}d · Δ${fmt(Math.abs(putPlan.delta), 2)} · ${fmt(putPlan.otmPct, 1)}% OTM`}
+          note={`Holding ${currentPuts}, target ${putPlan.targetContracts} · drift ${fmt(putPlan.driftPct, 0)}% vs ${driftBandPct}% band`}
+          cost={putPlan.cycleCost}
+          costLabel="cycle"
+          cardBg={cardBg}
+          mask={mask}
+        />
+        {vixPlan ? (
+          <ActionCard
+            title="VIX layer"
+            action={vixPlan.action}
+            headline={
+              vixPlan.action === "hold"
+                ? vixPlan.gated
+                  ? "Gated — vol too high to add"
+                  : "Hold"
+                : `${ACTION_STYLE[vixPlan.action].label} ${vixPlan.actionContracts} VIX call${vixPlan.actionContracts === 1 ? "" : "s"}`
+            }
+            detail={`${vixPlan.strike} strike · ${vixDteNum}d · forward ${fmt(vixPlan.forward, 1)} · spot ${fmt(vix ?? 0, 1)}`}
+            note={vixPlan.note}
+            cost={vixPlan.cycleCost}
+            costLabel="cycle"
+            gated={vixPlan.gated && !vixPlan.monetize}
+            cardBg={cardBg}
+            mask={mask}
+          />
+        ) : (
+          <Paper p="lg" radius={CARD_RADIUS} style={{ background: cardBg }}>
+            <Text c="dimmed" tt="uppercase" style={CARD_LABEL_STYLE} mb="xs">
+              VIX layer
+            </Text>
+            <Text size="sm" c="dimmed">
+              {putShare >= 100
+                ? "Disabled — the whole budget is on the put layer."
+                : "Waiting on a ^VIX quote."}
+            </Text>
           </Paper>
-        ))}
+        )}
       </SimpleGrid>
 
-      <Group justify="flex-end">
-        <Button variant="subtle" color="gray" onClick={reset} disabled={loading}>Reset</Button>
-        <Button
-          color={color}
-          leftSection={<IconPlayerPlayFilled size={16} />}
-          onClick={run}
-          loading={loading}
-          disabled={!canRun}
-        >
-          Run backtest
-        </Button>
-      </Group>
-
-      {error && (
-        <Alert color="red" icon={<IconAlertTriangle size={16} />} radius={CARD_RADIUS}>
-          {error}
+      {/* ── modeling caveat ──────────────────────────────────────────────── */}
+      {vixPlan && (
+        <Alert color="yellow" variant="light" radius={CARD_RADIUS} icon={<IconAlertTriangle size={16} />}>
+          <Text size="xs">
+            VIX premiums here are <b>indicative, not quotes</b>. VIX options settle on VIX futures,
+            which this app does not have — the forward is interpolated from ^VIX and ^VIX3M, and
+            Black-76 understates far-OTM calls because it misses VIX&apos;s mean reversion and skew.
+            Size from your broker&apos;s real quotes; the budget tracker uses your actual fills.
+          </Text>
         </Alert>
       )}
 
-      {loading && (
-        <Center py="xl">
-          <Group gap="xs">
-            <Loader size="sm" color={color} />
-            <Text c="dimmed">Pulling intraday history &amp; simulating…</Text>
-          </Group>
-        </Center>
-      )}
-
-      {result && !loading && (
-        <>
-          {result.span.earliest && result.span.latest && (
-            <Text size="sm" c="dimmed">
-              {fmtDate(result.span.earliest)} → {fmtDate(result.span.latest)} ·{" "}
-              {result.span.tradingDays.toLocaleString()} trading days · {result.span.barFreq ?? "5-min bars"}
+      {/* ── controls ─────────────────────────────────────────────────────── */}
+      <Paper p="lg" radius={CARD_RADIUS} style={{ background: cardBg }}>
+        <SimpleGrid cols={{ base: 1, md: 3 }} spacing="xl">
+          <Box>
+            <Group justify="space-between" mb={4}>
+              <Text size="sm" fw={600}>
+                Annual budget
+              </Text>
+              <Badge color={color} variant="light">
+                {fmt(budgetPct, 1)}%
+              </Badge>
+            </Group>
+            <Slider
+              color={color}
+              mb={SLIDER_MB}
+              min={0.5}
+              max={10}
+              step={0.5}
+              value={budgetPct}
+              onChange={(v) => set("budgetPct", v)}
+              onChangeEnd={(v) => commitKey("budgetPct", v)}
+              marks={[
+                { value: 3, label: "3%" },
+                { value: 6, label: "6%" },
+              ]}
+            />
+            <Text size="xs" c="dimmed" mt={6}>
+              {mask(`$${fmt(budget.annualBudget, 0)}`)}/yr on a {mask(`$${fmt(accountValue, 0)}`)}{" "}
+              account.
             </Text>
-          )}
+          </Box>
 
-          <ChartPanel
-            result={result}
-            isMobile={isMobile ?? false}
-            color={color}
-            priceChartData={priceChartData}
-            chartData={chartData}
-            ma50={ma50}
-            ma200={ma200}
-            onMa50Change={setMa50}
-            onMa200Change={setMa200}
-            signalVisible={signalVisible}
-            onSignalVisibleChange={handleSignalVisibleChange}
-            zoomedRange={zoomedRange}
-            onZoomChange={setZoomedRange}
+          <Box>
+            <Group justify="space-between" mb={4}>
+              <Text size="sm" fw={600}>
+                Puts / VIX split
+              </Text>
+              <Badge color={color} variant="light">
+                {putShare} / {100 - putShare}
+              </Badge>
+            </Group>
+            <Slider
+              color={color}
+              mb={SLIDER_MB}
+              min={50}
+              max={100}
+              step={5}
+              value={putShare}
+              onChange={(v) => set("putSharePct", v)}
+              onChangeEnd={(v) => commitKey("putSharePct", v)}
+              marks={[
+                { value: 70, label: "70/30" },
+                { value: 80, label: "80/20" },
+                { value: 100, label: "all puts" },
+              ]}
+            />
+            <Text size="xs" c="dimmed" mt={6}>
+              Your ladder scales <b>down</b> per level, so its worst losses are not from doubling
+              into a fast move — that argues for a smaller VIX sleeve.
+            </Text>
+          </Box>
+
+          <Box>
+            <Group justify="space-between" mb={4}>
+              <Text size="sm" fw={600}>
+                Put delta
+              </Text>
+              <Badge color={color} variant="light">
+                {fmt(targetDelta / 100, 2)}
+              </Badge>
+            </Group>
+            <Slider
+              color={color}
+              mb={SLIDER_MB}
+              min={3}
+              max={35}
+              step={1}
+              value={targetDelta}
+              onChange={(v) => set("putDelta", v)}
+              onChangeEnd={(v) => commitKey("putDelta", v)}
+              marks={[
+                { value: 5, label: "0.05" },
+                { value: 10, label: "0.10" },
+                { value: 25, label: "0.25" },
+              ]}
+            />
+            <Text size="xs" c="dimmed" mt={6}>
+              Lower delta buys more contracts further out — better in a crash, worse in a dip.
+            </Text>
+          </Box>
+
+          <Box>
+            <Text size="sm" fw={600} mb={6}>
+              Put expiry
+            </Text>
+            <SegmentedControl
+              fullWidth
+              color={color}
+              value={dte}
+              onChange={(v) => commitKey("putDte", Number(v))}
+              data={DTE_CHOICES.map((d) => ({ value: d, label: `${d}d` }))}
+            />
+            <Text size="xs" c="dimmed" mt={6}>
+              {fmt(365 / dteNum, 1)} rolls a year.
+            </Text>
+          </Box>
+
+          <Box>
+            <Group justify="space-between" mb={4}>
+              <Text size="sm" fw={600}>
+                Drift band
+              </Text>
+              <Badge color={color} variant="light">
+                ±{driftBandPct}%
+              </Badge>
+            </Group>
+            <Slider
+              color={color}
+              mb={SLIDER_MB}
+              min={0}
+              max={60}
+              step={5}
+              value={driftBandPct}
+              onChange={(v) => set("driftBandPct", v)}
+              onChangeEnd={(v) => commitKey("driftBandPct", v)}
+              marks={[
+                { value: 0, label: "exact" },
+                { value: 25, label: "25%" },
+              ]}
+            />
+            <Text size="xs" c="dimmed" mt={6}>
+              How far coverage may drift before trading. Wider means fewer spreads paid.
+            </Text>
+          </Box>
+
+          <Box>
+            <Text size="sm" fw={600} mb={6}>
+              VIX expiry
+            </Text>
+            <SegmentedControl
+              fullWidth
+              color={color}
+              value={vixDte}
+              onChange={(v) => commitKey("vixDte", Number(v))}
+              data={["30", "45", "60"].map((d) => ({ value: d, label: `${d}d` }))}
+            />
+            <Text size="xs" c="dimmed" mt={6}>
+              Forward {vixPlan ? fmt(vixPlan.forward, 1) : "—"} vs spot {fmt(vix ?? 0, 1)}
+              {vix != null && vix3m != null
+                ? vix3m > vix
+                  ? " (contango — the forward costs more)"
+                  : " (backwardation)"
+                : ""}
+            </Text>
+          </Box>
+        </SimpleGrid>
+
+        <Divider my="lg" label="VIX sleeve" labelPosition="left" />
+
+        <SimpleGrid cols={{ base: 1, md: 4 }} spacing="xl">
+          <Box>
+            <Group justify="space-between" mb={4}>
+              <Text size="sm" fw={600}>
+                Strike above forward
+              </Text>
+              <Badge color={color} variant="light">
+                +{vixStrikeOffset}
+              </Badge>
+            </Group>
+            <Slider
+              color={color}
+              mb={SLIDER_MB}
+              min={0}
+              max={30}
+              step={1}
+              value={vixStrikeOffset}
+              onChange={(v) => set("vixStrikeOffset", v)}
+              onChangeEnd={(v) => commitKey("vixStrikeOffset", v)}
+              marks={[
+                { value: 5, label: "+5" },
+                { value: 15, label: "+15" },
+              ]}
+            />
+          </Box>
+
+          <Box>
+            <Group justify="space-between" mb={4}>
+              <Text size="sm" fw={600}>
+                Vol of vol
+              </Text>
+              <Badge color={color} variant="light">
+                {volOfVol}%
+              </Badge>
+            </Group>
+            <Slider
+              color={color}
+              mb={SLIDER_MB}
+              min={40}
+              max={160}
+              step={5}
+              value={volOfVol}
+              onChange={(v) => set("volOfVol", v)}
+              onChangeEnd={(v) => commitKey("volOfVol", v)}
+              marks={[
+                { value: 90, label: "90%" },
+                { value: 130, label: "130%" },
+              ]}
+            />
+            <Text size="xs" c="dimmed" mt={6}>
+              Pricing input only. Raise it to see richer premiums.
+            </Text>
+          </Box>
+
+          <Box>
+            <Group justify="space-between" mb={4}>
+              <Text size="sm" fw={600}>
+                No new entries above
+              </Text>
+              <Badge color={vix != null && vix >= maxEntryVix ? "yellow" : color} variant="light">
+                VIX {maxEntryVix}
+              </Badge>
+            </Group>
+            <Slider
+              color={color}
+              mb={SLIDER_MB}
+              min={12}
+              max={45}
+              step={1}
+              value={maxEntryVix}
+              onChange={(v) => set("maxEntryVix", v)}
+              onChangeEnd={(v) => commitKey("maxEntryVix", v)}
+              marks={[
+                { value: 20, label: "20" },
+                { value: 30, label: "30" },
+              ]}
+            />
+            <Text size="xs" c="dimmed" mt={6}>
+              Vol is already priced up here — adding is paying peak premium for a move underway.
+            </Text>
+          </Box>
+
+          <Box>
+            <Group justify="space-between" mb={4}>
+              <Text size="sm" fw={600}>
+                Harvest above
+              </Text>
+              <Badge color={color} variant="light">
+                VIX {monetizeVix}
+              </Badge>
+            </Group>
+            <Slider
+              color={color}
+              mb={SLIDER_MB}
+              min={25}
+              max={80}
+              step={1}
+              value={monetizeVix}
+              onChange={(v) => set("monetizeVix", v)}
+              onChangeEnd={(v) => commitKey("monetizeVix", v)}
+              marks={[
+                { value: 40, label: "40" },
+                { value: 60, label: "60" },
+              ]}
+            />
+            <Text size="xs" c="dimmed" mt={6}>
+              Spikes mean-revert within days. Unharvested convexity is worth nothing.
+            </Text>
+          </Box>
+        </SimpleGrid>
+      </Paper>
+
+      {/* ── budget pacing ────────────────────────────────────────────────── */}
+      <Paper p="lg" radius={CARD_RADIUS} style={{ background: cardBg }}>
+        <Group justify="space-between" mb="xs">
+          <Text fw={600}>Budget this year</Text>
+          <Text size="sm" c={budget.overPace > 0 ? "orange" : "teal"}>
+            {budget.overPace > 0 ? "Ahead of pace by " : "Behind pace by "}
+            {mask(`$${fmt(Math.abs(budget.overPace), 0)}`)}
+          </Text>
+        </Group>
+        <Progress.Root size="xl" radius="xl">
+          <Progress.Section
+            value={Math.min(100, pacePct)}
+            color={budget.overPace > 0 ? "orange" : color}
+          >
+            <Progress.Label>{fmt(pacePct, 0)}%</Progress.Label>
+          </Progress.Section>
+        </Progress.Root>
+        <Group justify="space-between" mt="xs">
+          <Text size="xs" c="dimmed">
+            Spent {mask(`$${fmt(budget.spent, 0)}`)} of {mask(`$${fmt(budget.annualBudget, 0)}`)} ·
+            long-side fills only
+          </Text>
+          <Text size="xs" c="dimmed">
+            {fmt(budget.yearElapsed * 100, 0)}% of the year gone
+          </Text>
+        </Group>
+      </Paper>
+
+      {/* ── sizing ───────────────────────────────────────────────────────── */}
+      <Paper p="lg" radius={CARD_RADIUS} style={{ background: cardBg }}>
+        <SimpleGrid cols={{ base: 2, md: 4 }} spacing="lg">
+          <StatTile
+            label="Put target"
+            value={`${putPlan.targetContracts} ct`}
+            sub={putPlan.binding === "budget" ? "budget-capped" : "share-count-capped"}
+            color={putPlan.binding === "budget" ? "orange" : undefined}
           />
+          <StatTile
+            label="Coverage"
+            value={`${fmt(putPlan.coveragePct, 0)}%`}
+            sub={`of ${tqqqShares} shares`}
+          />
+          <StatTile
+            label="VIX target"
+            value={vixPlan ? `${vixPlan.targetContracts} ct` : "—"}
+            sub={vixPlan?.gated ? "gated" : "convex sleeve"}
+            color={vixPlan?.gated ? "yellow" : undefined}
+          />
+          <StatTile
+            label="Combined carry"
+            value={`${fmt(((totalCycleCost * (365 / dteNum)) / accountValue) * 100, 2)}%`}
+            sub="of account per year"
+          />
+        </SimpleGrid>
+      </Paper>
 
-          <Paper radius={CARD_RADIUS} withBorder>
-            <ScrollArea>
-              <Table striped highlightOnHover>
-                <Table.Thead>
-                  <Table.Tr>
-                    <Table.Th>Metric</Table.Th>
-                    {result.scenarios.map((sc, i) => (
-                      <Table.Th key={sc.label} style={{ color: SCENARIO_COLORS[i % SCENARIO_COLORS.length] }}>
-                        {sc.label}
-                      </Table.Th>
-                    ))}
-                  </Table.Tr>
-                </Table.Thead>
-                <Table.Tbody>
-                  {STAT_ROWS.map(({ key, label, fmt }) => (
-                    <Table.Tr key={key}>
-                      <Table.Td c="dimmed" fz="sm">{label}</Table.Td>
-                      {result.scenarios.map((sc) => (
-                        <Table.Td key={sc.label} fz="sm">{fmt(sc.stats[key])}</Table.Td>
-                      ))}
-                    </Table.Tr>
-                  ))}
-                  {([
-                    { label: "Daily profit", tip: "Realized profit per trading day shown as low · avg · high. The ladder only ever sells at a gain, so these are never negative — losers are held unrealized (see Max drawdown). Low is often $0 (no sells that day).", getValues: (sc: ScenarioResult) => sc.daily.map((r) => r.profit) },
-                    { label: "Weekly profit", tip: "Sum of realized profit per calendar week (Mon–Fri) shown as low · avg · high. Realized profit is never negative (losers are held unrealized — see Max drawdown).", getValues: (sc: ScenarioResult) => groupProfits(sc.daily, weekKey) },
-                    { label: "Monthly profit", tip: "Sum of realized profit per calendar month shown as low · avg · high. Low is your leanest harvest month, not a loss — realized profit is never negative (see Max drawdown).", getValues: (sc: ScenarioResult) => groupProfits(sc.daily, (d) => d.slice(0, 7)) },
-                  ] as const).map(({ label, tip, getValues }) => (
-                    <Table.Tr key={label}>
-                      <Table.Td c="dimmed" fz="sm">
-                        <Group gap={4} wrap="nowrap">
-                          {label}
-                          <Tooltip label={tip} multiline w={240} withArrow>
-                            <IconInfoCircle size={13} style={{ cursor: "help", flexShrink: 0, color: "var(--mantine-color-dimmed)" }} />
-                          </Tooltip>
-                        </Group>
-                      </Table.Td>
-                      {result.scenarios.map((sc) => {
-                        const { low, avg, high } = profitStats(getValues(sc));
-                        return (
-                          <Table.Td key={sc.label} fz="xs" style={{ whiteSpace: "nowrap" }}>
-                            <span style={{ color: "var(--mantine-color-dimmed)" }}>{usd(low)}</span>
-                            {" · "}
-                            <span style={{ color: "var(--mantine-color-orange-4)" }}>{usd(avg)}</span>
-                            {" · "}
-                            <span style={{ color: "var(--mantine-color-teal-4)" }}>{usd(high)}</span>
-                          </Table.Td>
-                        );
-                      })}
-                    </Table.Tr>
-                  ))}
-                  <Table.Tr>
-                    <Table.Td c="dimmed" fz="sm">vs. buy &amp; hold</Table.Td>
-                    {result.scenarios.map((sc) => {
-                      const bhFinal = result.benchmark.at(-1)?.value ?? 100;
-                      const stFinal = sc.strategy.at(-1)?.value ?? 100;
-                      const diff = stFinal - bhFinal;
-                      return (
-                        <Table.Td key={sc.label} fz="sm" c={diff >= 0 ? "teal.4" : "red.4"}>
-                          {pctRaw(diff)}
-                        </Table.Td>
-                      );
-                    })}
-                  </Table.Tr>
-                </Table.Tbody>
-              </Table>
-            </ScrollArea>
-          </Paper>
+      {/* ── what it does, per real episode ───────────────────────────────── */}
+      <Paper p="lg" radius={CARD_RADIUS} style={{ background: cardBg }}>
+        <Text fw={600} mb={4}>
+          If each of these happened again
+        </Text>
+        <Text size="xs" c="dimmed" mb="md">
+          Real drawdowns and real peak VIX from each episode. Puts are marked with that episode&apos;s
+          vol and whatever time was left, which is why they pay far more than intrinsic. Note the
+          deepest drawdown printed the <b>weakest</b> VIX — the slow grind is what neither layer
+          covers.
+        </Text>
+        <Table verticalSpacing="xs" fz="sm">
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th>Episode</Table.Th>
+              <Table.Th ta="right">TQQQ</Table.Th>
+              <Table.Th ta="right">VIX</Table.Th>
+              <Table.Th ta="right">Shares</Table.Th>
+              <Table.Th ta="right">Puts</Table.Th>
+              <Table.Th ta="right">VIX calls</Table.Th>
+              <Table.Th ta="right">Offset</Table.Th>
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {episodes.map((e) => (
+              <Table.Tr key={e.label}>
+                <Table.Td>{e.label}</Table.Td>
+                <Table.Td ta="right" c="dimmed">
+                  {fmt(e.tqqqMove * 100, 0)}%
+                </Table.Td>
+                <Table.Td ta="right" c="dimmed">
+                  {fmt(e.vixPeak, 0)}
+                </Table.Td>
+                <Table.Td ta="right" c="red">
+                  {mask(`−$${fmt(Math.abs(e.sharesPl), 0)}`)}
+                </Table.Td>
+                <Table.Td ta="right" c={e.putPl >= 0 ? "teal" : undefined}>
+                  {mask(`${e.putPl >= 0 ? "+" : "−"}$${fmt(Math.abs(e.putPl), 0)}`)}
+                </Table.Td>
+                <Table.Td ta="right" c={e.vixPl > 0 ? "teal" : undefined}>
+                  {vixPlan ? mask(`${e.vixPl >= 0 ? "+" : "−"}$${fmt(Math.abs(e.vixPl), 0)}`) : "—"}
+                </Table.Td>
+                <Table.Td ta="right" fw={600} c={e.offsetPct > 25 ? "teal" : "dimmed"}>
+                  {fmt(e.offsetPct, 0)}%
+                </Table.Td>
+              </Table.Tr>
+            ))}
+          </Table.Tbody>
+        </Table>
 
-          <Paper radius={CARD_RADIUS} withBorder>
-            <Tabs defaultValue={result.scenarios[0]?.label} color={color} keepMounted={false}>
-              <Tabs.List px="md" pt="xs">
-                {result.scenarios.map((sc, i) => (
-                  <Tabs.Tab key={sc.label} value={sc.label} style={{ color: SCENARIO_COLORS[i % SCENARIO_COLORS.length] }}>
-                    {sc.label}
-                  </Tabs.Tab>
-                ))}
-              </Tabs.List>
-              {result.scenarios.map((sc) => (
-                <Tabs.Panel key={sc.label} value={sc.label}>
-                  <ScrollArea h={400}>
-                    <Table striped stickyHeader stickyHeaderOffset={0} fz="sm">
-                      <Table.Thead>
-                        <Table.Tr>
-                          <Table.Th>Date</Table.Th>
-                          <Table.Th ta="right">Buys</Table.Th>
-                          <Table.Th ta="right">Sells</Table.Th>
-                          <Table.Th ta="right">Daily profit</Table.Th>
-                          <Table.Th ta="right">Balance</Table.Th>
-                        </Table.Tr>
-                      </Table.Thead>
-                      <Table.Tbody>
-                        {sc.daily.map((row) => (
-                          <Table.Tr key={row.date}>
-                            <Table.Td>{row.date}</Table.Td>
-                            <Table.Td ta="right">{row.buys}</Table.Td>
-                            <Table.Td ta="right">{row.sells}</Table.Td>
-                            <Table.Td ta="right" c={row.profit > 0 ? "teal.4" : row.profit < 0 ? "red.4" : undefined}>
-                              {row.profit !== 0 ? usd(row.profit) : "—"}
-                            </Table.Td>
-                            <Table.Td ta="right">{usd(row.balance)}</Table.Td>
-                          </Table.Tr>
-                        ))}
-                      </Table.Tbody>
-                    </Table>
-                  </ScrollArea>
-                </Tabs.Panel>
-              ))}
-            </Tabs>
-          </Paper>
-        </>
-      )}
+        <Divider my="md" />
+
+        <Text size="xs" c="dimmed" mb="sm">
+          Put layer at expiry, intrinsic only — the floor, before any vol response.
+        </Text>
+        <Box h={isMobile ? 240 : 300}>
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart
+              data={curve}
+              margin={{ top: 12, right: 12, bottom: 8, left: isMobile ? -12 : 8 }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--mantine-color-dark-4)" />
+              <XAxis
+                dataKey="tqqqPct"
+                type="number"
+                domain={["dataMin", "dataMax"]}
+                tickFormatter={(v: number) => `${v.toFixed(0)}%`}
+                stroke="var(--mantine-color-dimmed)"
+                fontSize={11}
+              />
+              <YAxis
+                tickFormatter={(v: number) => (privacyMode ? "" : `$${(v / 1000).toFixed(0)}k`)}
+                stroke="var(--mantine-color-dimmed)"
+                fontSize={11}
+              />
+              <ChartTooltip
+                contentStyle={{
+                  background: "var(--mantine-color-dark-7)",
+                  border: "1px solid var(--mantine-color-dark-4)",
+                  borderRadius: 12,
+                  fontSize: 12,
+                }}
+                labelFormatter={(l) => `TQQQ ${Number(l).toFixed(0)}%`}
+                formatter={(value, name) => [mask(`$${fmt(Number(value), 0)}`), String(name)]}
+              />
+              <ReferenceLine y={0} stroke="var(--mantine-color-dark-3)" />
+              <ReferenceLine
+                x={((putPlan.strike - tqqqSpot) / tqqqSpot) * 100}
+                stroke="var(--mantine-color-teal-5)"
+                strokeDasharray="4 4"
+                label={{
+                  value: `put $${fmt(putPlan.strike, 0)}`,
+                  position: "top",
+                  fill: "var(--mantine-color-teal-5)",
+                  fontSize: 10,
+                }}
+              />
+              <Line
+                type="monotone"
+                dataKey="sharesPl"
+                stroke="var(--mantine-color-gray-5)"
+                strokeWidth={2}
+                strokeDasharray="5 4"
+                dot={false}
+                isAnimationActive={false}
+                name="Shares alone"
+              />
+              <Line
+                type="monotone"
+                dataKey="net"
+                stroke="var(--mantine-color-teal-4)"
+                strokeWidth={2.5}
+                dot={false}
+                isAnimationActive={false}
+                name="Shares + puts"
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </Box>
+      </Paper>
     </Stack>
-  );
-}
-
-export default function BacktestPage() {
-  const color = useAccountColor();
-  return (
-    <Tabs defaultValue="hedge" color={color} keepMounted={false}>
-      <Tabs.List mb="md">
-        <Tabs.Tab value="hedge" className="hedge-tab">Put hedge</Tabs.Tab>
-        <Tabs.Tab value="hedge-backtest" className="hedge-tab">Hedge backtest</Tabs.Tab>
-        <Tabs.Tab value="crash-stress" className="hedge-tab">Crash stress</Tabs.Tab>
-        <Tabs.Tab value="ladder" className="hedge-tab">Ladder strategy</Tabs.Tab>
-      </Tabs.List>
-      <Tabs.Panel value="hedge">
-        <PutHedgePanel />
-      </Tabs.Panel>
-      <Tabs.Panel value="hedge-backtest">
-        <HedgeBacktestPanel />
-      </Tabs.Panel>
-      <Tabs.Panel value="crash-stress">
-        <CrashStressPanel />
-      </Tabs.Panel>
-      <Tabs.Panel value="ladder">
-        <LadderBacktest />
-      </Tabs.Panel>
-    </Tabs>
   );
 }

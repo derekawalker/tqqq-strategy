@@ -3,14 +3,12 @@ import {
   optionQueueActions,
   ladderQueueActions,
   regimeQueueActions,
-  hedgeQueueActions,
   buildActionQueue,
   OPTION_PROFIT_CAPTURE_PCT,
 } from "./dashboardActions";
 import type { Level } from "./levels";
 import type { OptionPosition } from "./schwab/parse";
 import type { WorkingOrder } from "./schwab/parse";
-import type { HedgeActionItem } from "./hedgeActions";
 
 function level(n: number, buyPrice: number, sellPrice: number, shares: number): Level {
   return { n, buyPrice, sellPrice, shares, cost: shares * buyPrice, purchased: false };
@@ -127,21 +125,9 @@ describe("regimeQueueActions", () => {
   });
 });
 
-describe("hedgeQueueActions", () => {
-  it("maps hedge action items to queue actions tagged with the hedge source and href", () => {
-    const items: HedgeActionItem[] = [
-      { kind: "expiring", priority: 0, color: "red", title: "t", detail: "d", daysAway: 0 },
-    ];
-    const [action] = hedgeQueueActions(items);
-    expect(action.source).toBe("hedge");
-    expect(action.href).toBe("/hedge");
-    expect(action.kind).toBe("expiring");
-  });
-});
-
 describe("buildActionQueue", () => {
   it("merges groups and sorts by daysAway then priority", () => {
-    const a = { kind: "expiring", source: "hedge", priority: 0, daysAway: 5, title: "a", detail: "", color: "red", href: "/hedge" } as const;
+    const a = { kind: "regime-caution", source: "regime", priority: 0, daysAway: 5, title: "a", detail: "", color: "red", href: "/sentiment" } as const;
     const b = { kind: "option-close-profit", source: "options", priority: 1, daysAway: 0, title: "b", detail: "", color: "teal", href: "/options" } as const;
     const c = { kind: "ladder-buy-due", source: "ladder", priority: 3, daysAway: 0, title: "c", detail: "", color: "teal", href: "/working-orders" } as const;
     const queue = buildActionQueue([a], [b, c]);

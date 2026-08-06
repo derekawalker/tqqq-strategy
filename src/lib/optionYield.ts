@@ -4,12 +4,12 @@
  * hypothetical sale at a target DTE. Turns the strike grid from "here's
  * where you *could* sell" into "here's what's actually paying today."
  *
- * Pricing shares the same Black-Scholes + skew model as the hedge pricer
- * (@/lib/putHedge, @/lib/hedgeTranches) so a TQQQ strike's modeled premium
- * here and the hedge's modeled premium there never drift out of sync.
+ * Pricing uses the app's shared Black-Scholes pricer (@/lib/blackScholes) and
+ * implied-vol surface (@/lib/volModel), so a TQQQ strike's modeled premium
+ * here matches every other modeled premium in the app.
  */
 
-import { bsPutGreeks, bsCallGreeks } from "./putHedge";
+import { bsPutGreeks, bsCallGreeks } from "./blackScholes";
 
 /** Annualized yield (%) at/above which a sale is flagged as attractive. */
 export const GOOD_SALE_YIELD_PCT = 15;

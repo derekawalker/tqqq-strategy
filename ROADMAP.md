@@ -6,13 +6,23 @@ it matters. Items are ordered by impact. Check off / delete sections as they lan
 
 Context for whoever picks this up: the app runs an 88-level TQQQ buy-the-dip
 ladder (`src/lib/levels.ts` — buy every 1% down from anchor, sell each lot
-+`sellPercentage`%, geometric lot sizing via `reductionFactor`), sells covered
-calls at ladder sell-prices and cash-secured puts at ladder buy-levels
-(`src/app/options/page.tsx`), and carries a QQQ deep-tail put hedge
-(`src/lib/hedgeTranches.ts`: crash ~0.15Δ/180d + catastrophe ~0.07Δ/365d,
-budgeted as a % of TQQQ value). Black-Scholes pricing + greeks live in
-`src/lib/putHedge.ts` (`bsPut`, `bsPutGreeks`, `strikeForDelta`). Regime model
-in `src/lib/sentiment.ts`. Backtest engine in `src/lib/ladderSim.ts`.
++`sellPercentage`%, geometric lot sizing via `reductionFactor`), sells
+cash-secured puts at ladder buy-levels (`src/app/options/page.tsx`), and carries
+a budgeted two-layer hedge on the Hedge page (`src/lib/putProgram.ts` — TQQQ
+puts sized by a % -of-account budget with delta-selected strikes; and
+`src/lib/vixLayer.ts` — a smaller VIX call sleeve with an entry gate). Hedge
+configuration persists per account via `src/lib/hedgeSettings.ts`.
+Black-Scholes pricing + greeks live in `src/lib/blackScholes.ts`; the shared
+IV surface (`IV_SCALE`, `ivFor`, `DIV_YIELD`) in `src/lib/volModel.ts`. Regime
+model in `src/lib/sentiment.ts`. Backtest engine in `src/lib/ladderSim.ts`.
+
+> **Removed August 2026.** The covered-call ladder and the QQQ tranche hedge
+> (`hedgeTranches`, `putHedge`, `crashStress`, `hedgeBacktest`, `hedgeBudget`,
+> `hedgeCarry`, `hedgeActions`) are gone. Covered calls were assigned too often
+> at ladder sell-strikes; block collars were then found to be structurally
+> unworkable, because the ladder sells lot-by-lot and leaves any block-level
+> short call uncovered before it goes in the money. Items below that reference
+> those modules are annotated where they no longer apply.
 
 ---
 
@@ -53,7 +63,7 @@ for vol, not direction.
 
 **Build, part A — per-row economics.** For each candidate strike row, using
 `bsPutGreeks` (puts) / put-call parity or an added `bsCallGreeks` (calls) with
-^VXN-derived IV (see `IV_SCALE` in hedgeTranches.ts — TQQQ options run ~3× the
+^VXN-derived IV (see `IV_SCALE` in volModel.ts — TQQQ options run ~3× the
 index IV; apply the same linear skew `ivFor`):
 
 - **Delta** — assignment-probability proxy.
@@ -74,41 +84,36 @@ banner with it:
 Keep the trendline only as the put-vs-call *tilt*; IV rank decides *how much*.
 This is the single highest-leverage change for option income.
 
-## 3. Crash stress-test table (Hedge page)
+## 3. Crash stress-test table — *partly landed*
 
-**Problem.** The hedge backtest panel answers "how would this have done
-historically." Nothing answers "if 2020 happens Monday, where does *today's
-actual book* land?" — and the deep-OTM legs' crash payoff is mostly **vega**,
-so spot-only intuition badly underestimates it.
+The Hedge page now carries an episode table (`EPISODES` in
+`src/lib/vixLayer.ts`) pricing today's plan against the real drawdown and real
+peak VIX of Feb 2018, Aug 2024, Apr 2025, Mar 2020 and the 2022 bear, with the
+puts marked at each episode's vol rather than at expiry intrinsic — which is the
+point the original item made: the payoff is mostly **vega**, and intrinsic-only
+figures understate it badly (0% offset vs 20–42% in testing).
 
-**Build.** A table on the Hedge page repricing the entire book under instant
-shocks. Scenarios (columns): QQQ −10/−20/−30/−40%, paired with shocked IV of
-roughly 35/50/70/90 (^VXN points). Rows:
+**Still missing**, and worth building:
 
-1. **TQQQ position loss** — use compounded fast-move beta ~2.8–3.2×, not naive
-   3× (a −30% QQQ gap ≈ −75–80% TQQQ; the header comment in hedgeTranches.ts
-   already documents this mapping).
-2. **Hedge payoff** — reprice each open QQQ put with `bsPutGreeks(shockedSpot,
-   strike, remainingT, shockedIV)` minus current mark.
-3. **Short-option book damage** — the TQQQ CSPs/covered calls get crushed in
-   the same move; reprice them too. They MUST be in the table.
-4. **Ladder cash demand** at the shocked price (reuse item 1's `cashNeeded`).
-5. **Net portfolio drawdown** — the headline number per scenario.
+1. **Short-option book damage** — the TQQQ CSPs get crushed in the same move.
+   Not in the table yet, and they should be.
+2. **Ladder cash demand** at the shocked price (reuse item 1's `cashNeeded`).
+3. **Net portfolio drawdown** — one headline number per scenario, combining all
+   three legs.
 
-All inputs exist: positions in AppContext, greeks in putHedge.ts, skew/IV
-scaling in hedgeTranches.ts.
+Inputs exist: positions in AppContext, greeks in `blackScholes.ts`, skew/IV
+scaling in `volModel.ts`.
 
 ## 4. Unified daily action queue (dashboard)
 
-**Problem.** Actions are scattered: PutHedgePanel builds a prioritized hedge
-action list (`src/app/hedge/PutHedgePanel.tsx`, ~line 193), the Options page
-has per-position advice, alerts live in `PageAlertBanner`. Daily use requires
-visiting 4+ pages.
+**Problem.** Actions are scattered: the Hedge page states this week's buy/sell
+for each layer, the Options page has per-position advice, alerts live in
+`PageAlertBanner`. Daily use requires visiting 4+ pages.
 
 **Build.** One ordered checklist at the top of the dashboard aggregating:
 
-- Hedge actions (reuse PutHedgePanel's `ActionItem` builder — extract it to a
-  lib so both pages share it).
+- Hedge actions — `planProgram()` and `planVixLayer()` already return a
+  `{ action, actionContracts }` pair each; surface both.
 - Option-position management flags (see item 5's rules).
 - Pending/near ladder buys and sells (working orders + levels near spot).
 - Regime changes from sentiment.ts ("dropped to Neutral — review sizing").
@@ -122,8 +127,7 @@ is the feature that produces it.
 (`PositionAdvice` in options/page.tsx) informs but doesn't instruct. Near
 expiry, remaining theta is pennies while gamma risk explodes.
 
-**Build.** Badge per short position, mirroring the hedge side's `CloseRec`
-pattern in PutHedgePanel:
+**Build.** Badge per short position:
 
 - **Close at 50–65% of max profit** (`currentPnl / totalCredit ≥ 0.5`) →
   "≥50% captured — close & redeploy".
@@ -171,19 +175,18 @@ hedge buys disappears.
   settings modal. Requires `NEXT_PUBLIC_VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/
   `VAPID_SUBJECT` and a `CRON_SECRET` set in `.env.local`, the Vercel
   project's env vars, and as a GitHub Actions repo secret.
-- **Snap income strikes to the listed chain** — `buildCallRows`/`buildPutRows`
-  assume a $0.50 strike grid; TQQQ lists $1 strikes in some price bands. Reuse
-  the `ChainResolver` pattern from hedgeTranches.ts to snap to real contracts.
+- **Snap income strikes to the listed chain** — `buildPutRows` assumes a $0.50
+  strike grid; TQQQ lists $1 strikes in some price bands. `snapToListedStrike`
+  (`src/lib/schwab/chains.ts`) already does this for the rows that use it.
 - **Core-and-ladder split (backtest first)** — a `corePct` slice bought at t0
-  and never sold, remainder runs the ladder. Addresses bull-market cash drag;
-  covered calls on the core add income. One new param in `LadderParams`.
+  and never sold, remainder runs the ladder. Addresses bull-market cash drag.
+  One new param in `LadderParams`.
 - **Regime-dependent sell target (backtest first)** — 5% sell target in
   Risk-On, 3% in Neutral/Risk-Off for faster turnover before trend resumes.
   Cheap sweep in the existing sim.
-- ~~**Put-spread financing for the catastrophe leg, high-vol only**~~ — done.
-  `buildTranchePlan` (`src/lib/hedgeTranches.ts`) finances the catastrophe leg
-  as a put spread once ^VXN > `PUT_SPREAD_VXN_THRESHOLD` (35), surfaced on the
-  Hedge page with a "spread-financed" badge.
+- ~~**Put-spread financing for the catastrophe leg**~~ — removed with the
+  tranche hedge. Financing a long put by selling something against it was tried
+  again as a block collar and abandoned: see the note at the top.
 
 ---
 

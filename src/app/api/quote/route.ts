@@ -3,9 +3,12 @@ import { getEquityMark } from "@/lib/tastytrade/quotes";
 
 const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
-export async function GET() {
+export async function GET(req: Request) {
+  // Defaults to TQQQ so every existing caller is unaffected; the Hedge page
+  // asks for QQQ, which is what its puts are written on.
+  const symbol = new URL(req.url).searchParams.get("symbol") ?? "TQQQ";
   try {
-    const quote = await yf.quote("TQQQ");
+    const quote = await yf.quote(symbol);
 
     const {
       marketState,
@@ -30,7 +33,7 @@ export async function GET() {
 
     // Outside regular market hours, run DXLink in parallel to get the live tastytrade price
     if (marketState !== "REGULAR") {
-      const tastyPrice = await getEquityMark("TQQQ");
+      const tastyPrice = await getEquityMark(symbol);
       if (tastyPrice != null && tastyPrice > 0) {
         price = tastyPrice;
       }

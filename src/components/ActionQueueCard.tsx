@@ -3,7 +3,6 @@
 import { Paper, Stack, Group, Text, ThemeIcon, Box, Skeleton } from "@mantine/core";
 import { useRouter } from "next/navigation";
 import {
-  IconShieldOff,
   IconChartCandle,
   IconList,
   IconRadar,
@@ -15,7 +14,6 @@ import { useActionQueue } from "@/lib/hooks/useActionQueue";
 import type { QueueAction, QueueSource } from "@/lib/dashboardActions";
 
 const SOURCE_ICONS: Record<QueueSource, React.ReactNode> = {
-  hedge: <IconShieldOff size={14} />,
   options: <IconChartCandle size={14} />,
   ladder: <IconList size={14} />,
   regime: <IconRadar size={14} />,

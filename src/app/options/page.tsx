@@ -10,10 +10,8 @@ import {
   Skeleton,
   Center,
   NumberInput,
-  SimpleGrid,
   Badge,
   Box,
-  SegmentedControl,
   Alert,
   Paper,
   Divider,
@@ -46,7 +44,7 @@ import {
 import type { OptionPosition } from "@/lib/schwab/parse";
 import type { Level } from "@/lib/levels";
 import { estimateCallSale, estimatePutSale, type SaleEconomics } from "@/lib/optionYield";
-import { ivFor, IV_SCALE, DIV_YIELD } from "@/lib/hedgeTranches";
+import { ivFor, IV_SCALE, DIV_YIELD } from "@/lib/volModel";
 import { ivRankGuidance, IV_RANK_GUIDANCE_LABEL } from "@/lib/ivRank";
 import { nextEvent, eventGuidance, MARKET_EVENTS } from "@/lib/marketEvents";
 import { snapToListedStrike } from "@/lib/schwab/chains";
@@ -756,11 +754,6 @@ function EventCalendarBanner() {
   );
 }
 
-/** Round up to nearest $0.50 — used for calls (sell above current price) */
-function callStrikeForLevel(level: Level): number {
-  return Math.ceil(level.sellPrice / 0.5) * 0.5;
-}
-
 /** Round down to nearest $0.50 — used for puts (buy below current price) */
 function putStrikeForLevel(level: Level): number {
   return Math.floor(level.buyPrice / 0.5) * 0.5;
@@ -772,128 +765,6 @@ function matchPositions(
   strike: number,
 ): OptionPosition[] {
   return positions.filter((p) => Math.abs(p.strike - strike) < 0.01);
-}
-
-// ── calls allocation ───────────────────────────────────────────────────────
-
-interface CallRow {
-  strike: number;
-  levelNums: number[];
-  ownedShares: number;
-  carryIn: number;
-  contracts: number;
-  carryOut: number;
-  inSafeZone: boolean;
-  itm: boolean;
-  isCurrent: boolean;
-  positions: OptionPosition[];
-}
-
-function buildCallRows(
-  levels: Level[],
-  ownedSet: Set<number>,
-  currentLevel: number,
-  safetyLevels: number,
-  positions: OptionPosition[],
-  currentPrice: number,
-  listedStrikes: number[] = [],
-): CallRow[] {
-  const maxSafe = currentLevel - safetyLevels;
-
-  const strikeToLevels = new Map<number, number[]>();
-  for (let n = 0; n < levels.length; n++) {
-    const s = callStrikeForLevel(levels[n]);
-    if (!strikeToLevels.has(s)) strikeToLevels.set(s, []);
-    strikeToLevels.get(s)!.push(n);
-  }
-
-  const level0Strike = callStrikeForLevel(levels[0]);
-  const lowStrike = callStrikeForLevel(levels[currentLevel]);
-  const safeEdge = callStrikeForLevel(levels[Math.max(0, maxSafe)]);
-
-  // Extend top of ladder if a position has a strike above level 0
-  const highestPositionStrike = positions.reduce<number | null>(
-    (max, p) => (max === null ? p.strike : Math.max(max, p.strike)),
-    null,
-  );
-  const highStrike =
-    highestPositionStrike !== null && highestPositionStrike > level0Strike
-      ? Math.ceil(highestPositionStrike / 0.5) * 0.5
-      : level0Strike;
-
-  // Always show 2 rows below the ITM boundary; extend further if an open position is ITM
-  const itmFirstStrike = Math.floor((currentPrice - 0.001) / 0.5) * 0.5;
-  const lowestPositionStrike = positions.reduce<number | null>(
-    (min, p) => (min === null ? p.strike : Math.min(min, p.strike)),
-    null,
-  );
-  const itmExtension =
-    lowestPositionStrike !== null && lowestPositionStrike < itmFirstStrike
-      ? Math.floor(lowestPositionStrike / 0.5) * 0.5
-      : itmFirstStrike;
-  const extendedLowStrike = Math.min(itmExtension, itmFirstStrike - 0.5);
-
-  // Pass 1 — walk the ideal $0.50 model grid, gating owned shares by the true
-  // (ideal-strike) safe zone exactly as before.
-  interface RawRow { idealStrike: number; levelNums: number[]; ownedShares: number; isCurrent: boolean }
-  const raw: RawRow[] = [];
-  for (
-    let s = highStrike;
-    s >= extendedLowStrike - 0.01;
-    s = Math.round((s - 0.5) * 100) / 100
-  ) {
-    const strike = Math.round(s * 100) / 100;
-    const levelNums = strikeToLevels.get(strike) ?? [];
-    const inSafeZone = strike >= safeEdge;
-    const isCurrent = levelNums.includes(currentLevel);
-    const ownedShares = levelNums
-      .filter((n) => inSafeZone && n <= maxSafe && ownedSet.has(n))
-      .reduce((sum, n) => sum + levels[n].shares, 0);
-    raw.push({ idealStrike: strike, levelNums, ownedShares, isCurrent });
-  }
-
-  // Pass 2 — snap each ideal strike to a real listed contract and merge model
-  // rows that collapse onto the same tradable strike (e.g. TQQQ's $1 bands).
-  const mergedRows: { strike: number; levelNums: number[]; ownedShares: number; isCurrent: boolean }[] = [];
-  for (const r of raw) {
-    const strike = snapToListedStrike(r.idealStrike, listedStrikes);
-    const last = mergedRows[mergedRows.length - 1];
-    if (last && last.strike === strike) {
-      last.levelNums = last.levelNums.concat(r.levelNums);
-      last.ownedShares += r.ownedShares;
-      last.isCurrent = last.isCurrent || r.isCurrent;
-    } else {
-      mergedRows.push({ strike, levelNums: [...r.levelNums], ownedShares: r.ownedShares, isCurrent: r.isCurrent });
-    }
-  }
-
-  // Pass 3 — carry/contracts math runs over the merged, real-strike rows.
-  const rows: CallRow[] = [];
-  let carryIn = 0;
-  for (const m of mergedRows) {
-    const inSafeZone = m.strike >= safeEdge;
-    const itm = m.strike < currentPrice;
-    const total = m.ownedShares + carryIn;
-    const contracts = inSafeZone ? Math.floor(total / 100) : 0;
-    const carryOut = inSafeZone ? total % 100 : 0;
-
-    rows.push({
-      strike: m.strike,
-      levelNums: m.levelNums,
-      ownedShares: m.ownedShares,
-      carryIn,
-      contracts,
-      carryOut,
-      inSafeZone,
-      itm,
-      isCurrent: m.isCurrent,
-      positions: matchPositions(positions, m.strike),
-    });
-
-    carryIn = carryOut;
-  }
-
-  return rows;
 }
 
 // ── puts allocation ────────────────────────────────────────────────────────
@@ -1229,282 +1100,6 @@ function PositionCells({
   );
 }
 
-// ── calls table ───────────────────────────────────────────────────────────
-
-function CallsTable({
-  rows,
-  color,
-  safetyLevels,
-  onSafetyChange,
-  privacyMode,
-  totalValue,
-  callsAvailableLabel,
-  btoPositions,
-  riskStrike,
-  riskStrikeAvg,
-  currentLevel,
-  spot,
-  baseIv,
-  targetDte,
-}: {
-  rows: CallRow[];
-  color: string;
-  safetyLevels: number;
-  onSafetyChange: (v: number) => void;
-  privacyMode: boolean;
-  totalValue: number;
-  callsAvailableLabel: string;
-  btoPositions: OptionPosition[];
-  riskStrike: number | null;
-  riskStrikeAvg: number | null;
-  currentLevel: number;
-  spot: number;
-  baseIv: number | null;
-  targetDte: number;
-}) {
-  const mask = createMask(privacyMode);
-  const posKey = (strike: number, expiry: string) => `${strike}-${expiry}`;
-  const openContracts = rows.reduce(
-    (sum, r) => sum + r.positions.reduce((s, p) => s + p.shortQty, 0),
-    0,
-  );
-  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(
-    () =>
-      new Set(
-        rows.flatMap((r) =>
-          r.positions
-            .filter((p) => daysUntil(p.expiry) <= 5)
-            .map((p) => posKey(r.strike, p.expiry)),
-        ),
-      ),
-  );
-  const toggleAdvice = (key: string) =>
-    setExpandedKeys((prev) => {
-      const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
-      return next;
-    });
-
-  return (
-    <Stack gap="xs">
-      <Group justify="space-between" align="center">
-        <Text fw={700} size="sm">
-          Covered Calls
-          {openContracts > 0 && (
-            <Text span c="dimmed" fw={400}>
-              {" "}
-              ({openContracts})
-            </Text>
-          )}
-        </Text>
-        <Group gap="xs" align="center">
-          <Text size="xs" c="dimmed">
-            Safety Levels
-          </Text>
-          <NumberInput
-            value={safetyLevels}
-            onChange={(v) => onSafetyChange(typeof v === "number" ? v : 0)}
-            min={0}
-            max={30}
-            size="xs"
-            w={64}
-          />
-        </Group>
-      </Group>
-      <Group justify="flex-end">
-        <Button.Group>
-          <Button size="compact-xs" variant="default" onClick={() => setExpandedKeys(new Set())}>Collapse all</Button>
-          <Button size="compact-xs" variant="default" onClick={() => setExpandedKeys(new Set(rows.flatMap((r) => r.positions.filter((p) => daysUntil(p.expiry) <= 5).map((p) => posKey(r.strike, p.expiry)))))}>Expiring soon</Button>
-          <Button size="compact-xs" variant="default" onClick={() => setExpandedKeys(new Set(rows.flatMap((r) => r.positions.map((p) => posKey(r.strike, p.expiry)))))}>Expand all</Button>
-        </Button.Group>
-      </Group>
-
-      <OptionsSummaryCard
-        totalValue={totalValue}
-        availableLabel="Can Open"
-        availableValue={callsAvailableLabel}
-        color={color}
-        privacyMode={privacyMode}
-      />
-
-      {btoPositions.length > 0 && (
-        <Alert
-          color="red"
-          variant="light"
-          icon={<IconAlertTriangle size={16} />}
-        >
-          <Text size="sm" fw={600}>
-            Accidental BUY TO OPEN detected
-          </Text>
-          <Text size="xs" c="dimmed">
-            {btoPositions
-              .map((p) => `$${p.strike.toFixed(2)} call ×${p.longQty}`)
-              .join(", ")}{" "}
-            — sell to close ASAP
-          </Text>
-        </Alert>
-      )}
-
-      {rows.length === 0 ? (
-        <Center h={80}>
-          <Text size="sm" c="dimmed">
-            No levels configured.
-          </Text>
-        </Center>
-      ) : (
-        <Table>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Level</Table.Th>
-              <Table.Th ta="right">Strike</Table.Th>
-              <Table.Th ta="right">
-                <Tooltip
-                  label={`Modeled annualized yield on shares + delta for a ~${targetDte}-day sale, off live IV`}
-                  withArrow
-                >
-                  <span style={{ cursor: "default", borderBottom: "1px dotted" }}>
-                    Yield
-                  </span>
-                </Tooltip>
-              </Table.Th>
-              <Table.Th ta="right">
-                <Tooltip
-                  label="Recommended number of contracts to sell"
-                  withArrow
-                >
-                  <span
-                    style={{ cursor: "default", borderBottom: "1px dotted" }}
-                  >
-                    Qty
-                  </span>
-                </Tooltip>
-              </Table.Th>
-              <Table.Th ta="center">Contracts</Table.Th>
-              <Table.Th ta="right" className="hide-mobile">
-                Value
-              </Table.Th>
-              <Table.Th>Progress</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {(() => {
-              const lo = rows.length > 0 ? rows[rows.length - 1].strike : 0;
-              const hi = rows.length > 0 ? rows[0].strike : 0;
-              const closest = (target: number | null) =>
-                target != null &&
-                rows.length > 0 &&
-                target >= lo &&
-                target <= hi
-                  ? rows.reduce(
-                      (best, row, i) =>
-                        Math.abs(row.strike - target) <
-                        Math.abs(rows[best].strike - target)
-                          ? i
-                          : best,
-                      0,
-                    )
-                  : -1;
-              const riskIdx = closest(riskStrike);
-              const avgIdx = closest(riskStrikeAvg);
-              return rows.map((row, i) => {
-                const dim = row.positions.length === 0 && (!row.inSafeZone || row.contracts === 0);
-                const isItmBoundary = row.itm && !rows[i - 1]?.itm;
-                const rowBg = row.inSafeZone
-                  ? i % 2 === 0 ? `var(--mantine-color-${color}-light-hover)` : `var(--mantine-color-${color}-light)`
-                  : i % 2 === 0 ? "rgba(255,255,255,0.06)" : undefined;
-                const firstPos = row.positions[0] ?? null;
-                const firstKey = firstPos ? posKey(row.strike, firstPos.expiry) : "";
-                const firstExpanded = firstPos ? expandedKeys.has(firstKey) : false;
-                const econ = rowEconomics("call", spot, row.strike, targetDte, baseIv);
-                return (
-                  <Fragment key={row.strike}>
-                    {isItmBoundary && (
-                      <Table.Tr bg="rgba(251,146,60,0.15)">
-                        <Table.Td colSpan={7} py={2} style={{ textAlign: "center" }}>
-                          <Text size="9px" fw={700} c="rgba(251,146,60,0.8)" tt="uppercase" style={{ letterSpacing: "0.08em" }}>▼ ITM ▼</Text>
-                        </Table.Td>
-                      </Table.Tr>
-                    )}
-                    <Table.Tr
-                      bg={rowBg}
-                      style={{ opacity: dim ? 0.4 : 1, cursor: firstPos ? "pointer" : undefined }}
-                      onClick={firstPos ? () => toggleAdvice(firstKey) : undefined}
-                    >
-                      <Table.Td style={{ position: "relative", ...(firstPos && firstExpanded ? { borderTop: POSITION_BORDER, borderLeft: POSITION_BORDER } : {}) }}>
-                        {firstPos && (firstExpanded
-                          ? <IconChevronDown size={10} style={{ position: "absolute", left: 2, top: "50%", transform: "translateY(-50%)", color: "var(--mantine-color-dimmed)" }} />
-                          : <IconChevronRight size={10} style={{ position: "absolute", left: 2, top: "50%", transform: "translateY(-50%)", color: "var(--mantine-color-dimmed)" }} />
-                        )}
-                        {i === riskIdx && <IconPlayerPlayFilled size={8} style={{ position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)", color: "rgba(20,184,166,1)" }} />}
-                        {i === avgIdx && i !== riskIdx && <IconPlayerPlayFilled size={8} style={{ position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)", color: "rgba(255,255,255,0.6)" }} />}
-                        {i === avgIdx && i === riskIdx && <IconPlayerPlayFilled size={8} style={{ position: "absolute", left: -2, top: "50%", transform: "translateY(-50%)", color: "rgba(20,184,166,1)" }} />}
-                        <Group gap={4}>
-                          <Text size="xs" c={row.levelNums.length === 0 ? "dimmed" : undefined}>
-                            {row.levelNums.length > 0 ? row.levelNums.join(", ") : "—"}
-                          </Text>
-                          {row.carryIn > 0 && <Text size="xs" c="dimmed">(+{row.carryIn})</Text>}
-                        </Group>
-                      </Table.Td>
-                      <Table.Td ta="right" style={firstPos && firstExpanded ? { borderTop: POSITION_BORDER } : undefined}>
-                        <Text size="xs">{mask(`$${row.strike.toFixed(2)}`)}</Text>
-                      </Table.Td>
-                      <YieldCell econ={econ} style={firstPos && firstExpanded ? { borderTop: POSITION_BORDER } : undefined} />
-                      <Table.Td ta="right" style={firstPos && firstExpanded ? { borderTop: POSITION_BORDER } : undefined}>
-                        {row.contracts > 0 ? (
-                          <Badge color="gray" variant="light" size="sm">{row.contracts}</Badge>
-                        ) : row.inSafeZone && row.ownedShares > 0 ? (
-                          <Text size="xs" c="dimmed">{row.ownedShares}sh</Text>
-                        ) : (
-                          <Text size="sm" c="dimmed">—</Text>
-                        )}
-                      </Table.Td>
-                      <PositionCells position={firstPos} color={color} privacyMode={privacyMode} inSafeZone={row.inSafeZone} withBorder={!!firstPos && firstExpanded} />
-                    </Table.Tr>
-                    {firstPos && firstExpanded && (
-                      <Table.Tr bg={rowBg} style={{ opacity: dim ? 0.4 : 1 }}>
-                        <Table.Td colSpan={7} py={4} style={{ borderTop: "1px dashed var(--mantine-color-dark-3)", borderLeft: POSITION_BORDER, borderRight: POSITION_BORDER, borderBottom: POSITION_BORDER }}>
-                          <PositionAdvice position={firstPos} inSafeZone={row.inSafeZone} itm={row.itm} levelNums={row.levelNums} currentLevel={currentLevel} privacyMode={privacyMode} />
-                        </Table.Td>
-                      </Table.Tr>
-                    )}
-                    {row.positions.slice(1).map((pos) => {
-                      const key = posKey(row.strike, pos.expiry);
-                      const expanded = expandedKeys.has(key);
-                      return (
-                        <Fragment key={key}>
-                          <Table.Tr bg={rowBg} style={{ cursor: "pointer" }} onClick={() => toggleAdvice(key)}>
-                            <Table.Td style={{ position: "relative", ...(expanded ? { borderTop: POSITION_BORDER, borderLeft: POSITION_BORDER } : {}) }}>
-                              {expanded
-                                ? <IconChevronDown size={10} style={{ position: "absolute", left: 2, top: "50%", transform: "translateY(-50%)", color: "var(--mantine-color-dimmed)" }} />
-                                : <IconChevronRight size={10} style={{ position: "absolute", left: 2, top: "50%", transform: "translateY(-50%)", color: "var(--mantine-color-dimmed)" }} />
-                              }
-                            </Table.Td>
-                            <Table.Td style={expanded ? { borderTop: POSITION_BORDER } : undefined} />
-                            <Table.Td style={expanded ? { borderTop: POSITION_BORDER } : undefined} />
-                            <Table.Td style={expanded ? { borderTop: POSITION_BORDER } : undefined} />
-                            <PositionCells position={pos} color={color} privacyMode={privacyMode} inSafeZone={row.inSafeZone} withBorder={expanded} />
-                          </Table.Tr>
-                          {expanded && (
-                            <Table.Tr bg={rowBg}>
-                              <Table.Td colSpan={7} py={4} style={{ borderTop: "1px dashed var(--mantine-color-dark-3)", borderLeft: POSITION_BORDER, borderRight: POSITION_BORDER, borderBottom: POSITION_BORDER }}>
-                                <PositionAdvice position={pos} inSafeZone={row.inSafeZone} itm={row.itm} levelNums={row.levelNums} currentLevel={currentLevel} privacyMode={privacyMode} />
-                              </Table.Td>
-                            </Table.Tr>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                  </Fragment>
-                );
-              });
-            })()}
-          </Table.Tbody>
-        </Table>
-      )}
-    </Stack>
-  );
-}
-
 // ── puts table ────────────────────────────────────────────────────────────
 
 function PutsTable({
@@ -1791,23 +1386,16 @@ function OptionsPageInner() {
     privacyMode,
     updateAccountSettings,
     quote,
-    tqqqShares,
-    workingOrders,
     balances,
   } = useApp();
 
   const levelsSummary = useLevels();
   const color = useAccountColor();
   const isMobile = useMediaQuery("(max-width: 768px)");
-  const [tabOverride, setTabOverride] = useState<{
-    accountNumber: string;
-    tab: "calls" | "puts";
-  } | null>(null);
 
   const searchParams = useSearchParams();
   const testAlerts = searchParams.has("testalerts");
 
-  const callSafety = activeAccount?.settings.callSafetyLevels ?? 8;
   const putSafety = activeAccount?.settings.putSafetyLevels ?? 8;
 
   // IV rank (^VXN percentile) drives sizing guidance; loaded once on mount.
@@ -1850,12 +1438,6 @@ function OptionsPageInner() {
     return () => { cancelled = true; };
   }, [targetDte]);
 
-  const handleCallSafety = (v: number) => {
-    if (activeAccount)
-      updateAccountSettings(activeAccount.accountNumber, {
-        callSafetyLevels: v,
-      });
-  };
   const handlePutSafety = (v: number) => {
     if (activeAccount)
       updateAccountSettings(activeAccount.accountNumber, {
@@ -1863,62 +1445,13 @@ function OptionsPageInner() {
       });
   };
 
-  // This page is the TQQQ covered-call / cash-secured-put ladder. Exclude QQQ
-  // options — those are the protective hedge, tracked on the Hedge page.
-  const calls = useMemo(
-    () => optionPositions.filter((p) => p.putCall === "CALL" && p.underlyingSymbol !== "QQQ"),
-    [optionPositions],
-  );
+  // This page is the TQQQ cash-secured-put ladder. Exclude QQQ options, and
+  // calls entirely — the collar's call legs live on the Hedge page.
   const puts = useMemo(
     () => optionPositions.filter((p) => p.putCall === "PUT" && p.underlyingSymbol !== "QQQ"),
     [optionPositions],
   );
 
-  const mobileTab = useMemo((): "calls" | "puts" => {
-    if (
-      tabOverride !== null &&
-      tabOverride.accountNumber === activeAccount?.accountNumber
-    )
-      return tabOverride.tab;
-    if (!activeAccount || snapshotLoading) return "calls";
-    const saved = localStorage.getItem(
-      `options-tab-${activeAccount.accountNumber}`,
-    );
-    if (saved === "calls" || saved === "puts") return saved;
-    return calls.length === 0 ? "puts" : "calls";
-  }, [tabOverride, activeAccount, snapshotLoading, calls.length]);
-
-  const handleMobileTabChange = (v: "calls" | "puts") => {
-    if (activeAccount) {
-      localStorage.setItem(`options-tab-${activeAccount.accountNumber}`, v);
-    }
-    setTabOverride(
-      activeAccount
-        ? { accountNumber: activeAccount.accountNumber, tab: v }
-        : null,
-    );
-  };
-  const callBtoPositions = useMemo(() => {
-    if (testAlerts) {
-      const strike = calls.find((p) => p.shortQty > 0)?.strike ?? 60;
-      return [
-        {
-          accountNumber: "",
-          symbol: "",
-          underlyingSymbol: "TQQQ",
-          putCall: "CALL" as const,
-          strike,
-          expiry: "",
-          shortQty: 0,
-          longQty: 2,
-          marketValue: 0,
-          averagePrice: 0,
-          openedAt: null,
-        },
-      ];
-    }
-    return calls.filter((p) => p.longQty > 0);
-  }, [calls, testAlerts]);
   const putBtoPositions = useMemo(() => {
     if (testAlerts) {
       const strike = puts.find((p) => p.shortQty > 0)?.strike ?? 45;
@@ -1941,22 +1474,6 @@ function OptionsPageInner() {
     return puts.filter((p) => p.longQty > 0);
   }, [puts, testAlerts]);
 
-  const callRows = useMemo(() => {
-    const levels = levelsSummary?.levels ?? [];
-    const currentLevel = levelsSummary?.currentLevel ?? -1;
-    if (levels.length === 0 || currentLevel < 1) return [];
-    const ownedSet = new Set(levelsSummary?.ownedLevels.map((l) => l.n) ?? []);
-    return buildCallRows(
-      levels,
-      ownedSet,
-      currentLevel,
-      callSafety,
-      calls,
-      quote.price,
-      listedStrikes,
-    );
-  }, [levelsSummary, callSafety, calls, quote.price, listedStrikes]);
-
   const putRows = useMemo(() => {
     const levels = levelsSummary?.levels ?? [];
     const currentLevel = levelsSummary?.currentLevel ?? -1;
@@ -1971,31 +1488,6 @@ function OptionsPageInner() {
     [balances, activeAccount],
   );
 
-  const callsTotalValue = useMemo(
-    () =>
-      calls.reduce(
-        (sum, p) =>
-          sum + p.averagePrice * p.shortQty * 100 - Math.abs(p.marketValue),
-        0,
-      ),
-    [calls],
-  );
-
-  const { callsAvailable, callsAvailableShares } = useMemo(() => {
-    const existingCallShares = calls.reduce(
-      (sum, p) => sum + p.shortQty * 100,
-      0,
-    );
-    const queuedSellShares = workingOrders
-      .filter((o) => o.side === "SELL" && o.status === "WORKING")
-      .reduce((sum, o) => sum + o.shares, 0);
-    const net = tqqqShares - existingCallShares - queuedSellShares;
-    return {
-      callsAvailable: Math.floor(Math.max(0, net) / 100),
-      callsAvailableShares: net >= 0 ? net % 100 : net,
-    };
-  }, [tqqqShares, calls, workingOrders]);
-
   const putsTotalValue = useMemo(
     () =>
       puts.reduce(
@@ -2008,13 +1500,11 @@ function OptionsPageInner() {
 
   const putsAvailableCash = activeBalance?.cashAvailableForTrading ?? 0;
 
-  const { riskStrikeCall, riskStrikeAvgCall, riskStrikePut, riskStrikeAvgPut } =
+  const { riskStrikePut, riskStrikeAvgPut } =
     useMemo(() => {
       const { closes30, dates30, daysOfWeek30, price } = quote;
       if (closes30.length < 2 || price <= 0)
         return {
-          riskStrikeCall: null,
-          riskStrikeAvgCall: null,
           riskStrikePut: null,
           riskStrikeAvgPut: null,
         };
@@ -2032,23 +1522,15 @@ function OptionsPageInner() {
         (c) =>
           closes30[dates30.indexOf(c.x2)] - closes30[dates30.indexOf(c.x1)],
       );
-      const maxUp = moves.length ? Math.max(...moves) : 0;
       const maxDown = moves.length ? Math.min(...moves) : 0;
       const avgAbs = moves.length
         ? moves.reduce((s, m) => s + Math.abs(m), 0) / moves.length
         : 0;
       return {
-        riskStrikeCall: price + maxUp,
-        riskStrikeAvgCall: price + avgAbs,
         riskStrikePut: price + maxDown,
         riskStrikeAvgPut: price - avgAbs,
       };
     }, [quote]);
-
-  const callsAvailableLabel =
-    callsAvailable > 0
-      ? `${callsAvailable} contract${callsAvailable !== 1 ? "s" : ""}${callsAvailableShares > 0 ? ` (${callsAvailableShares} sh)` : ""}`
-      : `0 contracts${callsAvailableShares !== 0 ? ` (${callsAvailableShares} sh)` : ""}`;
 
   if (snapshotLoading) {
     const optCols = [45, 50, 35, 40, 45, 70];
@@ -2056,54 +1538,45 @@ function OptionsPageInner() {
     return (
       <Stack gap="md">
         <Skeleton height={28} width={90} radius="sm" />
-        <SimpleGrid cols={isMobile ? 1 : 2} spacing="xl">
-          {["Covered Calls", "Cash Secured Puts"].map((label, pi) => (
-            <Paper
-              key={label}
-              p="md"
-              radius={CARD_RADIUS}
-              style={{ background: "var(--mantine-color-dark-7)" }}
-            >
-              <Stack gap="md">
-                <Group justify="space-between" align="flex-end">
-                  <Skeleton
-                    height={18}
-                    width={label.length * 7.5}
-                    radius="sm"
-                  />
-                  <Skeleton height={30} width={90} radius="sm" />
-                </Group>
-                <Skeleton height={48} radius="md" />
-                <Table>
-                  <Table.Thead>
-                    <Table.Tr>
-                      {optCols.map((w, i) => (
-                        <Table.Th key={i}>
-                          <Skeleton height={11} width={w} radius="sm" />
-                        </Table.Th>
-                      ))}
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {Array.from({ length: 6 }).map((_, i) => (
-                      <Table.Tr key={i} style={{ opacity: i > 4 ? 0.4 : 1 }}>
-                        {optRows.map((w, j) => (
-                          <Table.Td key={j}>
-                            <Skeleton
-                              height={13}
-                              width={w + ((i + pi) % 3 === 0 && j > 0 ? 8 : 0)}
-                              radius="sm"
-                            />
-                          </Table.Td>
-                        ))}
-                      </Table.Tr>
+        <Paper
+          p="md"
+          radius={CARD_RADIUS}
+          style={{ background: "var(--mantine-color-dark-7)" }}
+        >
+          <Stack gap="md">
+            <Group justify="space-between" align="flex-end">
+              <Skeleton height={18} width={130} radius="sm" />
+              <Skeleton height={30} width={90} radius="sm" />
+            </Group>
+            <Skeleton height={48} radius="md" />
+            <Table>
+              <Table.Thead>
+                <Table.Tr>
+                  {optCols.map((w, i) => (
+                    <Table.Th key={i}>
+                      <Skeleton height={11} width={w} radius="sm" />
+                    </Table.Th>
+                  ))}
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <Table.Tr key={i} style={{ opacity: i > 4 ? 0.4 : 1 }}>
+                    {optRows.map((w, j) => (
+                      <Table.Td key={j}>
+                        <Skeleton
+                          height={13}
+                          width={w + (i % 3 === 0 && j > 0 ? 8 : 0)}
+                          radius="sm"
+                        />
+                      </Table.Td>
                     ))}
-                  </Table.Tbody>
-                </Table>
-              </Stack>
-            </Paper>
-          ))}
-        </SimpleGrid>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </Stack>
+        </Paper>
       </Stack>
     );
   }
@@ -2139,52 +1612,22 @@ function OptionsPageInner() {
           <IvRankBanner ivRank={ivData?.ivRank ?? null} loading={ivLoading} />
           {dteControl}
         </Group>
-        <SegmentedControl
-          fullWidth
+        <PutsTable
+          rows={putRows}
           color={color}
-          value={mobileTab}
-          onChange={(v) => handleMobileTabChange(v as "calls" | "puts")}
-          data={[
-            { label: "Covered Calls", value: "calls" },
-            { label: "Cash Secured Puts", value: "puts" },
-          ]}
-          styles={{ root: { height: 44 }, label: { lineHeight: "28px" } }}
+          safetyLevels={putSafety}
+          onSafetyChange={handlePutSafety}
+          privacyMode={privacyMode}
+          totalValue={putsTotalValue}
+          availableCash={putsAvailableCash}
+          btoPositions={putBtoPositions}
+          riskStrike={riskStrikePut}
+          riskStrikeAvg={riskStrikeAvgPut}
+          currentLevel={levelsSummary?.currentLevel ?? -1}
+          spot={quote.price}
+          baseIv={baseIv}
+          targetDte={targetDte}
         />
-        {mobileTab === "calls" ? (
-          <CallsTable
-            rows={callRows}
-            color={color}
-            safetyLevels={callSafety}
-            onSafetyChange={handleCallSafety}
-            privacyMode={privacyMode}
-            totalValue={callsTotalValue}
-            callsAvailableLabel={callsAvailableLabel}
-            btoPositions={callBtoPositions}
-            riskStrike={riskStrikeCall}
-            riskStrikeAvg={riskStrikeAvgCall}
-            currentLevel={levelsSummary?.currentLevel ?? -1}
-            spot={quote.price}
-            baseIv={baseIv}
-            targetDte={targetDte}
-          />
-        ) : (
-          <PutsTable
-            rows={putRows}
-            color={color}
-            safetyLevels={putSafety}
-            onSafetyChange={handlePutSafety}
-            privacyMode={privacyMode}
-            totalValue={putsTotalValue}
-            availableCash={putsAvailableCash}
-            btoPositions={putBtoPositions}
-            riskStrike={riskStrikePut}
-            riskStrikeAvg={riskStrikeAvgPut}
-            currentLevel={levelsSummary?.currentLevel ?? -1}
-            spot={quote.price}
-            baseIv={baseIv}
-            targetDte={targetDte}
-          />
-        )}
       </Stack>
     );
   }
@@ -2205,52 +1648,28 @@ function OptionsPageInner() {
         <IvRankBanner ivRank={ivData?.ivRank ?? null} loading={ivLoading} />
         {dteControl}
       </Group>
-      <SimpleGrid cols={2} spacing="xl">
-        <Paper
-          p="md"
-          radius={CARD_RADIUS}
-          style={{ background: "var(--mantine-color-dark-7)" }}
-        >
-          <CallsTable
-            rows={callRows}
-            color={color}
-            safetyLevels={callSafety}
-            onSafetyChange={handleCallSafety}
-            privacyMode={privacyMode}
-            totalValue={callsTotalValue}
-            callsAvailableLabel={callsAvailableLabel}
-            btoPositions={callBtoPositions}
-            riskStrike={riskStrikeCall}
-            riskStrikeAvg={riskStrikeAvgCall}
-            currentLevel={levelsSummary?.currentLevel ?? -1}
-            spot={quote.price}
-            baseIv={baseIv}
-            targetDte={targetDte}
-          />
-        </Paper>
-        <Paper
-          p="md"
-          radius={CARD_RADIUS}
-          style={{ background: "var(--mantine-color-dark-7)" }}
-        >
-          <PutsTable
-            rows={putRows}
-            color={color}
-            safetyLevels={putSafety}
-            onSafetyChange={handlePutSafety}
-            privacyMode={privacyMode}
-            totalValue={putsTotalValue}
-            availableCash={putsAvailableCash}
-            btoPositions={putBtoPositions}
-            riskStrike={riskStrikePut}
-            riskStrikeAvg={riskStrikeAvgPut}
-            currentLevel={levelsSummary?.currentLevel ?? -1}
-            spot={quote.price}
-            baseIv={baseIv}
-            targetDte={targetDte}
-          />
-        </Paper>
-      </SimpleGrid>
+      <Paper
+        p="md"
+        radius={CARD_RADIUS}
+        style={{ background: "var(--mantine-color-dark-7)" }}
+      >
+        <PutsTable
+          rows={putRows}
+          color={color}
+          safetyLevels={putSafety}
+          onSafetyChange={handlePutSafety}
+          privacyMode={privacyMode}
+          totalValue={putsTotalValue}
+          availableCash={putsAvailableCash}
+          btoPositions={putBtoPositions}
+          riskStrike={riskStrikePut}
+          riskStrikeAvg={riskStrikeAvgPut}
+          currentLevel={levelsSummary?.currentLevel ?? -1}
+          spot={quote.price}
+          baseIv={baseIv}
+          targetDte={targetDte}
+        />
+      </Paper>
     </Stack>
   );
 }

@@ -47,10 +47,9 @@ const EMPTY_SETTINGS: AccountSettings = {
   reductionFactor: null,
   orderWarnBelow: null,
   orderBuffer: null,
-  callSafetyLevels: null,
   putSafetyLevels: null,
   levelResetDate: null,
-  hedgeBudgetFlippedOrderIds: null,
+  hedgeSettings: null,
 };
 
 export default function SettingsModal({ opened, onClose }: SettingsModalProps) {

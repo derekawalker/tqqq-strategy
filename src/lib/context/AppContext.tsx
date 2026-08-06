@@ -24,6 +24,7 @@ import {
   type BalanceSnapshot,
 } from "@/lib/balanceHistory";
 import { toDateKey } from "@/lib/format";
+import type { HedgeSettings } from "@/lib/hedgeSettings";
 export type {
   FilledOrder,
   FilledOptionOrder,
@@ -44,11 +45,13 @@ export interface AccountSettings {
   reductionFactor: number | null;
   orderWarnBelow: number | null;
   orderBuffer: number | null;
-  callSafetyLevels: number | null;
   putSafetyLevels: number | null;
   levelResetDate: Date | null;
-  /** QQQ-put order IDs the user manually flipped from their DTE-based budget default. */
-  hedgeBudgetFlippedOrderIds: number[] | null;
+  /**
+   * Hedge page configuration, stored as one blob. Always read it through
+   * mergeHedgeSettings() so a blob saved before a knob existed still works.
+   */
+  hedgeSettings: HedgeSettings | null;
 }
 
 export interface Account {
@@ -68,10 +71,9 @@ const DEFAULT_SETTINGS: AccountSettings = {
   reductionFactor: null,
   orderWarnBelow: 3,
   orderBuffer: 5,
-  callSafetyLevels: 15,
   putSafetyLevels: 15,
   levelResetDate: null,
-  hedgeBudgetFlippedOrderIds: null,
+  hedgeSettings: null,
 };
 
 export interface Quote {
@@ -199,7 +201,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // If the initial Supabase load failed, don't persist accounts that are entirely default settings.
     // This prevents a failed init from overwriting real saved data with empty defaults.
     // Only fields that default to null indicate real user configuration — orderBuffer, orderWarnBelow,
-    // callSafetyLevels, and putSafetyLevels all have non-null defaults, so they don't count.
+    // and putSafetyLevels all have non-null defaults, so they don't count.
     const hasRealSettings = accounts.some((a) =>
       (Object.keys(DEFAULT_SETTINGS) as (keyof AccountSettings)[]).some(
         (key) => DEFAULT_SETTINGS[key] === null && a.settings[key] !== null,

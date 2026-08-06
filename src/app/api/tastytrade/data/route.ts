@@ -149,13 +149,15 @@ async function fetchAccountData(accountNumber: string, from365: string, to: stri
   const rxDeliverRaw: any[] = rxDeliverRes.ok ? (await rxDeliverRes.json()).data?.items ?? [] : [];
   const balanceData = balanceRes.ok ? (await balanceRes.json()).data : null;
 
-  // Build openedAt map from filled option orders (earliest Sell to Open per symbol)
+  // Build openedAt map from filled option orders (earliest open per symbol).
+  // Both directions count: the hedge collar's long put and long call fence are
+  // bought to open, and their open date is what groups them into a collar.
   const openedAtMap = new Map<string, string>();
   for (const order of filledRaw) {
     if (order.status !== "Filled") continue;
     for (const leg of order.legs ?? []) {
       if (leg["instrument-type"] !== "Equity Option") continue;
-      if (leg.action !== "Sell to Open") continue;
+      if (leg.action !== "Sell to Open" && leg.action !== "Buy to Open") continue;
       const sym: string = (leg.symbol as string ?? "").trim();
       const time: string = order["terminal-at"] ?? order["received-at"] ?? "";
       if (!openedAtMap.has(sym) || time < openedAtMap.get(sym)!) {

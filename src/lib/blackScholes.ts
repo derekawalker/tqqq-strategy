@@ -1,6 +1,7 @@
 /**
- * Black-Scholes put pricing — used to estimate hedge premiums when no live
- * option chain is available. Pure, no I/O.
+ * Black-Scholes pricing and greeks for European puts and calls — used to model
+ * option premiums when no live option chain is available. Pair it with
+ * volModel.ts for the implied-vol surface to price against. Pure, no I/O.
  */
 
 /** Standard normal CDF via the Abramowitz & Stegun 7.1.26 erf approximation. */
@@ -129,32 +130,4 @@ export function bsPutGreeks(
     q * s * Math.exp(-q * tYears) * normCdf(-d1);
   const vega = (s * Math.exp(-q * tYears) * normPdf(d1) * sqrtT) / 100;
   return { price, delta, theta: thetaYr / 365, vega };
-}
-
-/**
- * Solve for the put strike that gives a target (absolute) delta, by bisection.
- * Returns a strike rounded to the nearest $0.50. Used to target strikes by delta
- * (e.g. "the 0.20-delta put") and to project roll costs off live spot + IV.
- *
- * @param targetDelta absolute delta to hit (0.20 → a −0.20-delta put)
- */
-export function strikeForDelta(
-  s: number,
-  tYears: number,
-  sigma: number,
-  targetDelta: number,
-  r = 0.04,
-  q = 0,
-): number {
-  let lo = s * 0.3; // deep OTM puts → small |delta|
-  let hi = s * 1.2; // ITM puts → |delta| → 1
-  const tgt = -Math.abs(targetDelta);
-  for (let i = 0; i < 60; i++) {
-    const mid = (lo + hi) / 2;
-    const d = bsPutGreeks(s, mid, tYears, sigma, r, q).delta;
-    // Higher strike → more negative (lower) delta.
-    if (d < tgt) hi = mid;
-    else lo = mid;
-  }
-  return Math.round(((lo + hi) / 2) * 2) / 2;
 }

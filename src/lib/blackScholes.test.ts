@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normCdf, normPdf, bsPut, bsPutGreeks, bsCallGreeks, strikeForDelta } from "./putHedge";
+import { normCdf, normPdf, bsPut, bsPutGreeks, bsCallGreeks } from "./blackScholes";
 
 describe("normCdf", () => {
   it("is 0.5 at the mean and symmetric", () => {
@@ -123,18 +123,3 @@ describe("bsCallGreeks", () => {
   });
 });
 
-describe("strikeForDelta", () => {
-  it("round-trips: the returned strike prices back to ~the target delta", () => {
-    for (const target of [0.1, 0.2, 0.3, 0.45]) {
-      const k = strikeForDelta(72, 0.5, 0.5, target);
-      const d = bsPutGreeks(72, k, 0.5, 0.5).delta;
-      expect(Math.abs(d)).toBeCloseTo(target, 2);
-    }
-  });
-
-  it("a smaller target delta yields a deeper-OTM (lower) strike", () => {
-    const shallow = strikeForDelta(72, 0.5, 0.5, 0.3);
-    const deep = strikeForDelta(72, 0.5, 0.5, 0.1);
-    expect(deep).toBeLessThan(shallow);
-  });
-});
