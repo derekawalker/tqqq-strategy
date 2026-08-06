@@ -30,9 +30,17 @@ export interface HedgeSettings {
   maxEntryVix: number;
   /** Flag harvesting the VIX sleeve at or above this spot VIX. */
   monetizeVix: number;
+  /**
+   * OCC symbols struck off the budget by hand. The automatic rule catches the
+   * right *kind* of fill — long VIX, long QQQ/TQQQ puts — but can't know that a
+   * particular put was bought for some other reason, so the page lets each lot
+   * be unticked and remembers that here.
+   */
+  excludedSymbols: string[];
 }
 
-export const DEFAULT_HEDGE_SETTINGS: HedgeSettings = {
+/** Every knob that is a plain number, and so mergeable by type check alone. */
+const NUMERIC_DEFAULTS = {
   budgetPct: 3,
   putSharePct: 80,
   putDelta: 10,
@@ -45,28 +53,41 @@ export const DEFAULT_HEDGE_SETTINGS: HedgeSettings = {
   monetizeVix: 40,
 };
 
+export const NUMERIC_HEDGE_KEYS = Object.keys(NUMERIC_DEFAULTS) as (keyof typeof NUMERIC_DEFAULTS)[];
+
+export const DEFAULT_HEDGE_SETTINGS: HedgeSettings = {
+  ...NUMERIC_DEFAULTS,
+  excludedSymbols: [],
+};
+
 /**
- * Fill any missing or non-numeric field from the defaults.
+ * Fill any missing or wrongly-typed field from the defaults.
  *
  * Guards against three things at once: an account that has never configured a
  * hedge (null), a blob saved before a field was added (missing key), and a
- * value that came back from JSON as something other than a number.
+ * value that came back from JSON as something other than what it should be.
  */
 export function mergeHedgeSettings(
   saved: Partial<HedgeSettings> | null | undefined,
 ): HedgeSettings {
-  const out = { ...DEFAULT_HEDGE_SETTINGS };
+  // A fresh array every time — handing back the default's own would let a
+  // caller's edit leak into every account that never set exclusions.
+  const out: HedgeSettings = { ...DEFAULT_HEDGE_SETTINGS, excludedSymbols: [] };
   if (!saved) return out;
-  for (const key of Object.keys(DEFAULT_HEDGE_SETTINGS) as (keyof HedgeSettings)[]) {
+  for (const key of NUMERIC_HEDGE_KEYS) {
     const v = saved[key];
     if (typeof v === "number" && Number.isFinite(v)) out[key] = v;
+  }
+  if (Array.isArray(saved.excludedSymbols)) {
+    out.excludedSymbols = saved.excludedSymbols.filter((s) => typeof s === "string");
   }
   return out;
 }
 
 /** True when the settings differ from the defaults in any field. */
 export function isCustomised(s: HedgeSettings): boolean {
-  return (Object.keys(DEFAULT_HEDGE_SETTINGS) as (keyof HedgeSettings)[]).some(
-    (k) => s[k] !== DEFAULT_HEDGE_SETTINGS[k],
+  return (
+    NUMERIC_HEDGE_KEYS.some((k) => s[k] !== DEFAULT_HEDGE_SETTINGS[k]) ||
+    s.excludedSymbols.length > 0
   );
 }

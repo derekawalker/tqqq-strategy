@@ -3,6 +3,7 @@ import {
   mergeHedgeSettings,
   isCustomised,
   DEFAULT_HEDGE_SETTINGS,
+  NUMERIC_HEDGE_KEYS,
   type HedgeSettings,
 } from "./hedgeSettings";
 
@@ -45,11 +46,30 @@ describe("mergeHedgeSettings", () => {
     expect(DEFAULT_HEDGE_SETTINGS.budgetPct).toBe(3);
   });
 
-  it("covers every field the defaults declare", () => {
+  it("covers every knob the defaults declare", () => {
     const merged = mergeHedgeSettings({});
-    for (const key of Object.keys(DEFAULT_HEDGE_SETTINGS)) {
-      expect(typeof merged[key as keyof HedgeSettings]).toBe("number");
+    for (const key of NUMERIC_HEDGE_KEYS) {
+      expect(typeof merged[key]).toBe("number");
     }
+    expect(merged.excludedSymbols).toEqual([]);
+  });
+
+  it("keeps hand-picked budget exclusions", () => {
+    const merged = mergeHedgeSettings({ excludedSymbols: ["TQQQ  260515P00056000"] });
+    expect(merged.excludedSymbols).toEqual(["TQQQ  260515P00056000"]);
+  });
+
+  it("drops junk out of the exclusion list", () => {
+    const junk = { excludedSymbols: ["TQQQ  260515P00056000", 7, null] } as unknown as Partial<HedgeSettings>;
+    expect(mergeHedgeSettings(junk).excludedSymbols).toEqual(["TQQQ  260515P00056000"]);
+    expect(mergeHedgeSettings({ excludedSymbols: "nope" } as unknown as Partial<HedgeSettings>).excludedSymbols).toEqual([]);
+  });
+
+  it("hands back a private array, so one account's edits can't leak into another", () => {
+    const a = mergeHedgeSettings(null);
+    a.excludedSymbols.push("TQQQ  260515P00056000");
+    expect(mergeHedgeSettings(null).excludedSymbols).toEqual([]);
+    expect(DEFAULT_HEDGE_SETTINGS.excludedSymbols).toEqual([]);
   });
 });
 
@@ -62,5 +82,11 @@ describe("isCustomised", () => {
   it("is true once any field is changed", () => {
     expect(isCustomised({ ...DEFAULT_HEDGE_SETTINGS, budgetPct: 5 })).toBe(true);
     expect(isCustomised({ ...DEFAULT_HEDGE_SETTINGS, monetizeVix: 55 })).toBe(true);
+  });
+
+  it("counts a hand-excluded lot as customisation worth persisting", () => {
+    expect(
+      isCustomised({ ...DEFAULT_HEDGE_SETTINGS, excludedSymbols: ["TQQQ  260515P00056000"] }),
+    ).toBe(true);
   });
 });

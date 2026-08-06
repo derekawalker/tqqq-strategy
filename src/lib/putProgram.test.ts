@@ -4,7 +4,9 @@ import {
   planProgram,
   scenarioTable,
   tqqqIvFromVxn,
-  hedgeSpendSince,
+  isHedgeFill,
+  hedgeLots,
+  hedgeSpend,
   budgetStatus,
   type ProgramInput,
 } from "./putProgram";
@@ -196,79 +198,203 @@ describe("scenarioTable", () => {
   });
 });
 
-describe("hedgeSpendSince", () => {
+describe("isHedgeFill", () => {
+  const leg = (over: Partial<Parameters<typeof isHedgeFill>[0]> = {}) => ({
+    underlyingSymbol: "TQQQ",
+    symbol: "TQQQ  260515P00056000",
+    instruction: "BUY_TO_OPEN" as const,
+    ...over,
+  });
+
+  it("counts a bought TQQQ put", () => {
+    expect(isHedgeFill(leg())).toBe(true);
+  });
+
+  it("counts a bought QQQ put — the older hedge lived there", () => {
+    expect(isHedgeFill(leg({ underlyingSymbol: "QQQ", symbol: "QQQ   260515P00480000" }))).toBe(true);
+  });
+
+  it("counts closing a hedge put, so the credit comes back off the budget", () => {
+    expect(isHedgeFill(leg({ instruction: "SELL_TO_CLOSE" }))).toBe(true);
+  });
+
+  it("leaves the ladder's sold puts alone", () => {
+    expect(isHedgeFill(leg({ instruction: "SELL_TO_OPEN" }))).toBe(false);
+    expect(isHedgeFill(leg({ instruction: "BUY_TO_CLOSE" }))).toBe(false);
+  });
+
+  it("leaves bought calls alone — a long call is a direction bet, not insurance", () => {
+    expect(isHedgeFill(leg({ symbol: "TQQQ  260515C00090000" }))).toBe(false);
+  });
+
+  it("counts VIX in any form, calls included", () => {
+    expect(isHedgeFill(leg({ underlyingSymbol: "VIX", symbol: "VIX   260916C00025000" }))).toBe(true);
+    expect(isHedgeFill(leg({ underlyingSymbol: "$VIX", symbol: "VIXW  260916C00025000" }))).toBe(true);
+  });
+
+  it("ignores underlyings outside the hedge", () => {
+    expect(isHedgeFill(leg({ underlyingSymbol: "SPY", symbol: "SPY   260515P00500000" }))).toBe(false);
+  });
+});
+
+describe("hedgeLots", () => {
   const since = new Date("2026-01-01");
   const BTO = "BUY_TO_OPEN" as const;
   const STC = "SELL_TO_CLOSE" as const;
+  const P56 = "TQQQ  260515P00056000";
+  const P50 = "TQQQ  260619P00050000";
   const orders = [
-    { underlyingSymbol: "TQQQ", instruction: BTO, total: -1300, fees: -1.3, time: "2026-02-01" },
-    { underlyingSymbol: "TQQQ", instruction: BTO, total: -900, fees: -1.0, time: "2026-04-01" },
-    { underlyingSymbol: "TQQQ", instruction: STC, total: 400, fees: -0.5, time: "2026-05-01" },
+    { symbol: P56, contracts: 2, underlyingSymbol: "TQQQ", instruction: BTO, total: -1300, fees: -1.3, time: "2026-02-01" },
+    { symbol: P56, contracts: 1, underlyingSymbol: "TQQQ", instruction: BTO, total: -700, fees: -0.7, time: "2026-02-10" },
+    { symbol: P56, contracts: 1, underlyingSymbol: "TQQQ", instruction: STC, total: 400, fees: -0.5, time: "2026-03-01" },
+    { symbol: P50, contracts: 2, underlyingSymbol: "TQQQ", instruction: BTO, total: -900, fees: -1.0, time: "2026-04-01" },
   ];
 
-  it("nets opens against closes, fees included", () => {
-    expect(hedgeSpendSince(orders, since, ["TQQQ"])).toBeCloseTo(
-      1300 + 1.3 + 900 + 1.0 - 400 + 0.5,
+  it("groups every fill of one contract into a single lot", () => {
+    const lots = hedgeLots(orders, since);
+    expect(lots).toHaveLength(2);
+    const p56 = lots.find((l) => l.symbol === P56)!;
+    expect(p56.contracts).toBe(3);
+    expect(p56.closedContracts).toBe(1);
+    expect(p56.openContracts).toBe(2);
+    expect(p56.cost).toBeCloseTo(1300 + 1.3 + 700 + 0.7, 6);
+    expect(p56.proceeds).toBeCloseTo(400 - 0.5, 6);
+  });
+
+  it("prices opens and closes per share, fees included", () => {
+    const p56 = hedgeLots(orders, since).find((l) => l.symbol === P56)!;
+    expect(p56.openPrice).toBeCloseTo(2002 / 300, 6);
+    expect(p56.closePrice).toBeCloseTo(399.5 / 100, 6);
+  });
+
+  it("reads strike, expiry and right off the OCC symbol", () => {
+    const p56 = hedgeLots(orders, since).find((l) => l.symbol === P56)!;
+    expect(p56.strike).toBe(56);
+    expect(p56.expiry).toBe("2026-05-15");
+    expect(p56.putCall).toBe("PUT");
+  });
+
+  it("leaves an unclosed lot without a close price", () => {
+    const p50 = hedgeLots(orders, since).find((l) => l.symbol === P50)!;
+    expect(p50.closePrice).toBeNull();
+    expect(p50.openContracts).toBe(2);
+  });
+
+  it("still lists a close whose open predates the window", () => {
+    const stray = [
+      { symbol: "TQQQ  260220P00048000", contracts: 2, underlyingSymbol: "TQQQ", instruction: STC, total: 250, fees: -0.4, time: "2026-01-15" },
+    ];
+    const [lot] = hedgeLots(stray, since);
+    expect(lot.contracts).toBe(0);
+    expect(lot.openPrice).toBeNull();
+    expect(lot.openContracts).toBe(0);
+    expect(lot.proceeds).toBeCloseTo(249.6, 6);
+  });
+
+  it("nets opens against closes across the whole set", () => {
+    expect(hedgeSpend(hedgeLots(orders, since))).toBeCloseTo(
+      1300 + 1.3 + 700 + 0.7 - 400 + 0.5 + 900 + 1.0,
       6,
     );
   });
 
-  it("ignores the ladder's cash-secured puts on the same underlying", () => {
-    // Short-side premium is income from the options ladder, not hedge spend.
+  it("drops a lot struck off by hand", () => {
+    const lots = hedgeLots(orders, since);
+    const kept = hedgeSpend(lots, new Set([P56]));
+    expect(kept).toBeCloseTo(901, 6);
+    expect(kept).toBeLessThan(hedgeSpend(lots));
+  });
+
+  it("ignores fills before the window", () => {
+    const older = [
+      { symbol: P56, contracts: 4, underlyingSymbol: "TQQQ", instruction: BTO, total: -5000, fees: 0, time: "2025-06-01" },
+      ...orders,
+    ];
+    expect(hedgeSpend(hedgeLots(older, since))).toBeCloseTo(hedgeSpend(hedgeLots(orders, since)), 6);
+  });
+
+  it("leaves the ladder's short puts out", () => {
     const withCsp = [
       ...orders,
-      {
-        underlyingSymbol: "TQQQ",
-        instruction: "SELL_TO_OPEN" as const,
-        total: 2500,
-        fees: -2,
-        time: "2026-03-01",
-      },
-      {
-        underlyingSymbol: "TQQQ",
-        instruction: "BUY_TO_CLOSE" as const,
-        total: -800,
-        fees: -1,
-        time: "2026-03-20",
-      },
+      { symbol: "TQQQ  260515P00040000", contracts: 3, underlyingSymbol: "TQQQ", instruction: "SELL_TO_OPEN" as const, total: 900, fees: -2, time: "2026-02-05" },
     ];
-    expect(hedgeSpendSince(withCsp, since, ["TQQQ"])).toBeCloseTo(
-      hedgeSpendSince(orders, since, ["TQQQ"]),
-      6,
-    );
+    expect(hedgeLots(withCsp, since)).toHaveLength(2);
   });
 
-  it("counts every symbol it is told to", () => {
-    const withVix = [
-      ...orders,
-      { underlyingSymbol: "VIX", instruction: BTO, total: -500, fees: -0.5, time: "2026-03-01" },
-    ];
-    expect(hedgeSpendSince(withVix, since, ["TQQQ", "VIX"])).toBeCloseTo(
-      hedgeSpendSince(orders, since, ["TQQQ"]) + 500.5,
-      6,
-    );
+  it("sorts newest first", () => {
+    const lots = hedgeLots(orders, since);
+    expect(lots[0].symbol).toBe(P50);
   });
 
-  it("ignores symbols outside the hedge", () => {
-    const withOther = [
-      ...orders,
-      { underlyingSymbol: "SPY", instruction: BTO, total: -5000, fees: 0, time: "2026-03-01" },
-    ];
-    expect(hedgeSpendSince(withOther, since, ["TQQQ"])).toBeCloseTo(
-      hedgeSpendSince(orders, since, ["TQQQ"]),
-      6,
-    );
+  describe("tenor and holding period", () => {
+    const now = new Date("2026-05-01T12:00:00");
+
+    it("measures the tenor from the first buy to expiry", () => {
+      const p56 = hedgeLots(orders, since, now).find((l) => l.symbol === P56)!;
+      // Bought 2026-02-01 for a 2026-05-15 expiry.
+      expect(p56.openDte).toBe(103);
+    });
+
+    it("stops the clock on a fully closed lot", () => {
+      const closed = [
+        { symbol: P56, contracts: 2, underlyingSymbol: "TQQQ", instruction: BTO, total: -1300, fees: -1.3, time: "2026-02-01" },
+        { symbol: P56, contracts: 2, underlyingSymbol: "TQQQ", instruction: STC, total: 900, fees: -0.5, time: "2026-02-20" },
+      ];
+      expect(hedgeLots(closed, since, now)[0].daysHeld).toBe(19);
+    });
+
+    it("runs the clock to today while any of it is still held", () => {
+      const p50 = hedgeLots(orders, since, now).find((l) => l.symbol === P50)!;
+      // Opened 2026-04-01, never closed.
+      expect(p50.daysHeld).toBe(30);
+    });
+
+    it("leaves both blank on a close-only lot", () => {
+      const stray = [
+        { symbol: P56, contracts: 2, underlyingSymbol: "TQQQ", instruction: STC, total: 250, fees: -0.4, time: "2026-01-15" },
+      ];
+      const [lot] = hedgeLots(stray, since, now);
+      expect(lot.openDte).toBeNull();
+      expect(lot.daysHeld).toBeNull();
+    });
   });
 
-  it("ignores orders before the window", () => {
-    const older = [
-      { underlyingSymbol: "TQQQ", instruction: BTO, total: -5000, fees: 0, time: "2025-06-01" },
-      ...orders,
+  describe("short-dated trades", () => {
+    // Bought 2026-02-02 for a 2026-02-06 expiry: a 4-day punt, not a hedge.
+    const WEEKLY = "TQQQ  260206P00055000";
+    const dayTrade = [
+      { symbol: WEEKLY, contracts: 5, underlyingSymbol: "TQQQ", instruction: BTO, total: -585, fees: -0.2, time: "2026-02-02T14:30:00" },
+      { symbol: WEEKLY, contracts: 5, underlyingSymbol: "TQQQ", instruction: STC, total: 615, fees: -0.2, time: "2026-02-02T19:05:00" },
     ];
-    expect(hedgeSpendSince(older, since, ["TQQQ"])).toBeCloseTo(
-      hedgeSpendSince(orders, since, ["TQQQ"]),
-      6,
-    );
+
+    it("drops a put bought inside the minimum tenor", () => {
+      expect(hedgeLots(dayTrade, since)).toHaveLength(0);
+    });
+
+    it("keeps the whole lot when the buy was far enough out", () => {
+      // Same round trip, but opened 38 days from expiry.
+      const real = dayTrade.map((o) => ({ ...o, symbol: P56, time: "2026-04-07T14:30:00" }));
+      const [lot] = hedgeLots(real, since);
+      expect(lot.contracts).toBe(5);
+      expect(lot.closedContracts).toBe(5);
+    });
+
+    it("keeps a hedge closed near its expiry — tenor is judged at the buy", () => {
+      const held = [
+        { symbol: P56, contracts: 3, underlyingSymbol: "TQQQ", instruction: BTO, total: -900, fees: -0.3, time: "2026-03-01" },
+        { symbol: P56, contracts: 3, underlyingSymbol: "TQQQ", instruction: STC, total: 1200, fees: -0.3, time: "2026-05-12" },
+      ];
+      const [lot] = hedgeLots(held, since);
+      expect(lot.contracts).toBe(3);
+      expect(lot.proceeds).toBeCloseTo(1199.7, 6);
+    });
+
+    it("keeps a close-only lot, whose open is out of reach", () => {
+      const stray = [
+        { symbol: WEEKLY, contracts: 5, underlyingSymbol: "TQQQ", instruction: STC, total: 615, fees: -0.2, time: "2026-02-02" },
+      ];
+      expect(hedgeLots(stray, since)).toHaveLength(1);
+    });
   });
 });
 

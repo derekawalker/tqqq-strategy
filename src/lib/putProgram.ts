@@ -264,25 +264,192 @@ interface FilledLeg {
   time: string;
 }
 
+/** A filled option leg with enough identity to group fills into a contract. */
+interface FilledContractLeg extends FilledLeg {
+  /** OCC symbol, e.g. "TQQQ  260515P00056000". */
+  symbol: string;
+  contracts: number;
+}
+
 /**
- * Net dollars spent on the hedge since `since`, counting both what was paid to
- * open and anything recovered by closing. Fees count — on a 3% budget they are
- * not a rounding error.
+ * Shortest tenor the hedge ever opens at.
  *
- * Only the *long* side counts. The ladder sells cash-secured TQQQ puts on the
- * same underlying, and folding those credits in here would understate hedge
- * spend — sell enough premium and the budget would look untouched while the
- * hedge quietly ran over. Long opens and their closes only.
+ * The program's own expiry choices start at 30 days and it rolls out before 21,
+ * so a put bought nearer than this is a short-dated trade — a 0DTE punt, a
+ * weekly, an earnings hedge — not part of the program. Without this floor the
+ * budget swallows every fast round trip on the same underlying, which is by far
+ * the largest source of wrong rows: those trades are usually the majority of
+ * bought-put fills and often the largest tickets.
  */
-export function hedgeSpendSince(orders: FilledLeg[], since: Date, symbols: string[]): number {
-  let spent = 0;
-  for (const o of orders) {
-    if (!symbols.includes(o.underlyingSymbol)) continue;
-    if (o.instruction !== "BUY_TO_OPEN" && o.instruction !== "SELL_TO_CLOSE") continue;
-    if (new Date(o.time) < since) continue;
-    spent -= o.total + o.fees;
+export const MIN_HEDGE_DTE = 21;
+
+/** Whole days between a fill's timestamp and an expiry date. */
+function dteAt(time: string, expiry: string): number {
+  const opened = new Date(time.slice(0, 10)).getTime();
+  const expires = new Date(expiry).getTime();
+  return Math.round((expires - opened) / 86_400_000);
+}
+
+/** Strike, expiry and right, read off the tail of an OCC symbol. */
+function occDetails(symbol: string) {
+  const m = symbol.replace(/\s+/g, "").match(/(\d{6})([CP])(\d{8})$/);
+  if (!m) return { putCall: null, strike: null, expiry: null };
+  const [, date, pc, strikeRaw] = m;
+  return {
+    putCall: (pc === "C" ? "CALL" : "PUT") as "CALL" | "PUT",
+    strike: parseInt(strikeRaw, 10) / 1000,
+    expiry: `20${date.slice(0, 2)}-${date.slice(2, 4)}-${date.slice(4, 6)}`,
+  };
+}
+
+/** One hedge contract's spend inside the budget window, opens netted with closes. */
+export interface HedgeLot {
+  symbol: string;
+  underlyingSymbol: string;
+  putCall: "CALL" | "PUT" | null;
+  strike: number | null;
+  expiry: string | null;
+  /** Contracts bought to open inside the window. */
+  contracts: number;
+  /** Contracts sold to close inside the window. */
+  closedContracts: number;
+  /** Still held out of this window's opens. */
+  openContracts: number;
+  openedAt: string | null;
+  closedAt: string | null;
+  /** Weighted-average debit per share, fees included. Null when the window caught only closes. */
+  openPrice: number | null;
+  /** Weighted-average credit per share, fees included. Null while nothing has been closed. */
+  closePrice: number | null;
+  /** Dollars paid to open, fees included. */
+  cost: number;
+  /** Dollars recovered by closing, fees included. */
+  proceeds: number;
+  /** Days from the buy to expiry — the tenor {@link MIN_HEDGE_DTE} judges. */
+  openDte: number | null;
+  /** Days from the buy to the close, or to today while any of it is still held. */
+  daysHeld: number | null;
+}
+
+/**
+ * Whether a fill can be hedge spend at all.
+ *
+ * Two rules, and both matter. Only the *long* side counts: the ladder sells
+ * cash-secured puts and covered calls on TQQQ, and folding those credits in
+ * would understate hedge spend — sell enough premium and the budget would look
+ * untouched while the hedge quietly ran over. And on the equity underlyings
+ * only *puts* count, because a bought TQQQ call is a directional trade, not
+ * insurance. VIX products are long-only convexity in any form, so they pass on
+ * the instruction alone.
+ *
+ * This is deliberately a coarse net: it catches the right kind of fill, not the
+ * right intent. A put bought for some other reason still lands here, which is
+ * why the page lets individual lots be excluded by hand.
+ */
+export function isHedgeFill(leg: Pick<FilledContractLeg, "underlyingSymbol" | "symbol" | "instruction">): boolean {
+  if (leg.instruction !== "BUY_TO_OPEN" && leg.instruction !== "SELL_TO_CLOSE") return false;
+  const underlying = leg.underlyingSymbol.replace(/^\$/, "").toUpperCase();
+  if (underlying.startsWith("VIX")) return true;
+  if (underlying === "QQQ" || underlying === "TQQQ") {
+    return occDetails(leg.symbol).putCall === "PUT";
   }
-  return spent;
+  return false;
+}
+
+/**
+ * Every fill {@link isHedgeFill} accepts since `since`, grouped per contract so
+ * the budget can be itemised and hand-edited, less anything opened inside
+ * {@link MIN_HEDGE_DTE}. Fees count — on a 3% budget they are not a rounding
+ * error.
+ *
+ * Grouping is by OCC symbol, so repeated buys of one contract read as a single
+ * lot. A close whose open happened before the window still gets a row — its
+ * credit counts against this year's spend, and hiding it would make the rows
+ * disagree with the total.
+ */
+export function hedgeLots(
+  orders: FilledContractLeg[],
+  since: Date,
+  now = new Date(),
+): HedgeLot[] {
+  const lots = new Map<string, HedgeLot>();
+
+  const lotFor = (o: FilledContractLeg) => {
+    const key = o.symbol.trim();
+    let lot = lots.get(key);
+    if (!lot) {
+      lot = {
+        symbol: key,
+        underlyingSymbol: o.underlyingSymbol,
+        ...occDetails(key),
+        contracts: 0,
+        closedContracts: 0,
+        openContracts: 0,
+        openedAt: null,
+        closedAt: null,
+        openPrice: null,
+        closePrice: null,
+        cost: 0,
+        proceeds: 0,
+        openDte: null,
+        daysHeld: null,
+      };
+      lots.set(key, lot);
+    }
+    return lot;
+  };
+
+  for (const o of orders) {
+    if (!isHedgeFill(o)) continue;
+    if (new Date(o.time) < since) continue;
+    const lot = lotFor(o);
+    if (o.instruction === "BUY_TO_OPEN") {
+      lot.contracts += o.contracts;
+      lot.cost += -(o.total + o.fees);
+      if (!lot.openedAt || o.time < lot.openedAt) lot.openedAt = o.time;
+    } else {
+      lot.closedContracts += o.contracts;
+      lot.proceeds += o.total + o.fees;
+      if (!lot.closedAt || o.time > lot.closedAt) lot.closedAt = o.time;
+    }
+  }
+
+  return [...lots.values()]
+    // Tenor is judged per lot, not per fill: the close of a genuine hedge lands
+    // days from expiry by design, so testing the sell would throw away the
+    // credit while keeping its cost. Only how far out it was *bought* matters.
+    .filter(
+      (lot) =>
+        lot.openedAt == null ||
+        lot.expiry == null ||
+        dteAt(lot.openedAt, lot.expiry) >= MIN_HEDGE_DTE,
+    )
+    .map((lot) => {
+      const openContracts = Math.max(lot.contracts - lot.closedContracts, 0);
+      // A lot still partly held is measured to today; one fully closed stops at
+      // its last sell.
+      const until = openContracts > 0 || !lot.closedAt ? now.toISOString() : lot.closedAt;
+      return {
+        ...lot,
+        openContracts,
+        openPrice: lot.contracts > 0 ? lot.cost / (lot.contracts * 100) : null,
+        closePrice: lot.closedContracts > 0 ? lot.proceeds / (lot.closedContracts * 100) : null,
+        openDte: lot.openedAt && lot.expiry ? dteAt(lot.openedAt, lot.expiry) : null,
+        daysHeld: lot.openedAt ? dteAt(lot.openedAt, until.slice(0, 10)) : null,
+      };
+    })
+    .sort((a, b) => (b.openedAt ?? b.closedAt ?? "").localeCompare(a.openedAt ?? a.closedAt ?? ""));
+}
+
+/**
+ * Net dollars the kept lots have cost — what was paid to open, less anything
+ * recovered by closing. `excluded` holds OCC symbols struck off by hand.
+ */
+export function hedgeSpend(lots: HedgeLot[], excluded: Set<string> = new Set()): number {
+  return lots.reduce(
+    (spent, lot) => (excluded.has(lot.symbol) ? spent : spent + lot.cost - lot.proceeds),
+    0,
+  );
 }
 
 /** Where the year's spend stands against the budget, pace included. */
