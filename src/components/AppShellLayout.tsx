@@ -79,7 +79,9 @@ function AppShellInner({ children }: { children: ReactNode }) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const tqqqOptions = optionPositions.filter((p) => p.underlyingSymbol !== "QQQ");
+    // Match TQQQ by name, not "everything that isn't QQQ": these alerts compare
+    // strikes against the TQQQ price, so a VIX 26 call would read as deep ITM.
+    const tqqqOptions = optionPositions.filter((p) => p.underlyingSymbol === "TQQQ");
 
     const expiring = tqqqOptions.filter((p) => {
       const dte = Math.round((new Date(p.expiry + "T00:00:00").getTime() - today.getTime()) / 86400000);

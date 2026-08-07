@@ -1,3 +1,5 @@
+import { isTrackedOptionUnderlying } from "@/lib/trackedSymbols";
+
 export interface FilledOrder {
   orderId: number;
   accountNumber: string;
@@ -119,7 +121,7 @@ export function parseExpiredOptionOrder(tx: RawSchwabTransaction, accountNumber:
   const item = tx.transferItems?.[0];
   if (!item) return null;
   const instr = item.instrument;
-  if (instr?.assetType !== "OPTION" || instr?.underlyingSymbol !== "TQQQ") return null;
+  if (instr?.assetType !== "OPTION" || !isTrackedOptionUnderlying(instr?.underlyingSymbol)) return null;
   return {
     activityId: tx.activityId,
     accountNumber,
@@ -167,7 +169,7 @@ export function parseFilledOptionOrder(order: RawSchwabOrder, accountNumber: str
   const legs: RawOrderLeg[] = order.orderLegCollection ?? [];
   const optionLegs = legs.filter((leg) =>
     leg.orderLegType === "OPTION" &&
-    ["TQQQ", "QQQ"].includes(leg.instrument?.underlyingSymbol ?? "") &&
+    isTrackedOptionUnderlying(leg.instrument?.underlyingSymbol) &&
     ["SELL_TO_OPEN", "BUY_TO_CLOSE", "BUY_TO_OPEN", "SELL_TO_CLOSE"].includes(leg.instruction ?? "")
   );
   if (optionLegs.length === 0) return [];

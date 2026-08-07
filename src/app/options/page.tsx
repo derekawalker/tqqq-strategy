@@ -1445,10 +1445,10 @@ function OptionsPageInner() {
       });
   };
 
-  // This page is the TQQQ cash-secured-put ladder. Exclude QQQ options, and
-  // calls entirely — the collar's call legs live on the Hedge page.
+  // This page is the TQQQ cash-secured-put ladder, so it takes TQQQ puts by
+  // name — the hedge's QQQ and VIX legs live on the Hedge page.
   const puts = useMemo(
-    () => optionPositions.filter((p) => p.putCall === "PUT" && p.underlyingSymbol !== "QQQ"),
+    () => optionPositions.filter((p) => p.putCall === "PUT" && p.underlyingSymbol === "TQQQ"),
     [optionPositions],
   );
 

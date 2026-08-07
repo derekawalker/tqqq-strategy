@@ -1,3 +1,4 @@
+import { isTrackedOptionUnderlying, isReadableOptionType } from "@/lib/trackedSymbols";
 import type {
   FilledOrder,
   FilledOptionOrder,
@@ -73,11 +74,11 @@ export function parseFilledOptionOrder(order: any, accountNumber: string): Fille
   if (order.status !== "Filled") return [];
   const result: FilledOptionOrder[] = [];
   for (const leg of order.legs ?? []) {
-    if (leg["instrument-type"] !== "Equity Option") continue;
+    if (!isReadableOptionType(leg["instrument-type"])) continue;
     const sym: string = leg.symbol ?? "";
-    // OCC root is the symbol padded to 6 chars, e.g. "TQQQ  …" / "QQQ   …".
+    // OCC root is the symbol padded to 6 chars, e.g. "TQQQ  …" / "VIX   …".
     const underlyingSymbol = sym.slice(0, 6).trim();
-    if (underlyingSymbol !== "TQQQ" && underlyingSymbol !== "QQQ") continue;
+    if (!isTrackedOptionUnderlying(underlyingSymbol)) continue;
     const instruction = actionToInstruction(leg.action ?? "");
     if (!instruction) continue;
     const { totalValue, totalQty } = legFillTotals(leg);
@@ -126,9 +127,9 @@ export function parseOptionPosition(
   accountNumber: string,
   openedAtMap: Map<string, string>,
 ): OptionPosition | null {
-  if (pos["instrument-type"] !== "Equity Option") return null;
+  if (!isReadableOptionType(pos["instrument-type"])) return null;
   const underlyingSymbol: string = pos["underlying-symbol"] ?? "";
-  if (underlyingSymbol !== "TQQQ" && underlyingSymbol !== "QQQ") return null;
+  if (!isTrackedOptionUnderlying(underlyingSymbol)) return null;
   const sym: string = pos.symbol ?? "";
   const parsed = parseOccTail(sym);
   if (!parsed) return null;
@@ -166,7 +167,10 @@ export function parseExpiredOptionOrder(tx: any, accountNumber: string): Expired
   const legs: any[] = tx.legs ?? [];
   const leg = legs.find((l) => {
     const sym: string = l.symbol ?? "";
-    return l["instrument-type"] === "Equity Option" && sym.includes("TQQQ");
+    return (
+      isReadableOptionType(l["instrument-type"]) &&
+      isTrackedOptionUnderlying(sym.slice(0, 6).trim())
+    );
   });
   if (!leg) return null;
   return {

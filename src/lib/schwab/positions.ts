@@ -8,6 +8,7 @@
 import { schwabFetch } from "./client";
 import { getAccountHashes } from "./accounts";
 import type { OptionPosition } from "./parse";
+import { isTrackedOptionUnderlying } from "@/lib/trackedSymbols";
 
 export interface AccountPositions {
   accountNumber: string;
@@ -48,7 +49,7 @@ async function fetchAccountPositions(accountNumber: string, hash: string): Promi
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .filter((p: any) =>
       p.instrument?.assetType === "OPTION" &&
-      (p.instrument?.underlyingSymbol === "TQQQ" || p.instrument?.underlyingSymbol === "QQQ") &&
+      isTrackedOptionUnderlying(p.instrument?.underlyingSymbol) &&
       ((p.shortQuantity ?? 0) > 0 || (p.longQuantity ?? 0) > 0)
     )
     .map((p) => parseOptionPosition(p, accountNumber))

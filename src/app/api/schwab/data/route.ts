@@ -1,3 +1,4 @@
+import { isTrackedOptionUnderlying } from "@/lib/trackedSymbols";
 import { DEMO_DATA } from "@/lib/demo-data";
 import { schwabFetch } from "@/lib/schwab/client";
 import { getAccountHashes } from "@/lib/schwab/accounts";
@@ -227,7 +228,7 @@ async function fetchAccountData(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .filter((p: any) =>
       p.instrument?.assetType === "OPTION" &&
-      (p.instrument?.underlyingSymbol === "TQQQ" || p.instrument?.underlyingSymbol === "QQQ") &&
+      isTrackedOptionUnderlying(p.instrument?.underlyingSymbol) &&
       ((p.shortQuantity ?? 0) > 0 || (p.longQuantity ?? 0) > 0)
     )
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
