@@ -11,8 +11,16 @@
  * brokers — so it matches on prefix rather than an exact name.
  */
 export function isTrackedOptionUnderlying(symbol: string | null | undefined): boolean {
-  const s = (symbol ?? "").replace(/^\$/, "").toUpperCase();
-  return s === "TQQQ" || s === "QQQ" || s.startsWith("VIX");
+  return isVixUnderlying(symbol) || ["TQQQ", "QQQ"].includes(root(symbol));
+}
+
+/** VIX under any of its roots — VIX, VIXW weeklies, $VIX at some brokers. */
+export function isVixUnderlying(symbol: string | null | undefined): boolean {
+  return root(symbol).startsWith("VIX");
+}
+
+function root(symbol: string | null | undefined): string {
+  return (symbol ?? "").replace(/^\$/, "").toUpperCase();
 }
 
 /**

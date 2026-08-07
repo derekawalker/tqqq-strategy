@@ -23,6 +23,7 @@
  */
 
 import { bsPutGreeks } from "./blackScholes";
+import { isVixUnderlying } from "./trackedSymbols";
 import { ivFor, IV_SCALE, DIV_YIELD } from "./volModel";
 
 const RISK_FREE = 0.04;
@@ -272,7 +273,7 @@ interface FilledContractLeg extends FilledLeg {
 }
 
 /**
- * Shortest tenor the hedge ever opens at.
+ * Shortest tenor a *put* may be bought at and still count as the hedge.
  *
  * The program's own expiry choices start at 30 days and it rolls out before 21,
  * so a put bought nearer than this is a short-dated trade — a 0DTE punt, a
@@ -280,6 +281,11 @@ interface FilledContractLeg extends FilledLeg {
  * budget swallows every fast round trip on the same underlying, which is by far
  * the largest source of wrong rows: those trades are usually the majority of
  * bought-put fills and often the largest tickets.
+ *
+ * It is deliberately an equity-put rule. VIX has no day-traded twin sharing its
+ * underlying, and a front-month VIX call is the most spike-responsive thing the
+ * sleeve can own — deferred futures barely move when spot spikes. Short-dated
+ * VIX is the program working, so {@link hedgeLots} exempts it.
  */
 export const MIN_HEDGE_DTE = 21;
 
@@ -348,8 +354,8 @@ export interface HedgeLot {
  */
 export function isHedgeFill(leg: Pick<FilledContractLeg, "underlyingSymbol" | "symbol" | "instruction">): boolean {
   if (leg.instruction !== "BUY_TO_OPEN" && leg.instruction !== "SELL_TO_CLOSE") return false;
-  const underlying = leg.underlyingSymbol.replace(/^\$/, "").toUpperCase();
-  if (underlying.startsWith("VIX")) return true;
+  if (isVixUnderlying(leg.underlyingSymbol)) return true;
+  const underlying = leg.underlyingSymbol.toUpperCase();
   if (underlying === "QQQ" || underlying === "TQQQ") {
     return occDetails(leg.symbol).putCall === "PUT";
   }
@@ -417,9 +423,11 @@ export function hedgeLots(
   return [...lots.values()]
     // Tenor is judged per lot, not per fill: the close of a genuine hedge lands
     // days from expiry by design, so testing the sell would throw away the
-    // credit while keeping its cost. Only how far out it was *bought* matters.
+    // credit while keeping its cost. Only how far out it was *bought* matters,
+    // and only for puts — see MIN_HEDGE_DTE on why VIX is exempt.
     .filter(
       (lot) =>
+        isVixUnderlying(lot.underlyingSymbol) ||
         lot.openedAt == null ||
         lot.expiry == null ||
         dteAt(lot.openedAt, lot.expiry) >= MIN_HEDGE_DTE,

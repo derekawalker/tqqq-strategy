@@ -1035,13 +1035,14 @@ export default function HedgePage() {
                   </Table>
                 </Table.ScrollContainer>
                 <Text size="xs" c="dimmed" mt="xs">
-                  Listed here: VIX in any form, plus QQQ and TQQQ puts you <b>bought</b> at least{" "}
-                  {MIN_HEDGE_DTE} days from expiry. The ladder&apos;s short options never appear,
-                  and neither do weeklies or 0DTE punts — those are trades, not insurance. Untick
-                  anything else that wasn&apos;t really the hedge and it drops out of the spend
-                  above; the choice sticks per account. DTE is the tenor it was bought at and Held
-                  how long it ran — a long tenor closed in a day or two is a trade wearing a
-                  hedge&apos;s clothes. Open and close are per share, fees included.
+                  Listed here: VIX in any form at any tenor, plus QQQ and TQQQ puts you{" "}
+                  <b>bought</b> at least {MIN_HEDGE_DTE} days from expiry. The ladder&apos;s short
+                  options never appear, and neither do weekly or 0DTE puts — those are trades, not
+                  insurance. Untick anything else that wasn&apos;t really the hedge and it drops
+                  out of the spend above; the choice sticks per account. DTE is the tenor it was
+                  bought at and Held how long it ran — a long tenor closed in a day or two is a
+                  trade wearing a hedge&apos;s clothes. Open and close are per share, fees
+                  included.
                 </Text>
               </Accordion.Panel>
             </Accordion.Item>

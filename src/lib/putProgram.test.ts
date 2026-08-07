@@ -389,6 +389,17 @@ describe("hedgeLots", () => {
       expect(lot.proceeds).toBeCloseTo(1199.7, 6);
     });
 
+    it("keeps a short-dated VIX call — the floor is a put rule", () => {
+      // A front-month VIX call is the sleeve working, not a day trade: deferred
+      // futures barely move when spot spikes.
+      const frontMonth = [
+        { symbol: "VIX   260819C00025000", contracts: 16, underlyingSymbol: "VIX", instruction: BTO, total: -400, fees: -0.5, time: "2026-08-07" },
+      ];
+      const [lot] = hedgeLots(frontMonth, since);
+      expect(lot.contracts).toBe(16);
+      expect(lot.openDte).toBe(12);
+    });
+
     it("keeps a close-only lot, whose open is out of reach", () => {
       const stray = [
         { symbol: WEEKLY, contracts: 5, underlyingSymbol: "TQQQ", instruction: STC, total: 615, fees: -0.2, time: "2026-02-02" },
