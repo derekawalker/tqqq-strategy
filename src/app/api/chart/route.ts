@@ -10,11 +10,14 @@ export interface Candle {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const range = searchParams.get("range") ?? "1w";
+  // Defaults to TQQQ so every existing caller is unaffected; the Hedge page
+  // asks for ^VIX alongside it.
+  const symbol = searchParams.get("symbol") ?? "TQQQ";
   const days = range === "1d" ? 1 : range === "1w" ? 7 : 30;
   const interval = range === "1d" ? "5m" : range === "1w" ? "30m" : "1d";
 
   try {
-    const result = await yf.chart("TQQQ", {
+    const result = await yf.chart(symbol, {
       period1: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
       interval,
     });

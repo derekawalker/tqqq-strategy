@@ -21,6 +21,7 @@ import {
   Accordion,
   Checkbox,
   Progress,
+  Skeleton,
 } from "@mantine/core";
 import {
   IconAlertTriangle,
@@ -31,10 +32,15 @@ import {
   IconCoins,
   IconRefresh,
   IconSettings,
+  IconCircleCheckFilled,
+  IconCircleDotFilled,
+  IconAlertTriangleFilled,
 } from "@tabler/icons-react";
 import {
   ResponsiveContainer,
   ComposedChart,
+  AreaChart,
+  Area,
   Line,
   XAxis,
   YAxis,
@@ -48,6 +54,7 @@ import { useApp } from "@/lib/context/AppContext";
 import { useBalances } from "@/lib/hooks/useBalances";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { useCardBg } from "@/lib/hooks/useCardBg";
+import { useChartCandles } from "@/lib/hooks/useChartCandles";
 import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
 import { createMask, fmt } from "@/lib/format";
 import {
@@ -64,11 +71,15 @@ import {
 } from "@/lib/putProgram";
 import {
   hedgeTodos,
+  putBuyClimate,
+  vixBuyClimate,
   HARVEST_DELTA,
   HARVEST_GAIN_PCT,
   ROLL_DTE,
   type HedgeTodoKind,
   type HedgeLayer,
+  type BuyClimate,
+  type ClimateVerdict,
 } from "@/lib/hedgeReview";
 import { planVixLayer, vixPayoff, EPISODES } from "@/lib/vixLayer";
 import { mergeHedgeSettings, type HedgeSettings } from "@/lib/hedgeSettings";
@@ -113,6 +124,18 @@ const QUARTER_MARKS = [
   { pct: 50, label: "Jul 1" },
   { pct: 75, label: "Oct 1" },
 ];
+
+/**
+ * The verdict is carried by an icon, not by coloured words: status hues, not
+ * layer hues — the card already carries identity — and leaving the sentence in
+ * plain ink keeps it readable at any severity. The glyph differs as well as the
+ * colour, so the signal survives without it.
+ */
+const CLIMATE_ICON: Record<BuyClimate, { Icon: typeof IconCheck; color: string }> = {
+  good: { Icon: IconCircleCheckFilled, color: "var(--mantine-color-teal-4)" },
+  poor: { Icon: IconAlertTriangleFilled, color: "var(--mantine-color-orange-4)" },
+  neutral: { Icon: IconCircleDotFilled, color: "var(--mantine-color-dimmed)" },
+};
 
 const TODO_ICON: Record<HedgeTodoKind, typeof IconCheck> = {
   harvest: IconCoins,
@@ -231,6 +254,122 @@ function StatTile({
         </Text>
       )}
     </Box>
+  );
+}
+
+/**
+ * A week of the sleeve's underlying, as a sparkline.
+ *
+ * Context for the instruction above it: the ring says how covered you are, this
+ * says what the thing you're hedging has been doing. No axes — the shape and
+ * the labelled change carry it, and a baseline at the window's open makes the
+ * direction readable without one.
+ */
+function Sparkline({
+  layer,
+  label,
+  candles,
+  loading,
+  decimals,
+  verdict,
+}: {
+  layer: HedgeLayer;
+  label: string;
+  candles: { time: number; close: number }[];
+  loading: boolean;
+  decimals: number;
+  /** Whether today is a cheap day to add — computed per sleeve by the caller. */
+  verdict: ClimateVerdict;
+}) {
+  const mark = layerMark(layer);
+  const frame = (children: React.ReactNode) => (
+    <Box
+      p="sm"
+      style={{
+        border: "1px solid var(--mantine-color-dark-4)",
+        borderRadius: 12,
+      }}
+    >
+      {children}
+    </Box>
+  );
+  if (loading) return frame(<Skeleton height={78} radius="md" />);
+  if (candles.length < 2) {
+    return frame(
+      <Text size="xs" c="dimmed" ta="center">
+        No {label} history
+      </Text>,
+    );
+  }
+  const open = candles[0].close;
+  const last = candles[candles.length - 1].close;
+  const changePct = ((last - open) / open) * 100;
+  return frame(
+    <>
+      <Group justify="space-between" mb={2} wrap="nowrap">
+        <Text size="10px" c="dimmed" tt="uppercase" style={CARD_LABEL_STYLE}>
+          {label} · 7 days
+        </Text>
+        <Text size="xs" fw={600} c={changePct >= 0 ? "teal" : "red"}>
+          {fmt(last, decimals)} ({changePct >= 0 ? "+" : "−"}
+          {fmt(Math.abs(changePct), 1)}%)
+        </Text>
+      </Group>
+      <Box h={56}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={candles} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
+            <defs>
+              <linearGradient id={`spark-${layer}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={mark} stopOpacity={0.35} />
+                <stop offset="100%" stopColor={mark} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <YAxis hide domain={["dataMin", "dataMax"]} />
+            <ReferenceLine
+              y={open}
+              stroke="var(--mantine-color-dark-3)"
+              strokeDasharray="3 3"
+            />
+            <ChartTooltip
+              contentStyle={{
+                background: "var(--mantine-color-dark-7)",
+                border: "1px solid var(--mantine-color-dark-4)",
+                borderRadius: 8,
+                fontSize: 11,
+              }}
+              labelFormatter={(_, p) =>
+                p?.[0] ? new Date(p[0].payload.time).toLocaleString(undefined, {
+                  month: "short",
+                  day: "numeric",
+                  hour: "numeric",
+                }) : ""
+              }
+              formatter={(v) => [fmt(Number(v), decimals), label]}
+            />
+            <Area
+              type="monotone"
+              dataKey="close"
+              stroke={mark}
+              strokeWidth={2}
+              fill={`url(#spark-${layer})`}
+              dot={false}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </Box>
+      <Group gap={8} wrap="nowrap" align="flex-start" mt={8}>
+        <Box style={{ color: CLIMATE_ICON[verdict.climate].color, lineHeight: 0, paddingTop: 1 }}>
+          {(() => {
+            const { Icon: ClimateIcon } = CLIMATE_ICON[verdict.climate];
+            return <ClimateIcon size={15} />;
+          })()}
+        </Box>
+        <Text size="xs" c="dimmed" style={{ lineHeight: 1.35 }}>
+          {verdict.message}
+        </Text>
+      </Group>
+    </>,
   );
 }
 
@@ -398,6 +537,7 @@ function ActionCard({
   gated,
   cardBg,
   coverage,
+  chart,
   mask,
 }: {
   title: string;
@@ -413,6 +553,8 @@ function ActionCard({
   cardBg: string;
   /** Held against target, drawn as a ring beside the instruction. */
   coverage: { held: number; target: number; note: string };
+  /** A week of the underlying, under the instruction. */
+  chart: React.ReactNode;
   mask: (s: string) => string;
 }) {
   const act = ACTION_STYLE[action];
@@ -462,6 +604,7 @@ function ActionCard({
             </Text>
           </Box>
         </Group>
+        <Box w="100%">{chart}</Box>
       </Stack>
     </Paper>
   );
@@ -485,6 +628,8 @@ export default function HedgePage() {
   // The hero row sits at the neutral card's strength — four filled cards at the
   // action cards' weight would fight them for the top of the page.
   const putTileBg = useCardBg(PUT_COLOR);
+  const tqqqCandles = useChartCandles("1w", "TQQQ");
+  const vixCandles = useChartCandles("1w", "^VIX");
   const vixTileBg = useCardBg(VIX_COLOR);
   const isMobile = useMediaQuery("(max-width: 768px)");
   const mask = createMask(privacyMode);
@@ -547,6 +692,8 @@ export default function HedgePage() {
 
   // ── live inputs ────────────────────────────────────────────────────────────
   const [vxn, setVxn] = useState<number | null>(null);
+  /** ^VXN's percentile within its own year — how dear protection is right now. */
+  const [ivRank, setIvRank] = useState<number | null>(null);
   const [vix, setVix] = useState<number | null>(null);
   const [vix3m, setVix3m] = useState<number | null>(null);
   /** QQQ spot, to restate QQQ puts in TQQQ terms. */
@@ -565,14 +712,16 @@ export default function HedgePage() {
           return null;
         }
       };
-      const [iv, v, v3, q] = await Promise.all([
+      const [iv, rank, v, v3, q] = await Promise.all([
         num("/api/iv-rank", "vxnPct"),
+        num("/api/iv-rank", "ivRank"),
         num("/api/quote?symbol=%5EVIX", "price"),
         num("/api/quote?symbol=%5EVIX3M", "price"),
         num("/api/quote?symbol=QQQ", "price"),
       ]);
       if (cancelled) return;
       setVxn(iv);
+      setIvRank(rank);
       setVix(v);
       setVix3m(v3);
       setQqqSpot(q);
@@ -795,6 +944,21 @@ export default function HedgePage() {
   // that apply to what's on screen.
   const excludedHere = lots.filter((l) => excluded.has(l.symbol)).length;
 
+  /**
+   * Puts are judged on implied vol, VIX calls on their own price: for that
+   * sleeve the underlying *is* volatility, so the tape is the vol signal.
+   */
+  const putClimate = putBuyClimate(ivRank);
+  const vixWeekPct =
+    vixCandles.candles.length > 1
+      ? ((vixCandles.candles[vixCandles.candles.length - 1].close - vixCandles.candles[0].close) /
+          vixCandles.candles[0].close) *
+        100
+      : 0;
+  const vixClimate = vixBuyClimate(
+    vixWeekPct,
+    vix != null ? { vix, maxEntryVix } : undefined,
+  );
   const heldPutCoveragePct =
     tqqqShares > 0 ? ((putEquivalents * 100) / tqqqShares) * 100 : 0;
 
@@ -820,6 +984,16 @@ export default function HedgePage() {
           cost={putPlan.cycleCost}
           costLabel={`per ${dteNum}d roll`}
           cardBg={putBg}
+          chart={
+            <Sparkline
+              layer="put"
+              label="TQQQ"
+              candles={tqqqCandles.candles}
+              loading={tqqqCandles.loading}
+              decimals={2}
+              verdict={putClimate}
+            />
+          }
           coverage={{
             held: putEquivalents,
             target: putPlan.targetContracts,
@@ -847,6 +1021,16 @@ export default function HedgePage() {
             costLabel={`per ${vixDteNum}d roll`}
             gated={vixPlan.gated && !vixPlan.monetize}
             cardBg={vixBg}
+            chart={
+              <Sparkline
+                layer="vix"
+                label="VIX"
+                candles={vixCandles.candles}
+                loading={vixCandles.loading}
+                decimals={2}
+                verdict={vixClimate}
+              />
+            }
             coverage={{
               held: heldPuts.vix,
               target: vixPlan.targetContracts,

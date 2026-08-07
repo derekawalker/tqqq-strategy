@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   hedgeTodos,
+  putBuyClimate,
+  vixBuyClimate,
   daysUntil,
   positionLabel,
   type HedgeReviewInput,
@@ -73,6 +75,57 @@ describe("daysUntil", () => {
 describe("positionLabel", () => {
   it("names the contract the way an order ticket would", () => {
     expect(positionLabel(put({ expiry: "2026-10-16" }))).toBe("TQQQ $60 put · Oct 16");
+  });
+});
+
+describe("putBuyClimate", () => {
+  it("calls cheap vol a good day, whatever the tape did", () => {
+    const v = putBuyClimate(18);
+    expect(v.climate).toBe("good");
+    expect(v.message).toContain("18th percentile");
+  });
+
+  it("calls rich vol a poor day", () => {
+    expect(putBuyClimate(82).climate).toBe("poor");
+  });
+
+  it("sits neutral through the middle of the range", () => {
+    expect(putBuyClimate(59).climate).toBe("neutral");
+    expect(putBuyClimate(30).climate).toBe("good");
+    expect(putBuyClimate(70).climate).toBe("poor");
+  });
+
+  it("still says something without a reading", () => {
+    const v = putBuyClimate(null);
+    expect(v.climate).toBe("neutral");
+    expect(v.message.length).toBeGreaterThan(0);
+  });
+});
+
+describe("vixBuyClimate", () => {
+  it("calls a quiet week a good time to add convexity", () => {
+    const v = vixBuyClimate(-11.3);
+    expect(v.climate).toBe("good");
+    expect(v.message).toContain("11.3%");
+  });
+
+  it("calls a spike a poor time — the premium has already moved", () => {
+    expect(vixBuyClimate(18).climate).toBe("poor");
+  });
+
+  it("lets the entry gate override a falling week", () => {
+    const v = vixBuyClimate(-11.3, { vix: 26, maxEntryVix: 20 });
+    expect(v.climate).toBe("poor");
+    expect(v.message).toContain("entry cap");
+  });
+
+  it("treats a small move as noise rather than signal", () => {
+    expect(vixBuyClimate(4.9).climate).toBe("neutral");
+    expect(vixBuyClimate(-4.9).climate).toBe("neutral");
+  });
+
+  it("always says something", () => {
+    expect(vixBuyClimate(0).message.length).toBeGreaterThan(0);
   });
 });
 

@@ -33,6 +33,91 @@ export const HARVEST_GAIN_PCT = 300;
 /** Inside this many days theta bites hardest and gamma is unreliable. Roll. */
 export const ROLL_DTE = 21;
 
+/** A weekly VIX move smaller than this is noise, not a signal about pricing. */
+const VIX_CLIMATE_BAND = 5;
+/** Implied vol below this percentile of its own year is cheap; above the other, dear. */
+const IV_RANK_CHEAP = 30;
+const IV_RANK_DEAR = 70;
+
+export type BuyClimate = "good" | "neutral" | "poor";
+
+export interface ClimateVerdict {
+  climate: BuyClimate;
+  message: string;
+}
+
+/**
+ * Whether protection is cheap today, judged on implied vol rather than price.
+ *
+ * The program picks strikes by delta, so a move in TQQQ takes the strike with
+ * it: at fixed delta the premium scales roughly with `spot x IV x sqrt(time)`,
+ * and a fall in spot lowers the dollar cost about as much as it lowers the
+ * strike. Direction is close to a non-event on its own — what actually moves
+ * the price of a given delta is implied vol, which is why this reads IV rank
+ * and ignores the tape. Down days matter only because they drag vol up, and
+ * that link is loose enough not to trade on.
+ */
+export function putBuyClimate(ivRank: number | null): ClimateVerdict {
+  if (ivRank == null) {
+    return { climate: "neutral", message: "No ^VXN reading — can't tell how vol is priced." };
+  }
+  const where = `^VXN sits at the ${Math.round(ivRank)}th percentile of its year`;
+  if (ivRank <= IV_RANK_CHEAP) {
+    return {
+      climate: "good",
+      message: `Good day to buy puts — ${where}, so a given delta is cheap.`,
+    };
+  }
+  if (ivRank >= IV_RANK_DEAR) {
+    return {
+      climate: "poor",
+      message: `Poor day to buy puts — ${where}; the same delta costs more than usual.`,
+    };
+  }
+  return {
+    climate: "neutral",
+    message: `Neutral — ${where}, so put premium is near its own average.`,
+  };
+}
+
+/**
+ * Whether convexity is cheap today.
+ *
+ * Unlike the put sleeve this *is* judged on the underlying's move, because the
+ * underlying is volatility itself — VIX falling is the price of convexity
+ * falling, not a proxy for it. The entry gate overrides everything: above it,
+ * vol has already repriced and buying is paying peak premium for a move
+ * underway.
+ */
+export function vixBuyClimate(
+  changePct: number,
+  gate?: { vix: number; maxEntryVix: number },
+): ClimateVerdict {
+  const move = `${Math.abs(changePct).toFixed(1)}%`;
+  if (gate && gate.vix >= gate.maxEntryVix) {
+    return {
+      climate: "poor",
+      message: `Poor day to add — VIX ${gate.vix.toFixed(1)} is at or above your ${gate.maxEntryVix} entry cap, so you'd be buying the spike.`,
+    };
+  }
+  if (changePct <= -VIX_CLIMATE_BAND) {
+    return {
+      climate: "good",
+      message: `Good day to buy calls — VIX is down ${move} on the week, so convexity is on sale.`,
+    };
+  }
+  if (changePct >= VIX_CLIMATE_BAND) {
+    return {
+      climate: "poor",
+      message: `Poor day to buy calls — VIX is up ${move} on the week and premium has already repriced.`,
+    };
+  }
+  return {
+    climate: "neutral",
+    message: "Neutral — VIX has gone nowhere this week, so calls cost about what they did.",
+  };
+}
+
 export type HedgeTodoKind = "harvest" | "roll" | "open" | "trim" | "hold";
 
 /** Which sleeve a row belongs to — the page colours by this. */
