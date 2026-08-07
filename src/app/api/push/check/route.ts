@@ -24,6 +24,8 @@ type VxnBand = "calm" | "elevated" | "high" | "panic";
 interface PushNotifiedState {
   itmNearExpiry: string[];
   vxnBand: VxnBand | null;
+  /** True while the broker link is failing, so the alert fires once per outage. */
+  schwabDown?: boolean;
 }
 
 const STATE_KEY = "pushNotifiedState";
@@ -37,6 +39,34 @@ const VXN_PANIC_THRESHOLD = 50;
 function daysUntil(expiry: string): number {
   const ms = new Date(expiry + "T23:59:59").getTime() - Date.now();
   return Math.max(0, Math.ceil(ms / 86_400_000));
+}
+
+/**
+ * Exported for testing — the notification a change in broker health warrants.
+ *
+ * Schwab refresh tokens expire after seven days and can only be renewed by
+ * clicking through the auth flow, so this *will* happen periodically. Losing the
+ * link is worth interrupting for: while it's down the position-based alerts are
+ * silently not running, which is indistinguishable from nothing being wrong.
+ */
+export function brokerHealthPayload(wasDown: boolean, isDown: boolean): PushPayload | null {
+  if (isDown && !wasDown) {
+    return {
+      title: "Schwab connection lost",
+      body: "Position alerts are paused until you reconnect — the refresh token has expired.",
+      url: "/",
+      tag: "schwab-auth",
+    };
+  }
+  if (!isDown && wasDown) {
+    return {
+      title: "Schwab reconnected",
+      body: "Position alerts are running again.",
+      url: "/",
+      tag: "schwab-auth",
+    };
+  }
+  return null;
 }
 
 /** Exported for testing — pure band classification used to detect VXN crossings. */
@@ -74,22 +104,42 @@ export async function GET(req: Request) {
     return Response.json({ sent: subs.length, test: true });
   }
 
-  const [vxn, accounts, state] = await Promise.all([
-    fetchYahooDaily("^VXN", 1),
-    getAllAccountPositions(),
+  // Each source is caught on its own: an expired Schwab token must not take the
+  // ^VXN alert down with it, and a throw here would surface only as an opaque
+  // red X on the cron that fires it.
+  const [vxn, accountsResult, state] = await Promise.all([
+    fetchYahooDaily("^VXN", 1).catch(() => []),
+    getAllAccountPositions().then(
+      (accounts) => ({ ok: true as const, accounts }),
+      (err: unknown) => {
+        console.error("Schwab positions failed:", err);
+        return { ok: false as const };
+      },
+    ),
     readSetting<PushNotifiedState>(STATE_KEY),
   ]);
 
   const vxnPct = vxn.at(-1)?.close ?? null;
-  const allOptions: OptionPosition[] = accounts.flatMap((a) => a.options);
+  const allOptions: OptionPosition[] = accountsResult.ok
+    ? accountsResult.accounts.flatMap((a) => a.options)
+    : [];
 
   const prev: PushNotifiedState = state ?? { itmNearExpiry: [], vxnBand: null };
-  const next: PushNotifiedState = { itmNearExpiry: [], vxnBand: prev.vxnBand };
+  const next: PushNotifiedState = {
+    // With no position feed, carry the flagged contracts forward untouched —
+    // clearing them would re-fire every one of them as "new" on reconnect.
+    itmNearExpiry: accountsResult.ok ? [] : prev.itmNearExpiry,
+    vxnBand: prev.vxnBand,
+    schwabDown: !accountsResult.ok,
+  };
   const payloads: PushPayload[] = [];
+
+  const brokerPayload = brokerHealthPayload(prev.schwabDown === true, !accountsResult.ok);
+  if (brokerPayload) payloads.push(brokerPayload);
 
   // --- ITM short options near expiry (assignment risk on the TQQQ income book) ---
   const shortOptions = allOptions.filter((p) => p.underlyingSymbol === "TQQQ" && p.shortQty > 0);
-  if (shortOptions.length > 0) {
+  if (accountsResult.ok && shortOptions.length > 0) {
     const tqqq = await fetchYahooDaily("TQQQ", 1);
     const tqqqSpot = tqqq.at(-1)?.close ?? null;
     if (tqqqSpot !== null) {
@@ -135,5 +185,12 @@ export async function GET(req: Request) {
   }
   await pruneDeadSubscriptions([...new Set(deadEndpoints)]);
 
-  return Response.json({ sent, notifications: payloads.length });
+  // Always 200 once authorized: the check ran and did what it could, and a
+  // failing HTTP status on the cron says nothing about which part broke.
+  return Response.json({
+    sent,
+    notifications: payloads.length,
+    schwab: accountsResult.ok ? "ok" : "auth-failed",
+    vxn: vxnPct,
+  });
 }
