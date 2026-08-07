@@ -7,6 +7,9 @@ import {
   isHedgeFill,
   hedgeLots,
   hedgeSpend,
+  hedgeSpendBySleeve,
+  qqqPutsInTqqqTerms,
+  openContractsBySleeve,
   budgetStatus,
   type ProgramInput,
 } from "./putProgram";
@@ -406,6 +409,104 @@ describe("hedgeLots", () => {
       ];
       expect(hedgeLots(stray, since)).toHaveLength(1);
     });
+  });
+});
+
+describe("qqqPutsInTqqqTerms", () => {
+  const QQQ = 590;
+
+  it("converts by notional, allowing for the leverage", () => {
+    // 590 / (72.5 x 3) — one QQQ put is about 2.7 TQQQ puts.
+    expect(qqqPutsInTqqqTerms(1, QQQ, 72.5)).toBeCloseTo(590 / 217.5, 6);
+  });
+
+  it("scales with the contract count", () => {
+    expect(qqqPutsInTqqqTerms(3, QQQ, 72.5)).toBeCloseTo(3 * qqqPutsInTqqqTerms(1, QQQ, 72.5), 6);
+  });
+
+  it("needs fewer TQQQ puts per QQQ put as TQQQ rises", () => {
+    expect(qqqPutsInTqqqTerms(1, QQQ, 90)).toBeLessThan(qqqPutsInTqqqTerms(1, QQQ, 72.5));
+  });
+
+  it("returns nothing without prices", () => {
+    expect(qqqPutsInTqqqTerms(2, 0, 72.5)).toBe(0);
+    expect(qqqPutsInTqqqTerms(2, QQQ, 0)).toBe(0);
+  });
+});
+
+describe("openContractsBySleeve", () => {
+  const since = new Date("2026-01-01");
+  const BTO = "BUY_TO_OPEN" as const;
+  const STC = "SELL_TO_CLOSE" as const;
+  const T = "TQQQ  260515P00056000";
+  const Q = "QQQ   261231P00575000";
+  const V = "VIX   260916C00025000";
+  const orders = [
+    { symbol: T, contracts: 4, underlyingSymbol: "TQQQ", instruction: BTO, total: -1300, fees: -1, time: "2026-02-01" },
+    { symbol: Q, contracts: 2, underlyingSymbol: "QQQ", instruction: BTO, total: -2600, fees: -1, time: "2026-06-25" },
+    { symbol: V, contracts: 12, underlyingSymbol: "VIX", instruction: BTO, total: -1200, fees: -1, time: "2026-08-07" },
+  ];
+
+  it("keeps each underlying apart", () => {
+    expect(openContractsBySleeve(hedgeLots(orders, since))).toEqual({
+      tqqqPuts: 4,
+      qqqPuts: 2,
+      vix: 12,
+    });
+  });
+
+  it("counts what is still open, not what was bought", () => {
+    const half = [
+      ...orders,
+      { symbol: T, contracts: 3, underlyingSymbol: "TQQQ", instruction: STC, total: 900, fees: -1, time: "2026-03-01" },
+    ];
+    expect(openContractsBySleeve(hedgeLots(half, since)).tqqqPuts).toBe(1);
+  });
+
+  it("drops a lot struck off by hand", () => {
+    const held = openContractsBySleeve(hedgeLots(orders, since), new Set([V]));
+    expect(held.vix).toBe(0);
+    expect(held.qqqPuts).toBe(2);
+  });
+});
+
+describe("hedgeSpendBySleeve", () => {
+  const since = new Date("2026-01-01");
+  const BTO = "BUY_TO_OPEN" as const;
+  const STC = "SELL_TO_CLOSE" as const;
+  const P56 = "TQQQ  260515P00056000";
+  const QQQP = "QQQ   261231P00575000";
+  const VIXC = "VIX   260916C00025000";
+  const orders = [
+    { symbol: P56, contracts: 2, underlyingSymbol: "TQQQ", instruction: BTO, total: -1300, fees: -1.3, time: "2026-02-01" },
+    { symbol: QQQP, contracts: 1, underlyingSymbol: "QQQ", instruction: BTO, total: -1316, fees: -0.5, time: "2026-06-25" },
+    { symbol: VIXC, contracts: 12, underlyingSymbol: "VIX", instruction: BTO, total: -1200, fees: -1, time: "2026-08-07" },
+  ];
+
+  it("puts QQQ and TQQQ puts on one side, VIX on the other", () => {
+    const s = hedgeSpendBySleeve(hedgeLots(orders, since));
+    expect(s.put).toBeCloseTo(1301.3 + 1316.5, 6);
+    expect(s.vix).toBeCloseTo(1201, 6);
+  });
+
+  it("totals to the same figure hedgeSpend reports", () => {
+    const lots = hedgeLots(orders, since);
+    expect(hedgeSpendBySleeve(lots).total).toBeCloseTo(hedgeSpend(lots), 6);
+  });
+
+  it("honours the hand-picked exclusions", () => {
+    const lots = hedgeLots(orders, since);
+    const s = hedgeSpendBySleeve(lots, new Set([VIXC]));
+    expect(s.vix).toBe(0);
+    expect(s.total).toBeCloseTo(hedgeSpend(lots, new Set([VIXC])), 6);
+  });
+
+  it("nets a closing credit off its own sleeve", () => {
+    const closed = [
+      ...orders,
+      { symbol: VIXC, contracts: 12, underlyingSymbol: "VIX", instruction: STC, total: 1500, fees: -1, time: "2026-08-20" },
+    ];
+    expect(hedgeSpendBySleeve(hedgeLots(closed, since)).vix).toBeCloseTo(1201 - 1499, 6);
   });
 });
 

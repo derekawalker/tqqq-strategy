@@ -55,6 +55,8 @@ import {
   scenarioTable,
   hedgeLots,
   hedgeSpend,
+  qqqPutsInTqqqTerms,
+  openContractsBySleeve,
   MIN_HEDGE_DTE,
   budgetStatus,
   tqqqIvFromVxn,
@@ -233,6 +235,77 @@ function StatTile({
 }
 
 /**
+ * A sleeve's coverage: the ring is target, the arc is what's held.
+ *
+ * A ring whose circumference *is* the target keeps the "how full am I" glance a
+ * pie gives, and unlike a pie it has an honest place for overshoot — a second
+ * lap drawn inside the ring. A full ring means exactly on target.
+ */
+function CoverageDonut({
+  layer,
+  held,
+  target,
+  size = 176,
+}: {
+  layer: HedgeLayer;
+  held: number;
+  target: number;
+  size?: number;
+}) {
+  const R = size / 2 - 12;
+  const frac = target > 0 ? held / target : held > 0 ? 1 : 0;
+  const mark = layerMark(layer);
+  const arc = (radius: number, portion: number, opacity: number, width: number) => (
+    <circle
+      cx={size / 2}
+      cy={size / 2}
+      r={radius}
+      fill="none"
+      stroke={mark}
+      strokeOpacity={opacity}
+      strokeWidth={width}
+      strokeLinecap="round"
+      strokeDasharray={`${2 * Math.PI * radius * Math.min(portion, 1)} ${2 * Math.PI * radius}`}
+      transform={`rotate(-90 ${size / 2} ${size / 2})`}
+    />
+  );
+  // A fractional count is a QQQ conversion; whole numbers stay whole.
+  const shown = Number.isInteger(held) ? String(held) : fmt(held, 1);
+  return (
+    <Box style={{ position: "relative", width: size, height: size, flexShrink: 0 }}>
+      <svg
+        width={size}
+        height={size}
+        role="img"
+        aria-label={`${shown} of ${target} contracts held`}
+      >
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={R}
+          fill="none"
+          stroke="var(--mantine-color-dark-5)"
+          strokeWidth={16}
+        />
+        {arc(R, frac, 1, 16)}
+        {frac > 1 && arc(R - 15, frac - 1, 0.55, 9)}
+      </svg>
+      <Stack gap={0} align="center" justify="center" style={{ position: "absolute", inset: 0 }}>
+        <Text
+          className={outfit.className}
+          style={{ fontSize: "1.75rem", fontWeight: 700, lineHeight: 1, color: "white" }}
+        >
+          {shown}/{target}
+        </Text>
+        <Text size="xs" c="dimmed" mt={4}>
+          {fmt(frac * 100, 0)}% of target
+        </Text>
+      </Stack>
+    </Box>
+  );
+}
+
+/**
  * Spend against a budget for one window — bar clamped, caption exact.
  *
  * `marks` cut the bar at fixed percentages. On the yearly bar those are the
@@ -324,6 +397,7 @@ function ActionCard({
   costLabel,
   gated,
   cardBg,
+  coverage,
   mask,
 }: {
   title: string;
@@ -337,6 +411,8 @@ function ActionCard({
   gated?: boolean;
   /** The sleeve's own glossy surface, from useCardBg at LAYER_MIX. */
   cardBg: string;
+  /** Held against target, drawn as a ring beside the instruction. */
+  coverage: { held: number; target: number; note: string };
   mask: (s: string) => string;
 }) {
   const act = ACTION_STYLE[action];
@@ -349,36 +425,44 @@ function ActionCard({
         <Text tt="uppercase" style={{ ...CARD_LABEL_STYLE, color: layerInk(layer) }}>
           {title}
         </Text>
-        <Text size="xs" c="dimmed">
-          {costLabel} {mask(`$${fmt(cost, 0)}`)}
+        <Text size="xs" c="dimmed" ta="right" style={{ lineHeight: 1.3 }}>
+          {mask(`$${fmt(cost, 0)}`)}
+          <br />
+          {costLabel}
         </Text>
       </Group>
-      <Group gap="md" wrap="nowrap">
-        {/* Hue says which sleeve; the glyph says buy / sell / hold. Gated is the
-            one exception — a blocked entry is a state worth shouting. Filled,
-            not light, so the icon still separates from the tinted surface. */}
-        <ThemeIcon
-          size={44}
-          radius="xl"
-          color={gated ? "yellow" : layerColor(layer)}
-          variant="filled"
-        >
-          <Icon size={22} />
-        </ThemeIcon>
-        <Box style={{ minWidth: 0 }}>
-          <Text size="lg" fw={700} style={{ lineHeight: 1.2 }}>
-            {headline}
-          </Text>
-          <Text size="sm" c="dimmed">
-            {detail}
-          </Text>
-          {note && (
-            <Text size="xs" c={gated ? "yellow" : "dimmed"} mt={2}>
-              {note}
+      <Stack gap="md" align="center">
+        <CoverageDonut layer={layer} held={coverage.held} target={coverage.target} />
+        <Group gap="md" wrap="nowrap" align="flex-start" style={{ minWidth: 0 }}>
+          {/* Hue says which sleeve; the glyph says buy / sell / hold. Gated is
+              the one exception — a blocked entry is a state worth shouting.
+              Filled, not light, so the icon separates from the tinted surface. */}
+          <ThemeIcon
+            size={44}
+            radius="xl"
+            color={gated ? "yellow" : layerColor(layer)}
+            variant="filled"
+          >
+            <Icon size={22} />
+          </ThemeIcon>
+          <Box style={{ minWidth: 0 }}>
+            <Text size="lg" fw={700} style={{ lineHeight: 1.2 }}>
+              {headline}
             </Text>
-          )}
-        </Box>
-      </Group>
+            <Text size="sm" c="dimmed">
+              {detail}
+            </Text>
+            {note && (
+              <Text size="xs" c={gated ? "yellow" : "dimmed"} mt={2}>
+                {note}
+              </Text>
+            )}
+            <Text size="xs" c="dimmed" mt={4}>
+              {coverage.note}
+            </Text>
+          </Box>
+        </Group>
+      </Stack>
     </Paper>
   );
 }
@@ -465,6 +549,8 @@ export default function HedgePage() {
   const [vxn, setVxn] = useState<number | null>(null);
   const [vix, setVix] = useState<number | null>(null);
   const [vix3m, setVix3m] = useState<number | null>(null);
+  /** QQQ spot, to restate QQQ puts in TQQQ terms. */
+  const [qqqSpot, setQqqSpot] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let cancelled = false;
@@ -479,15 +565,17 @@ export default function HedgePage() {
           return null;
         }
       };
-      const [iv, v, v3] = await Promise.all([
+      const [iv, v, v3, q] = await Promise.all([
         num("/api/iv-rank", "vxnPct"),
         num("/api/quote?symbol=%5EVIX", "price"),
         num("/api/quote?symbol=%5EVIX3M", "price"),
+        num("/api/quote?symbol=QQQ", "price"),
       ]);
       if (cancelled) return;
       setVxn(iv);
       setVix(v);
       setVix3m(v3);
+      setQqqSpot(q);
       setLoading(false);
     })();
     return () => {
@@ -501,24 +589,41 @@ export default function HedgePage() {
   const vixDteNum = Number(vixDte);
   const accountValue = balance?.totalValue ?? 0;
 
-  /** Long TQQQ puts are the hedge; short ones belong to the options ladder. */
-  const currentPuts = useMemo(
-    () =>
-      optionPositions
-        .filter((p) => p.underlyingSymbol === "TQQQ" && p.putCall === "PUT" && p.longQty > 0)
-        .reduce((sum, p) => sum + p.longQty, 0),
-    [optionPositions],
-  );
+  const yearStart = useMemo(() => new Date(new Date().getFullYear(), 0, 1), []);
 
-  const currentVixCalls = useMemo(
-    () =>
-      optionPositions
-        .filter(
-          (p) =>
-            p.underlyingSymbol.includes("VIX") && p.putCall === "CALL" && p.longQty > 0,
-        )
-        .reduce((sum, p) => sum + p.longQty, 0),
-    [optionPositions],
+  const lots = useMemo(() => {
+    const marks = new Map<string, number>();
+    for (const p of optionPositions) {
+      if (p.longQty > 0) marks.set(p.symbol.replace(/\s+/g, ""), p.marketValue / p.longQty);
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    return hedgeLots(filledOptionOrders, yearStart).map((lot) => {
+      const perContract = marks.get(lot.symbol.replace(/\s+/g, "")) ?? null;
+      const openValue =
+        lot.openContracts === 0
+          ? 0
+          : perContract != null
+            ? perContract * lot.openContracts
+            : lot.expiry != null && lot.expiry < today
+              ? 0
+              : null;
+      return {
+        ...lot,
+        openValue,
+        net: openValue == null ? null : lot.proceeds + openValue - lot.cost,
+      };
+    });
+  }, [filledOptionOrders, optionPositions, yearStart]);
+
+  /** QQQ puts restated in TQQQ puts, so one ring can hold both. */
+  /**
+   * Coverage comes from the kept lots, not the position feed, so the rings
+   * agree with the budget list: untick a trade and it stops counting here too.
+   */
+  const heldPuts = useMemo(() => openContractsBySleeve(lots, excluded), [lots, excluded]);
+  const putEquivalents = useMemo(
+    () => heldPuts.tqqqPuts + qqqPutsInTqqqTerms(heldPuts.qqqPuts, qqqSpot ?? 0, tqqqSpot),
+    [heldPuts, qqqSpot, tqqqSpot],
   );
 
   const putPlan = useMemo(() => {
@@ -533,7 +638,7 @@ export default function HedgePage() {
       budgetShare: putShare / 100,
       targetDelta: targetDelta / 100,
       driftBandPct,
-      currentContracts: currentPuts,
+      currentContracts: Math.round(putEquivalents),
     });
   }, [
     accountValue,
@@ -545,7 +650,7 @@ export default function HedgePage() {
     putShare,
     targetDelta,
     driftBandPct,
-    currentPuts,
+    putEquivalents,
   ]);
 
   const vixPlan = useMemo(() => {
@@ -561,7 +666,7 @@ export default function HedgePage() {
       volOfVol: volOfVol / 100,
       maxEntryVix,
       monetizeVix,
-      currentContracts: currentVixCalls,
+      currentContracts: heldPuts.vix,
     });
   }, [
     accountValue,
@@ -574,10 +679,8 @@ export default function HedgePage() {
     volOfVol,
     maxEntryVix,
     monetizeVix,
-    currentVixCalls,
+    heldPuts.vix,
   ]);
-
-  const yearStart = useMemo(() => new Date(new Date().getFullYear(), 0, 1), []);
 
   /** What to do with what's already open, and what the plans still want opened. */
   const todos = useMemo(
@@ -603,30 +706,6 @@ export default function HedgePage() {
    * than unknown. Which of these actually count is the user's call — see
    * `excluded`.
    */
-  const lots = useMemo(() => {
-    const marks = new Map<string, number>();
-    for (const p of optionPositions) {
-      if (p.longQty > 0) marks.set(p.symbol.replace(/\s+/g, ""), p.marketValue / p.longQty);
-    }
-    const today = new Date().toISOString().slice(0, 10);
-    return hedgeLots(filledOptionOrders, yearStart).map((lot) => {
-      const perContract = marks.get(lot.symbol.replace(/\s+/g, "")) ?? null;
-      const openValue =
-        lot.openContracts === 0
-          ? 0
-          : perContract != null
-            ? perContract * lot.openContracts
-            : lot.expiry != null && lot.expiry < today
-              ? 0
-              : null;
-      return {
-        ...lot,
-        openValue,
-        net: openValue == null ? null : lot.proceeds + openValue - lot.cost,
-      };
-    });
-  }, [filledOptionOrders, optionPositions, yearStart]);
-
   const budget = useMemo(
     () => budgetStatus(accountValue * (budgetPct / 100), hedgeSpend(lots, excluded)),
     [accountValue, budgetPct, lots, excluded],
@@ -716,6 +795,9 @@ export default function HedgePage() {
   // that apply to what's on screen.
   const excludedHere = lots.filter((l) => excluded.has(l.symbol)).length;
 
+  const heldPutCoveragePct =
+    tqqqShares > 0 ? ((putEquivalents * 100) / tqqqShares) * 100 : 0;
+
   return (
     <Stack gap="md">
       <Text fw={700} size="xl">
@@ -734,10 +816,17 @@ export default function HedgePage() {
               : `${ACTION_STYLE[putPlan.action].label} ${putPlan.actionContracts} TQQQ put${putPlan.actionContracts === 1 ? "" : "s"}`
           }
           detail={`$${fmt(putPlan.strike, 0)} strike · ${dteNum}d · Δ${fmt(Math.abs(putPlan.delta), 2)} · ${fmt(putPlan.otmPct, 1)}% OTM`}
-          note={`Holding ${currentPuts}, target ${putPlan.targetContracts} · drift ${fmt(putPlan.driftPct, 0)}% vs ${driftBandPct}% band`}
+          note={`Drift ${fmt(putPlan.driftPct, 0)}% vs the ${driftBandPct}% band`}
           cost={putPlan.cycleCost}
-          costLabel="cycle"
+          costLabel={`per ${dteNum}d roll`}
           cardBg={putBg}
+          coverage={{
+            held: putEquivalents,
+            target: putPlan.targetContracts,
+            note: heldPuts.qqqPuts
+              ? `${heldPuts.tqqqPuts} TQQQ + ${heldPuts.qqqPuts} QQQ ≈ ${fmt(putEquivalents, 1)} TQQQ-equivalent`
+              : `${heldPuts.tqqqPuts} held · ${fmt(heldPutCoveragePct, 0)}% of ${tqqqShares} shares`,
+          }}
           mask={mask}
         />
         {vixPlan ? (
@@ -755,9 +844,14 @@ export default function HedgePage() {
             detail={`${vixPlan.strike} strike · ${vixDteNum}d · forward ${fmt(vixPlan.forward, 1)} · spot ${fmt(vix ?? 0, 1)}`}
             note={vixPlan.note}
             cost={vixPlan.cycleCost}
-            costLabel="cycle"
+            costLabel={`per ${vixDteNum}d roll`}
             gated={vixPlan.gated && !vixPlan.monetize}
             cardBg={vixBg}
+            coverage={{
+              held: heldPuts.vix,
+              target: vixPlan.targetContracts,
+              note: `${heldPuts.vix} held · convex sleeve`,
+            }}
             mask={mask}
           />
         ) : (

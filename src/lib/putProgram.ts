@@ -460,6 +460,95 @@ export function hedgeSpend(lots: HedgeLot[], excluded: Set<string> = new Set()):
   );
 }
 
+/** TQQQ targets three times the daily return of the Nasdaq-100. */
+export const TQQQ_LEVERAGE = 3;
+
+/**
+ * What a QQQ put is worth in TQQQ puts, by notional.
+ *
+ * One contract covers 100 shares either way, so a QQQ put controls 100 × QQQ of
+ * index while a TQQQ put controls 100 × TQQQ of a thing that moves three times
+ * as hard — 100 × TQQQ × 3 of index exposure. The ratio of those is the
+ * conversion, and at today's prices one QQQ put runs about 2.7 TQQQ puts.
+ *
+ * Deliberately notional rather than delta-weighted, to match how the rest of
+ * the program measures coverage: `notionalContracts` and `coveragePct` both
+ * count contracts against shares and ignore moneyness. The cost is that a
+ * far-out-of-the-money QQQ put counts the same as a near-the-money one, which
+ * flatters the deep strikes — the same simplification already made everywhere
+ * else here.
+ */
+export function qqqPutsInTqqqTerms(
+  qqqContracts: number,
+  qqqSpot: number,
+  tqqqSpot: number,
+  leverage = TQQQ_LEVERAGE,
+): number {
+  if (qqqSpot <= 0 || tqqqSpot <= 0 || leverage <= 0) return 0;
+  return qqqContracts * (qqqSpot / (tqqqSpot * leverage));
+}
+
+/** Contracts still open out of the kept lots, kept apart by underlying. */
+export interface OpenBySleeve {
+  tqqqPuts: number;
+  qqqPuts: number;
+  vix: number;
+}
+
+/**
+ * What the kept lots still hold, per underlying.
+ *
+ * Sourced from the budget list rather than the position feed so the charts
+ * agree with the spend: a lot struck off by hand is gone from both, and a
+ * short-dated put that never qualified as hedge spend never counts as coverage
+ * either.
+ */
+export function openContractsBySleeve(
+  lots: HedgeLot[],
+  excluded: Set<string> = new Set(),
+): OpenBySleeve {
+  const out: OpenBySleeve = { tqqqPuts: 0, qqqPuts: 0, vix: 0 };
+  for (const lot of lots) {
+    if (excluded.has(lot.symbol) || lot.openContracts <= 0) continue;
+    if (isVixUnderlying(lot.underlyingSymbol)) out.vix += lot.openContracts;
+    else if (lot.underlyingSymbol.toUpperCase() === "QQQ") out.qqqPuts += lot.openContracts;
+    else out.tqqqPuts += lot.openContracts;
+  }
+  return out;
+}
+
+/** The kept lots' spend, split by which sleeve bought them. */
+export interface SleeveSpend {
+  /** QQQ and TQQQ puts. */
+  put: number;
+  vix: number;
+  total: number;
+}
+
+/**
+ * {@link hedgeSpend}, split by sleeve.
+ *
+ * This is the honest answer to "how much hedge do I have on": it counts exactly
+ * the lots kept in the budget list, so a contract the user struck off by hand
+ * is absent here too. Contract counts can't be summed across the two sleeves —
+ * a TQQQ put and a VIX call are not the same thing — but the dollars behind
+ * them can, and dollars are what the budget is denominated in anyway.
+ */
+export function hedgeSpendBySleeve(
+  lots: HedgeLot[],
+  excluded: Set<string> = new Set(),
+): SleeveSpend {
+  let put = 0;
+  let vix = 0;
+  for (const lot of lots) {
+    if (excluded.has(lot.symbol)) continue;
+    const net = lot.cost - lot.proceeds;
+    if (isVixUnderlying(lot.underlyingSymbol)) vix += net;
+    else put += net;
+  }
+  return { put, vix, total: put + vix };
+}
+
 /** Where the year's spend stands against the budget, pace included. */
 export interface BudgetStatus {
   annualBudget: number;
