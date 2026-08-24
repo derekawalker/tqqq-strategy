@@ -13,7 +13,7 @@ function supabase() {
   return createClient(url, key);
 }
 
-// Uses TOKEN_ID in the same tokens table as Schwab (id=1). Sandbox uses id=3.
+// Uses TOKEN_ID in the same tokens table as Schwab (id=1).
 export async function readTokens(): Promise<TokenSet | null> {
   const { data, error } = await supabase()
     .from("tokens")

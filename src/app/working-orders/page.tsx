@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState, useEffect } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useMediaQuery } from "@mantine/hooks";
 import {
   Table,
@@ -19,14 +19,12 @@ import {
   Button,
   CopyButton,
   Alert,
-  Switch,
   Progress,
 } from "@mantine/core";
 import {
   IconCheck,
   IconCopy,
   IconPlayerPlayFilled,
-  IconShield,
   IconClock,
   IconRadar,
 } from "@tabler/icons-react";
@@ -130,7 +128,6 @@ export default function WorkingOrdersPage() {
     ok: boolean;
     message: string;
   } | null>(null);
-  const [sandboxMode, setSandboxMode] = useState(false);
   const isTastytrade = activeAccount?.broker === "tastytrade";
 
   interface QueuedPlaceOrder {
@@ -154,22 +151,6 @@ export default function WorkingOrdersPage() {
 
   const isCancelOrderQueued = (orderId: string) =>
     queuedCancelOrders.some((o) => o.orderId === orderId);
-
-  useEffect(() => {
-    if (!isTastytrade) return;
-    fetch("/api/tastytrade/sandbox")
-      .then((r) => r.json())
-      .then((d) => setSandboxMode(d.enabled ?? false));
-  }, [isTastytrade]);
-
-  const toggleSandbox = async (val: boolean) => {
-    setSandboxMode(val);
-    await fetch("/api/tastytrade/sandbox", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled: val }),
-    });
-  };
 
   const [cancelConfirm, setCancelConfirm] = useState<{
     orderId: string;
@@ -548,25 +529,9 @@ export default function WorkingOrdersPage() {
       <Modal
         opened={placeOrderModal !== null}
         onClose={closePlaceOrder}
-        title={
-          <Group gap="xs">
-            <Text fw={700}>Queue Order{sandboxMode ? " — SANDBOX" : ""}</Text>
-            {sandboxMode && (
-              <IconShield size={16} color="var(--mantine-color-orange-5)" />
-            )}
-          </Group>
-        }
+        title={<Text fw={700}>Queue Order</Text>}
       >
         <Stack gap="md">
-          {sandboxMode && (
-            <Alert
-              color="orange"
-              variant="light"
-              icon={<IconShield size={16} />}
-            >
-              Sandbox mode — this will NOT place a real order.
-            </Alert>
-          )}
           {placeOrderModal && (
             <Text size="sm">
               <Text
@@ -609,27 +574,8 @@ export default function WorkingOrdersPage() {
             <Text fw={700} size="xl">
               Working Orders
             </Text>
-            {isTastytrade && sandboxMode && (
-              <Badge
-                color="orange"
-                variant="filled"
-                size="sm"
-                leftSection={<IconShield size={10} />}
-              >
-                Sandbox
-              </Badge>
-            )}
           </Group>
           <Group wrap="nowrap" align="flex-end" gap="md">
-            {isTastytrade && (
-              <Switch
-                label="Sandbox orders"
-                checked={sandboxMode}
-                onChange={(e) => toggleSandbox(e.currentTarget.checked)}
-                color="orange"
-                size="xs"
-              />
-            )}
             <Group wrap="nowrap" align="flex-end" gap="xs">
               {!isTastytrade && (
                 <NumberInput

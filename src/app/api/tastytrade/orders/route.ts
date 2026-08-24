@@ -1,5 +1,4 @@
-import { tastyOrderFetch, tastyFetch, SANDBOX } from "@/lib/tastytrade/client";
-import { readSetting } from "@/lib/settings";
+import { tastyFetch } from "@/lib/tastytrade/client";
 
 export async function POST(req: Request) {
   try {
@@ -27,21 +26,17 @@ export async function POST(req: Request) {
       ],
     };
 
-    const sandbox = (await readSetting<boolean>("sandbox_orders")) ?? SANDBOX;
-    const targetAccount = sandbox
-      ? (process.env.TASTYTRADE_SANDBOX_ACCOUNT ?? accountNumber)
-      : accountNumber;
-    const res = await tastyOrderFetch(`/accounts/${targetAccount}/orders`, {
+    const res = await tastyFetch(`/accounts/${accountNumber}/orders`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
-    }, sandbox);
+    });
 
     const json = await res.json();
     if (!res.ok) {
       return Response.json({ error: json }, { status: res.status });
     }
-    return Response.json({ ...json, sandbox });
+    return Response.json(json);
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
     return Response.json({ error: message }, { status: 500 });

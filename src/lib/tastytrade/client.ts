@@ -1,13 +1,14 @@
 import { readTokens, writeTokens, clearTokens, isExpired, TokenSet } from "./tokens";
-import { BASE_URL, SANDBOX, SANDBOX_URL } from "./config";
+import { BASE_URL } from "./config";
 import { singleFlight } from "@/lib/singleFlight";
 
-export { SANDBOX };
-const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+// Fallback only — the real lifetime comes from session-expiration in the response,
+// which tastytrade currently sets about an hour out. Never assume longer than the
+// API says: an over-long guess leaves us serving a token the server already killed.
+const SESSION_TTL_MS = 60 * 60 * 1000;
 
 const BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-// Live credentials — used for data fetching and MFA auth flow
 const LOGIN_BODY = () => ({
   login: process.env.TASTYTRADE_USERNAME!,
   password: process.env.TASTYTRADE_PASSWORD!,
@@ -15,96 +16,106 @@ const LOGIN_BODY = () => ({
   "client-domain": "tastyworks_customers",
 });
 
-/** Step 1: POST credentials, triggers 2FA. Returns the challenge token for step 2. */
-export async function initiateMfaLogin(): Promise<string> {
-  const res = await fetch(`${BASE_URL}/sessions`, {
+/** POST /sessions. The browser User-Agent is required — without it the API 403s. */
+function postSession(body: unknown, extraHeaders: Record<string, string> = {}): Promise<Response> {
+  return fetch(`${BASE_URL}/sessions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "User-Agent": BROWSER_UA,
+      ...extraHeaders,
     },
-    body: JSON.stringify(LOGIN_BODY()),
+    body: JSON.stringify(body),
   });
-  // Grab challenge token from response headers regardless of status
-  const challengeToken = res.headers.get("X-Tastyworks-Challenge-Token") ?? "";
-  const text = await res.text();
-  // If we got a challenge token, SMS was triggered — proceed to step 2
-  if (challengeToken) return challengeToken;
-  // Check for a direct session (no 2FA)
-  if (res.ok) {
-    const json = JSON.parse(text);
-    const sessionToken: string | undefined = json.data?.["session-token"];
-    if (sessionToken) {
-      await writeTokens({
-        sessionToken,
-        rememberMeToken: json.data["remember-me-token"] ?? "",
-        expiresAt: Date.now() + SESSION_TTL_MS,
-      });
-      return "";
-    }
+}
+
+/**
+ * Read a session response into a TokenSet.
+ * The remember token comes back as `remember-token`; `remember-me-token` is the
+ * name in older docs and is accepted as a fallback.
+ * Exported for tests.
+ */
+export function tokensFromSession(data: Record<string, unknown> | undefined): TokenSet {
+  const sessionToken = data?.["session-token"];
+  if (typeof sessionToken !== "string" || !sessionToken) {
+    throw new Error(`Session response missing session-token. Keys: ${Object.keys(data ?? {}).join(", ")}`);
   }
-  throw new Error(`Login failed (${res.status}): ${text.slice(0, 300)}`);
+  const rememberMeToken = data["remember-token"] ?? data["remember-me-token"] ?? "";
+  const expiration = data["session-expiration"];
+  const expiresAt = typeof expiration === "string" ? Date.parse(expiration) : NaN;
+  return {
+    sessionToken,
+    rememberMeToken: typeof rememberMeToken === "string" ? rememberMeToken : "",
+    expiresAt: Number.isNaN(expiresAt) ? Date.now() + SESSION_TTL_MS : expiresAt,
+  };
+}
+
+async function storeSession(res: Response): Promise<TokenSet> {
+  const json = await res.json();
+  const tokens = tokensFromSession(json.data);
+  await writeTokens(tokens);
+  invalidateSessionCache();
+  return tokens;
+}
+
+/** Step 1: POST credentials. Returns a challenge token if 2FA was triggered, "" if not. */
+export async function initiateMfaLogin(): Promise<string> {
+  const res = await postSession(LOGIN_BODY());
+  // The challenge token arrives in a header regardless of status.
+  const challengeToken = res.headers.get("X-Tastyworks-Challenge-Token") ?? "";
+  if (challengeToken) return challengeToken;
+  if (res.ok) {
+    await storeSession(res);
+    return "";
+  }
+  throw new Error(`Login failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
 }
 
 /** Step 2: Submit the OTP + challenge token as headers to complete login. */
 export async function completeMfaLogin(challengeToken: string, otp: string): Promise<void> {
-  const res = await fetch(`${BASE_URL}/sessions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "User-Agent": BROWSER_UA,
-      "X-Tastyworks-OTP": otp,
-      "X-Tastyworks-Challenge-Token": challengeToken,
-    },
-    body: JSON.stringify(LOGIN_BODY()),
+  const res = await postSession(LOGIN_BODY(), {
+    "X-Tastyworks-OTP": otp,
+    "X-Tastyworks-Challenge-Token": challengeToken,
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`MFA failed (${res.status}): ${text.slice(0, 300)}`);
+    throw new Error(`MFA failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
   }
-  const json = await res.json();
-  const sessionToken: string | undefined = json.data?.["session-token"];
-  if (!sessionToken) {
-    throw new Error(`MFA response missing session-token. Keys: ${Object.keys(json.data ?? {}).join(", ")}`);
-  }
-  await writeTokens({
-    sessionToken,
-    rememberMeToken: json.data["remember-me-token"] ?? "",
-    expiresAt: Date.now() + SESSION_TTL_MS,
-  });
-  invalidateSessionCache();
+  await storeSession(res);
 }
 
+/** Password login, used when there is no stored session at all. */
 async function login(): Promise<TokenSet> {
-  throw new Error("tastytrade requires one-time SMS setup — click the TT button in the header");
+  const res = await postSession(LOGIN_BODY());
+  if (res.headers.get("X-Tastyworks-Challenge-Token")) {
+    throw new Error("tastytrade sent an SMS code — click the TT button in the header to finish login");
+  }
+  if (!res.ok) {
+    throw new Error(`tastytrade login failed (${res.status}): ${(await res.text()).slice(0, 300)}`);
+  }
+  return storeSession(res);
 }
 
 async function refreshSession(rememberMeToken: string): Promise<TokenSet> {
-  const res = await fetch(`${BASE_URL}/sessions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ login: process.env.TASTYTRADE_USERNAME!, "remember-me-token": rememberMeToken }),
+  if (!rememberMeToken) return login();
+  const res = await postSession({
+    login: process.env.TASTYTRADE_USERNAME!,
+    "remember-token": rememberMeToken,
+    "remember-me": true,
+    "client-domain": "tastyworks_customers",
   });
   if (!res.ok) {
-    // Remember-me token rejected — clear stored tokens so UI shows disconnected
+    // Remember token rejected — drop it so the next call falls back to a password login.
     await clearTokens();
+    invalidateSessionCache();
     throw new Error("tastytrade session expired — reconnect via the TT button");
   }
-  const json = await res.json();
-  const tokens: TokenSet = {
-    sessionToken: json.data["session-token"],
-    rememberMeToken: json.data["remember-me-token"] ?? rememberMeToken,
-    expiresAt: Date.now() + SESSION_TTL_MS,
-  };
-  await writeTokens(tokens);
-  return tokens;
+  return storeSession(res);
 }
 
-// Live session cache
 let cachedSessionToken: string | null = null;
 let cachedSessionExpiry = 0;
 
-// Coalesce concurrent refreshes: the remember-me token rotates on use, so parallel
+// Coalesce concurrent refreshes: the remember token rotates on use, so parallel
 // refreshes triggered by the fan-out of data fetches would race and invalidate each other.
 const refreshSessionOnce = singleFlight(refreshSession);
 
@@ -116,7 +127,6 @@ export async function getSessionToken(): Promise<string> {
   if (!tokens) tokens = await login();
   else if (isExpired(tokens)) tokens = await refreshSessionOnce(tokens.rememberMeToken);
 
-  // Cache until 60s before the token expires
   cachedSessionToken = tokens.sessionToken;
   cachedSessionExpiry = tokens.expiresAt - 60_000;
   return cachedSessionToken;
@@ -128,9 +138,17 @@ export function invalidateSessionCache(): void {
   cachedSessionExpiry = 0;
 }
 
-/** Fetch against the live tastytrade API. Always uses live credentials and token. */
-export async function tastyFetch(path: string, init?: RequestInit): Promise<Response> {
-  const token = await getSessionToken();
+/** Discard the cached session and mint a fresh one, whatever the stored expiry claims. */
+async function forceNewSession(): Promise<string> {
+  invalidateSessionCache();
+  const tokens = await readTokens();
+  const fresh = await refreshSessionOnce(tokens?.rememberMeToken ?? "");
+  cachedSessionToken = fresh.sessionToken;
+  cachedSessionExpiry = fresh.expiresAt - 60_000;
+  return fresh.sessionToken;
+}
+
+function authedFetch(path: string, init: RequestInit | undefined, token: string): Promise<Response> {
   return fetch(`${BASE_URL}${path}`, {
     ...init,
     headers: {
@@ -142,51 +160,13 @@ export async function tastyFetch(path: string, init?: RequestInit): Promise<Resp
   });
 }
 
-// Sandbox OAuth2 token cache (in-memory; access tokens last 15 min)
-let cachedSandboxToken: string | null = null;
-let cachedSandboxExpiry = 0;
-
-async function getSandboxSessionToken(): Promise<string> {
-  const now = Date.now();
-  if (cachedSandboxToken && now < cachedSandboxExpiry) return cachedSandboxToken;
-
-  const clientSecret = process.env.TASTYTRADE_SANDBOX_CLIENT_SECRET;
-  const refreshToken = process.env.TASTYTRADE_SANDBOX_REFRESH_TOKEN;
-  if (!clientSecret || !refreshToken) {
-    throw new Error("Sandbox OAuth not configured — set TASTYTRADE_SANDBOX_CLIENT_SECRET and TASTYTRADE_SANDBOX_REFRESH_TOKEN");
-  }
-
-  const res = await fetch(`${SANDBOX_URL}/oauth/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ grant_type: "refresh_token", client_secret: clientSecret, refresh_token: refreshToken }),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Sandbox OAuth failed (${res.status}): ${text.slice(0, 300)}`);
-  }
-  const json = await res.json();
-  const expiresIn: number = json.expires_in ?? 900;
-  cachedSandboxToken = json.access_token;
-  cachedSandboxExpiry = now + (expiresIn - 60) * 1000;
-  return cachedSandboxToken!;
-}
-
-/**
- * Fetch used exclusively for order placement.
- * Routes to the sandbox API when sandbox=true (defaults to TASTYTRADE_SANDBOX env var).
- */
-export async function tastyOrderFetch(path: string, init?: RequestInit, sandbox = SANDBOX): Promise<Response> {
-  if (!sandbox) return tastyFetch(path, init);
-
-  const token = await getSandboxSessionToken();
-  return fetch(`${SANDBOX_URL}${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/json",
-      "User-Agent": BROWSER_UA,
-      ...(init?.headers ?? {}),
-    },
-  });
+/** Fetch against the tastytrade API, re-authenticating once if the session is dead. */
+export async function tastyFetch(path: string, init?: RequestInit): Promise<Response> {
+  const res = await authedFetch(path, init, await getSessionToken());
+  // A 401 means the server killed the session before its stated expiry. Retry once
+  // with a fresh one — but only when the body is safe to re-send.
+  if (res.status !== 401) return res;
+  const body = init?.body;
+  if (body != null && typeof body !== "string") return res;
+  return authedFetch(path, init, await forceNewSession());
 }
