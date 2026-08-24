@@ -712,16 +712,28 @@ export default function HedgePage() {
           return null;
         }
       };
-      const [iv, rank, v, v3, q] = await Promise.all([
-        num("/api/iv-rank", "vxnPct"),
-        num("/api/iv-rank", "ivRank"),
+      // One /api/iv-rank call for both fields — this used to fetch the same
+      // payload twice to read one number out of each.
+      const ivRankPayload = async () => {
+        try {
+          const r = await fetch("/api/iv-rank");
+          if (!r.ok) return null;
+          return (await r.json()) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      };
+      const [ivPayload, v, v3, q] = await Promise.all([
+        ivRankPayload(),
         num("/api/quote?symbol=%5EVIX", "price"),
         num("/api/quote?symbol=%5EVIX3M", "price"),
         num("/api/quote?symbol=QQQ", "price"),
       ]);
       if (cancelled) return;
-      setVxn(iv);
-      setIvRank(rank);
+      const ivNum = (key: string) =>
+        typeof ivPayload?.[key] === "number" ? (ivPayload[key] as number) : null;
+      setVxn(ivNum("vxnPct"));
+      setIvRank(ivNum("ivRank"));
       setVix(v);
       setVix3m(v3);
       setQqqSpot(q);

@@ -32,11 +32,25 @@ async function dxlinkMarks(symbols: string[]): Promise<Map<string, number>> {
         if (done) return;
         done = true;
         clearTimeout(timer);
+        clearTimeout(idleTimer);
         try { ws.close(); } catch { /* ignore */ }
         resolve();
       };
 
       const timer = setTimeout(finish, 8000);
+
+      // Some symbols never quote — an expired contract, an index DXLink doesn't
+      // carry (^VIX3M), or one with no market. Waiting on them used to burn the
+      // full 8s timeout on every call. Instead: give the feed a short window to
+      // produce anything at all, then settle once it goes quiet.
+      let idleTimer: ReturnType<typeof setTimeout> | undefined;
+      const FIRST_DATA_MS = 2500; // nothing at all arrived — give up early
+      const IDLE_MS = 1200;       // data arrived, then stopped — take what we have
+      const armIdle = (ms: number) => {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(finish, ms);
+      };
+      const bumpIdle = () => armIdle(IDLE_MS);
 
       const ws = new WebSocket(wsUrl, { headers: { Authorization: token } });
 
@@ -79,6 +93,7 @@ async function dxlinkMarks(symbols: string[]): Promise<Map<string, number>> {
                 type: "FEED_SUBSCRIPTION", channel: 1,
                 add: symbols.map((s) => ({ type: "Quote", symbol: s })),
               }));
+              armIdle(FIRST_DATA_MS);
             }
             break;
           case "FEED_DATA": {
@@ -99,6 +114,7 @@ async function dxlinkMarks(symbols: string[]): Promise<Map<string, number>> {
               }
             }
             if (pending.size === 0) finish();
+            else bumpIdle();
             break;
           }
           case "KEEPALIVE":

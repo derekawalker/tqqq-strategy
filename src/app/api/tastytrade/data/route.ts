@@ -15,6 +15,7 @@ import {
 } from "@/lib/tastytrade/parse";
 import type { AccountBalance, Transaction, SchwabData } from "@/app/api/schwab/data/route";
 import { getCached, setCached } from "@/lib/ttlCache";
+import { singleFlight } from "@/lib/singleFlight";
 
 const CACHE_KEY = "tastytrade-data";
 const CACHE_TTL_MS = 30_000;
@@ -101,31 +102,51 @@ function mergePartialFills(orders: any[]): any[] {
   return [...other, ...result];
 }
 
-/** Fetch all pages of a tastytrade paginated endpoint in parallel batches. */
+// The orders endpoint accepts per-page up to 200 (250 is rejected), which halves
+// the page count over a 365-day window.
+const ORDERS_PER_PAGE = 200;
+const PAGE_CONCURRENCY = 8;
+const MAX_PAGES = 50; // sanity cap — 10,000 records at ORDERS_PER_PAGE
+
+/**
+ * Fetch every page of a paginated tastytrade endpoint.
+ *
+ * Page 0's `pagination.total-pages` says exactly how many pages exist, so the
+ * rest are requested in bounded-concurrency waves. The previous version probed
+ * blindly in fixed batches of 5 until it saw an empty page, which both
+ * over-fetched (5 requests minimum for a single-page result) and treated a
+ * failed page as end-of-data — silently truncating order history.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchAllPages(baseUrl: string): Promise<any[]> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const all: any[] = [];
+async function fetchAllPages(baseUrl: string, perPage?: number): Promise<any[]> {
   const sep = baseUrl.includes("?") ? "&" : "?";
-  const BATCH = 5;   // pages fetched in parallel per round
-  const MAX_PAGES = 100; // up to 10,000 orders
+  const pageUrl = (p: number) =>
+    `${baseUrl}${sep}page-offset=${p}${perPage ? `&per-page=${perPage}` : ""}`;
 
-  for (let start = 0; start < MAX_PAGES; start += BATCH) {
-    const pages = Array.from({ length: BATCH }, (_, i) => start + i);
-    const results = await Promise.all(
-      pages.map((p) => tastyFetch(`${baseUrl}${sep}page-offset=${p}`).then((r) => r.ok ? r.json() : null))
-    );
-
-    let done = false;
-    for (const json of results) {
+  const getPage = async (p: number) => {
+    const res = await tastyFetch(pageUrl(p));
+    // Fail loudly: a dropped page would silently corrupt the order ledger.
+    if (!res.ok) throw new Error(`page ${p} of ${baseUrl} failed: ${res.status}`);
+    const json = await res.json();
+    return {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const items: any[] = json?.data?.items ?? [];
-      all.push(...items);
-      if (items.length === 0) { done = true; break; }
-    }
-    if (done) break;
-  }
+      items: (json?.data?.items ?? []) as any[],
+      totalPages: Number(json?.pagination?.["total-pages"] ?? 1),
+    };
+  };
 
+  const first = await getPage(0);
+  const totalPages = Math.min(first.totalPages || 1, MAX_PAGES);
+  if (totalPages <= 1) return first.items;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const all: any[] = [...first.items];
+  for (let start = 1; start < totalPages; start += PAGE_CONCURRENCY) {
+    const batch: number[] = [];
+    for (let p = start; p < Math.min(start + PAGE_CONCURRENCY, totalPages); p++) batch.push(p);
+    const pages = await Promise.all(batch.map(getPage));
+    for (const page of pages) all.push(...page.items);
+  }
   return all;
 }
 
@@ -133,7 +154,7 @@ async function fetchAccountData(accountNumber: string, from365: string, to: stri
   // Filled orders are paginated — fetch all pages; other endpoints fit in one page
   const [filledRaw, workingRes, positionsRes, rxDeliverRes, moneyMovementRaw, balanceRes] =
     await Promise.all([
-      fetchAllPages(`/accounts/${accountNumber}/orders?status[]=Filled&status[]=Partially+Filled&start-date=${from365}&end-date=${to}`),
+      fetchAllPages(`/accounts/${accountNumber}/orders?status[]=Filled&status[]=Partially+Filled&start-date=${from365}&end-date=${to}`, ORDERS_PER_PAGE),
       tastyFetch(`/accounts/${accountNumber}/orders?status[]=Live&status[]=Pending&status[]=Received`),
       tastyFetch(`/accounts/${accountNumber}/positions`),
       tastyFetch(`/accounts/${accountNumber}/transactions?types[]=Receive+Deliver&start-date=${from365}&end-date=${to}`),
@@ -188,17 +209,6 @@ async function fetchAccountData(accountNumber: string, from365: string, to: stri
     .map((p) => parseOptionPosition(p, accountNumber, openedAtMap))
     .filter((p): p is OptionPosition => p !== null);
 
-  // Apply real-time marks from DXLink
-  const marks = await getOptionMarks(optionsRaw.map((p) => p.symbol));
-  const options: OptionPosition[] = optionsRaw.map((p) => {
-    const mark = marks.get(p.symbol);
-    if (mark === undefined) return p;
-    const marketValue = p.shortQty > 0
-      ? -(mark * 100 * p.shortQty)
-      : mark * 100 * p.longQty;
-    return { ...p, marketValue };
-  });
-
   // TQQQ equity position
   const tqqqPos = positionsRaw.find(
     (p) => p["instrument-type"] === "Equity" && p.symbol === "TQQQ",
@@ -241,8 +251,102 @@ async function fetchAccountData(accountNumber: string, from365: string, to: stri
     .map((tx) => parseTransaction(tx, accountNumber))
     .filter((t): t is Transaction => t !== null);
 
-  return { filled, filledOptions, expiredOptions, working, tqqqShares, tqqqAvgPrice, options, balance, transactions };
+  return { filled, filledOptions, expiredOptions, working, tqqqShares, tqqqAvgPrice, options: optionsRaw, balance, transactions };
 }
+
+// The account list is fixed for the life of the login, so it doesn't need
+// re-fetching on every refresh.
+const ACCOUNTS_TTL_MS = 60 * 60 * 1000;
+let cachedAccounts: string[] | null = null;
+let cachedAccountsAt = 0;
+
+async function getAccountNumbers(): Promise<string[]> {
+  if (cachedAccounts && Date.now() - cachedAccountsAt < ACCOUNTS_TTL_MS) return cachedAccounts;
+
+  const res = await tastyFetch("/customers/me/accounts");
+  if (!res.ok) throw new Error(`accounts fetch failed: ${res.status}`);
+  const json = await res.json();
+  const allowList = process.env.TASTYTRADE_ACCOUNTS
+    ? new Set(process.env.TASTYTRADE_ACCOUNTS.split(",").map((s) => s.trim()))
+    : null;
+  const accounts: string[] = (json.data?.items ?? [])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .filter((item: any) => !allowList || allowList.has(item.account["account-number"]))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((item: any) => item.account["account-number"] as string);
+  cachedAccounts = accounts;
+  cachedAccountsAt = Date.now();
+  return accounts;
+}
+
+async function buildData(): Promise<SchwabData> {
+  const accounts = await getAccountNumbers();
+
+  const now = new Date();
+  const to = now.toISOString().slice(0, 10);
+  const from365 = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+
+  const results = await Promise.all(
+    accounts.map((accountNumber) => fetchAccountData(accountNumber, from365, to)),
+  );
+
+  const filledOrders: FilledOrder[] = results
+    .flatMap((r) => r.filled)
+    .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+  const filledOptionOrders: FilledOptionOrder[] = results
+    .flatMap((r) => r.filledOptions)
+    .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+  const expiredOptionOrders: ExpiredOptionOrder[] = results
+    .flatMap((r) => r.expiredOptions)
+    .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+  const workingOrders: WorkingOrder[] = results
+    .flatMap((r) => r.working)
+    .sort((a, b) => new Date(b.enteredTime).getTime() - new Date(a.enteredTime).getTime());
+  const tqqqShares: Record<string, number> = Object.fromEntries(
+    accounts.map((num, i) => [num, results[i].tqqqShares]),
+  );
+  const tqqqAvgPrice: Record<string, number> = Object.fromEntries(
+    accounts.map((num, i) => [num, results[i].tqqqAvgPrice]),
+  );
+  // One DXLink connection for every account's positions. Called per account this
+  // opened a fresh WebSocket each time, since each account's symbol set missed
+  // the marks cache.
+  const rawOptionPositions: OptionPosition[] = results.flatMap((r) => r.options);
+  const marks = await getOptionMarks(rawOptionPositions.map((p) => p.symbol));
+  const optionPositions: OptionPosition[] = rawOptionPositions.map((p) => {
+    const mark = marks.get(p.symbol);
+    if (mark === undefined) return p;
+    const marketValue = p.shortQty > 0
+      ? -(mark * 100 * p.shortQty)
+      : mark * 100 * p.longQty;
+    return { ...p, marketValue };
+  });
+  const balances: AccountBalance[] = results
+    .map((r) => r.balance)
+    .filter((b): b is AccountBalance => b !== null);
+  const transactions: Transaction[] = results
+    .flatMap((r) => r.transactions)
+    .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
+  const data: SchwabData = {
+    filledOrders,
+    filledOptionOrders,
+    expiredOptionOrders,
+    workingOrders,
+    tqqqShares,
+    tqqqAvgPrice,
+    optionPositions,
+    balances,
+    transactions,
+  };
+  return data;
+}
+
+// Collapse concurrent cache misses: a page mount plus a manual refresh would
+// otherwise each run the whole year-long fan-out.
+const buildDataOnce = singleFlight(buildData);
 
 export async function GET(req: Request) {
   if (!process.env.TASTYTRADE_USERNAME) {
@@ -257,65 +361,7 @@ export async function GET(req: Request) {
   }
 
   try {
-    const res = await tastyFetch("/customers/me/accounts");
-    if (!res.ok) throw new Error(`accounts fetch failed: ${res.status}`);
-    const json = await res.json();
-    const allowList = process.env.TASTYTRADE_ACCOUNTS
-      ? new Set(process.env.TASTYTRADE_ACCOUNTS.split(",").map((s) => s.trim()))
-      : null;
-    const accounts: string[] = (json.data?.items ?? [])
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .filter((item: any) => !allowList || allowList.has(item.account["account-number"]))
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((item: any) => item.account["account-number"] as string);
-
-    const now = new Date();
-    const to = now.toISOString().slice(0, 10);
-    const from365 = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
-
-    const results = await Promise.all(
-      accounts.map((accountNumber) => fetchAccountData(accountNumber, from365, to)),
-    );
-
-    const filledOrders: FilledOrder[] = results
-      .flatMap((r) => r.filled)
-      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
-    const filledOptionOrders: FilledOptionOrder[] = results
-      .flatMap((r) => r.filledOptions)
-      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
-    const expiredOptionOrders: ExpiredOptionOrder[] = results
-      .flatMap((r) => r.expiredOptions)
-      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
-    const workingOrders: WorkingOrder[] = results
-      .flatMap((r) => r.working)
-      .sort((a, b) => new Date(b.enteredTime).getTime() - new Date(a.enteredTime).getTime());
-    const tqqqShares: Record<string, number> = Object.fromEntries(
-      accounts.map((num, i) => [num, results[i].tqqqShares]),
-    );
-    const tqqqAvgPrice: Record<string, number> = Object.fromEntries(
-      accounts.map((num, i) => [num, results[i].tqqqAvgPrice]),
-    );
-    const optionPositions: OptionPosition[] = results.flatMap((r) => r.options);
-    const balances: AccountBalance[] = results
-      .map((r) => r.balance)
-      .filter((b): b is AccountBalance => b !== null);
-    const transactions: Transaction[] = results
-      .flatMap((r) => r.transactions)
-      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
-
-    const data: SchwabData = {
-      filledOrders,
-      filledOptionOrders,
-      expiredOptionOrders,
-      workingOrders,
-      tqqqShares,
-      tqqqAvgPrice,
-      optionPositions,
-      balances,
-      transactions,
-    };
+    const data = await buildDataOnce();
     setCached(CACHE_KEY, data);
     return Response.json(data);
   } catch (err) {

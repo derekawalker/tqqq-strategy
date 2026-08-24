@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 export interface TokenSet {
   accessToken: string;
@@ -6,10 +6,15 @@ export interface TokenSet {
   expiresAt: number; // Unix ms
 }
 
-function supabase() {
+// One client per process. The data route reads tokens on every authenticated
+// fetch, and building a fresh client each time is pure overhead.
+let client: SupabaseClient | null = null;
+
+function supabase(): SupabaseClient {
   const url = process.env.SUPABASE_URL!;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-  return createClient(url, key);
+  client ??= createClient(url, key);
+  return client;
 }
 
 export async function readTokens(): Promise<TokenSet | null> {

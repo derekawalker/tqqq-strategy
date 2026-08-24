@@ -3,6 +3,7 @@ import { DEMO_DATA } from "@/lib/demo-data";
 import { schwabFetch } from "@/lib/schwab/client";
 import { getAccountHashes } from "@/lib/schwab/accounts";
 import { getCached, setCached } from "@/lib/ttlCache";
+import { singleFlight } from "@/lib/singleFlight";
 import {
   flattenOrders,
   parseFilledOrder,
@@ -291,6 +292,53 @@ async function fetchAccountData(
 const CACHE_KEY = "schwab-data";
 const CACHE_TTL_MS = 30_000;
 
+async function buildData(): Promise<SchwabData> {
+  const hashes = await getAccountHashes();
+  const accounts = Object.entries(hashes);
+
+  const now = new Date();
+  const to = now.toISOString().split(".")[0] + "Z";
+  const from365 = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().split(".")[0] + "Z";
+
+  const results = await Promise.all(
+    accounts.map(([accountNumber, hash]) => fetchAccountData(accountNumber, hash, from365, to))
+  );
+
+  const filledOrders: FilledOrder[] = results
+    .flatMap((r) => r.filled)
+    .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+  const filledOptionOrders: FilledOptionOrder[] = results
+    .flatMap((r) => r.filledOptions)
+    .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+  const expiredOptionOrders: ExpiredOptionOrder[] = results
+    .flatMap((r) => r.expiredOptions)
+    .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+  const workingOrders: WorkingOrder[] = results
+    .flatMap((r) => r.working)
+    .sort((a, b) => new Date(b.enteredTime).getTime() - new Date(a.enteredTime).getTime());
+  const tqqqShares: Record<string, number> = Object.fromEntries(
+    accounts.map(([num], i) => [num, results[i].tqqqShares])
+  );
+  const tqqqAvgPrice: Record<string, number> = Object.fromEntries(
+    accounts.map(([num], i) => [num, results[i].tqqqAvgPrice])
+  );
+  const optionPositions: OptionPosition[] = results.flatMap((r) => r.options);
+  const balances: AccountBalance[] = results.map((r) => r.balance).filter((b): b is AccountBalance => b !== null);
+  const transactions: Transaction[] = results
+    .flatMap((r) => r.transactions)
+    .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
+  const data: SchwabData = {
+    filledOrders, filledOptionOrders, expiredOptionOrders, workingOrders,
+    tqqqShares, tqqqAvgPrice, optionPositions, balances, transactions,
+  };
+  return data;
+}
+
+// Collapse concurrent cache misses: a page mount plus a manual refresh would
+// otherwise each run the whole year-long fan-out.
+const buildDataOnce = singleFlight(buildData);
+
 export async function GET(req: Request) {
   if (process.env.DEMO_MODE === "true") {
     return Response.json(DEMO_DATA satisfies SchwabData);
@@ -305,45 +353,7 @@ export async function GET(req: Request) {
   }
 
   try {
-    const hashes = await getAccountHashes();
-    const accounts = Object.entries(hashes);
-
-    const now = new Date();
-    const to = now.toISOString().split(".")[0] + "Z";
-    const from365 = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().split(".")[0] + "Z";
-
-    const results = await Promise.all(
-      accounts.map(([accountNumber, hash]) => fetchAccountData(accountNumber, hash, from365, to))
-    );
-
-    const filledOrders: FilledOrder[] = results
-      .flatMap((r) => r.filled)
-      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
-    const filledOptionOrders: FilledOptionOrder[] = results
-      .flatMap((r) => r.filledOptions)
-      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
-    const expiredOptionOrders: ExpiredOptionOrder[] = results
-      .flatMap((r) => r.expiredOptions)
-      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
-    const workingOrders: WorkingOrder[] = results
-      .flatMap((r) => r.working)
-      .sort((a, b) => new Date(b.enteredTime).getTime() - new Date(a.enteredTime).getTime());
-    const tqqqShares: Record<string, number> = Object.fromEntries(
-      accounts.map(([num], i) => [num, results[i].tqqqShares])
-    );
-    const tqqqAvgPrice: Record<string, number> = Object.fromEntries(
-      accounts.map(([num], i) => [num, results[i].tqqqAvgPrice])
-    );
-    const optionPositions: OptionPosition[] = results.flatMap((r) => r.options);
-    const balances: AccountBalance[] = results.map((r) => r.balance).filter((b): b is AccountBalance => b !== null);
-    const transactions: Transaction[] = results
-      .flatMap((r) => r.transactions)
-      .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
-
-    const data: SchwabData = {
-      filledOrders, filledOptionOrders, expiredOptionOrders, workingOrders,
-      tqqqShares, tqqqAvgPrice, optionPositions, balances, transactions,
-    };
+    const data = await buildDataOnce();
     setCached(CACHE_KEY, data);
     return Response.json(data);
   } catch (err) {
