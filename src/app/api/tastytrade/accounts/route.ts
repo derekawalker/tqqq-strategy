@@ -1,7 +1,8 @@
 import { tastyFetch } from "@/lib/tastytrade/client";
+import { hasTastytradeCredentials } from "@/lib/tastytrade/config";
 
 export async function GET() {
-  if (!process.env.TASTYTRADE_USERNAME) {
+  if (!hasTastytradeCredentials()) {
     return Response.json({ error: "not_configured" }, { status: 503 });
   }
   try {

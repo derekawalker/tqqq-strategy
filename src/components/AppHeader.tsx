@@ -11,10 +11,8 @@ import {
   Select,
   Stack,
   Menu,
-  Modal,
-  PinInput,
 } from "@mantine/core";
-import { useMediaQuery, useDisclosure } from "@mantine/hooks";
+import { useMediaQuery } from "@mantine/hooks";
 import {
   IconSettings,
   IconEye,
@@ -60,16 +58,10 @@ interface AppHeaderProps {
 }
 
 export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps) {
-  const { accounts, activeAccount, setActiveAccount, privacyMode, togglePrivacy, quote, schwabConnected, checkSchwabAuth, tastytradeConnected, checkTastytradeAuth, tickQuoteRefresh, tickRefresh } = useApp();
+  const { accounts, activeAccount, setActiveAccount, privacyMode, togglePrivacy, quote, schwabConnected, checkSchwabAuth, tastytradeConnected, checkTastytradeAuth, tickQuoteRefresh } = useApp();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const router = useRouter();
   const pathname = usePathname();
-  const [otpOpen, { open: openOtp, close: closeOtp }] = useDisclosure(false);
-  const [otpStep, setOtpStep] = useState<"initiate" | "complete">("initiate");
-  const [mfaToken, setMfaToken] = useState("");
-  const [otp, setOtp] = useState("");
-  const [otpError, setOtpError] = useState<string | null>(null);
-  const [otpLoading, setOtpLoading] = useState(false);
   const isAllAccounts = pathname === "/accounts";
 
   const priceColor = quote.changePercent >= 0 ? "teal" : "red";
@@ -120,71 +112,17 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
     }
   };
 
-  const handleTastytradeClick = async () => {
-    if (tastytradeConnected) return;
-    setOtp("");
-    setOtpError(null);
-    setOtpStep("initiate");
-    openOtp();
-    setOtpLoading(true);
-    try {
-      const res = await fetch("/api/tastytrade/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "initiate" }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setOtpError(data.error ?? "Login failed — check your credentials in Vercel env vars");
-      } else if (data.connected) {
-        const syncError = await checkTastytradeAuth();
-        if (syncError) {
-          setOtpError(`Connected but couldn't load accounts: ${syncError}`);
-        } else {
-          closeOtp();
-          tickRefresh();
-        }
-      } else if (data.mfaToken) {
-        setMfaToken(data.mfaToken);
-        setOtpStep("complete");
-      }
-    } finally {
-      setOtpLoading(false);
-    }
-  };
-
-  const handleOtpSubmit = async () => {
-    if (otp.length < 6) return;
-    setOtpLoading(true);
-    setOtpError(null);
-    try {
-      const res = await fetch("/api/tastytrade/auth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "complete", mfaToken, otp }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setOtpError(data.error ? String(data.error) : "Invalid code — try again");
-      } else if (data.success) {
-        const syncError = await checkTastytradeAuth();
-        if (syncError) {
-          setOtpError(`Connected but couldn't load accounts: ${syncError}`);
-        } else {
-          closeOtp();
-          tickRefresh();
-        }
-      }
-    } finally {
-      setOtpLoading(false);
-    }
+  // Nothing interactive to connect: OAuth2 replaced the session-token login, and the
+  // refresh token is an environment secret. Clicking re-checks the connection.
+  const handleTastytradeClick = () => {
+    void checkTastytradeAuth();
   };
 
   const tastytradeLabel = tastytradeConnected === null
     ? "Checking tastytrade…"
     : tastytradeConnected
       ? "tastytrade connected"
-      : "tastytrade — click to connect";
+      : "tastytrade disconnected — check TASTYTRADE_REFRESH_TOKEN; click to retry";
 
   const actionIcons = (
     <Group gap={4} wrap="nowrap">
@@ -238,54 +176,8 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
     ? `color-mix(in srgb, var(--mantine-color-${activeAccount.color}-7) 12%, var(--mantine-color-dark-8))`
     : undefined;
 
-  const otpModal = (
-    <Modal
-      opened={otpOpen}
-      onClose={closeOtp}
-      title="Connect tastytrade"
-      centered
-      size="sm"
-    >
-      {otpStep === "initiate" ? (
-        <Stack gap="md">
-          <Text size="sm" c="dimmed">
-            Connecting to tastytrade…
-          </Text>
-          {otpError && <Text size="sm" c="red" ta="center">{otpError}</Text>}
-        </Stack>
-      ) : (
-        <Stack gap="md">
-          <Text size="sm" c="dimmed">
-            Enter the 6-digit code from your authenticator app. The app will store a session token
-            so you won&apos;t need to do this again.
-          </Text>
-          <PinInput
-            length={6}
-            type="number"
-            value={otp}
-            onChange={setOtp}
-            onComplete={handleOtpSubmit}
-            disabled={otpLoading}
-            mx="auto"
-          />
-          {otpError && <Text size="sm" c="red" ta="center">{otpError}</Text>}
-          <Button
-            onClick={handleOtpSubmit}
-            loading={otpLoading}
-            disabled={otp.length < 6}
-            color="orange"
-          >
-            Connect
-          </Button>
-        </Stack>
-      )}
-    </Modal>
-  );
-
   if (isMobile) {
     return (
-      <>
-        {otpModal}
       <Group h="100%" px="md" justify="space-between" align="center" wrap="nowrap" style={{ background: headerBg, paddingTop: "env(safe-area-inset-top, 0px)", boxSizing: "border-box" }}>
         {/* Left: title + account select */}
         <Stack gap={8}>
@@ -327,50 +219,46 @@ export default function AppHeader({ onRefresh, onSettingsOpen }: AppHeaderProps)
           {actionIcons}
         </Stack>
       </Group>
-    </>
     );
   }
 
   return (
-    <>
-      {otpModal}
-      <Group h="100%" px="md" justify="space-between" align="center" wrap="nowrap" style={{ background: headerBg, paddingTop: "env(safe-area-inset-top, 0px)", boxSizing: "border-box" }}>
-        {/* Left: App name + TQQQ price */}
-        <Group gap="lg" wrap="nowrap">
-          <Text fw={700} size="lg" style={{ whiteSpace: "nowrap" }}>
-            TQQQ Strategy
-          </Text>
-          {priceInfo}
-        </Group>
-
-        {/* Right: Accounts + action buttons */}
-        <Group gap="xs" wrap="nowrap">
-          <Button
-            size="xs"
-            color="gray.5"
-            radius="md"
-            variant={isAllAccounts ? "light" : "subtle"}
-            onClick={() => router.push("/accounts")}
-          >
-            All Accounts
-          </Button>
-          {accounts.map((account) => (
-            <Button
-              key={account.accountNumber}
-              size="xs"
-              color={`${account.color}.7`}
-              radius={"md"}
-              variant={!isAllAccounts && activeAccount?.accountNumber === account.accountNumber ? "light" : "subtle"}
-              onClick={() => { setActiveAccount(account); if (isAllAccounts) router.push("/"); }}
-            >
-              {privacyMode
-                ? `•••${account.accountNumber.slice(-3)}`
-                : account.accountName}
-            </Button>
-          ))}
-          {actionIcons}
-        </Group>
+    <Group h="100%" px="md" justify="space-between" align="center" wrap="nowrap" style={{ background: headerBg, paddingTop: "env(safe-area-inset-top, 0px)", boxSizing: "border-box" }}>
+      {/* Left: App name + TQQQ price */}
+      <Group gap="lg" wrap="nowrap">
+        <Text fw={700} size="lg" style={{ whiteSpace: "nowrap" }}>
+          TQQQ Strategy
+        </Text>
+        {priceInfo}
       </Group>
-    </>
+
+      {/* Right: Accounts + action buttons */}
+      <Group gap="xs" wrap="nowrap">
+        <Button
+          size="xs"
+          color="gray.5"
+          radius="md"
+          variant={isAllAccounts ? "light" : "subtle"}
+          onClick={() => router.push("/accounts")}
+        >
+          All Accounts
+        </Button>
+        {accounts.map((account) => (
+          <Button
+            key={account.accountNumber}
+            size="xs"
+            color={`${account.color}.7`}
+            radius={"md"}
+            variant={!isAllAccounts && activeAccount?.accountNumber === account.accountNumber ? "light" : "subtle"}
+            onClick={() => { setActiveAccount(account); if (isAllAccounts) router.push("/"); }}
+          >
+            {privacyMode
+              ? `•••${account.accountNumber.slice(-3)}`
+              : account.accountName}
+          </Button>
+        ))}
+        {actionIcons}
+      </Group>
+    </Group>
   );
 }

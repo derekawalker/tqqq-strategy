@@ -1,4 +1,5 @@
 import { tastyFetch } from "@/lib/tastytrade/client";
+import { hasTastytradeCredentials } from "@/lib/tastytrade/config";
 import { getOptionMarks } from "@/lib/tastytrade/quotes";
 import {
   parseFilledOrder,
@@ -349,7 +350,7 @@ async function buildData(): Promise<SchwabData> {
 const buildDataOnce = singleFlight(buildData);
 
 export async function GET(req: Request) {
-  if (!process.env.TASTYTRADE_USERNAME) {
+  if (!hasTastytradeCredentials()) {
     return Response.json({ error: "not_configured" }, { status: 503 });
   }
 

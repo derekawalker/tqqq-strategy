@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import { tastyFetch } from "./client";
+import { hasTastytradeCredentials } from "./config";
 
 /** Convert OCC symbol "TQQQ  260515P00056000" → DXLink streamer symbol ".TQQQ260515P56" */
 function occToStreamer(sym: string): string {
@@ -184,7 +185,7 @@ export async function getOptionMarks(occSymbols: string[]): Promise<Map<string, 
  * Returns null if tastytrade is not configured or the quote is unavailable.
  */
 export async function getEquityMark(symbol: string): Promise<number | null> {
-  if (!process.env.TASTYTRADE_USERNAME) return null;
+  if (!hasTastytradeCredentials()) return null;
   // Use cache if fresh
   const now = Date.now();
   if (marksCache.has(symbol) && now - marksCacheTime < CACHE_TTL_MS) {

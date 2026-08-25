@@ -1,65 +1,47 @@
 import { describe, it, expect } from "vitest";
-import { tokensFromSession } from "./client";
+import { tokenFromPayload } from "./client";
 
-// A trimmed-down copy of a real POST /sessions response body.
-const session = (extra: Record<string, unknown> = {}) => ({
-  "session-token": "sess-abc",
-  "session-expiration": "2026-08-24T07:54:19.560Z",
+// A trimmed-down copy of a real POST /oauth/token response body.
+const payload = (extra: Record<string, unknown> = {}) => ({
+  access_token: "acc-abc",
+  token_type: "Bearer",
+  expires_in: 900,
   ...extra,
 });
 
-describe("tokensFromSession", () => {
-  it("reads the remember token from `remember-token`", () => {
-    // The field the live API actually sends. Reading the wrong name here silently
-    // stored an empty remember token, so every later refresh was rejected.
-    const tokens = tokensFromSession(session({ "remember-token": "rt-123" }));
-    expect(tokens.rememberMeToken).toBe("rt-123");
+describe("tokenFromPayload", () => {
+  it("passes the access token through", () => {
+    expect(tokenFromPayload(payload()).accessToken).toBe("acc-abc");
   });
 
-  it("falls back to `remember-me-token`", () => {
-    const tokens = tokensFromSession(session({ "remember-me-token": "rt-legacy" }));
-    expect(tokens.rememberMeToken).toBe("rt-legacy");
-  });
-
-  it("prefers `remember-token` when both are present", () => {
-    const tokens = tokensFromSession(
-      session({ "remember-token": "rt-new", "remember-me-token": "rt-old" }),
-    );
-    expect(tokens.rememberMeToken).toBe("rt-new");
-  });
-
-  it("stores an empty remember token when the response has neither", () => {
-    expect(tokensFromSession(session()).rememberMeToken).toBe("");
-  });
-
-  it("takes the expiry from session-expiration rather than assuming a lifetime", () => {
-    const tokens = tokensFromSession(session());
-    expect(tokens.expiresAt).toBe(Date.parse("2026-08-24T07:54:19.560Z"));
-  });
-
-  it("falls back to an hour out when session-expiration is missing", () => {
+  it("takes the lifetime from expires_in rather than assuming one", () => {
+    // tastytrade access tokens are 15 minutes today, but the response is the authority:
+    // an over-long guess leaves us serving a token the server already killed.
     const before = Date.now();
-    const tokens = tokensFromSession({ "session-token": "sess-abc" });
-    expect(tokens.expiresAt).toBeGreaterThanOrEqual(before + 60 * 60 * 1000);
-    expect(tokens.expiresAt).toBeLessThanOrEqual(Date.now() + 60 * 60 * 1000);
+    const { expiresAt } = tokenFromPayload(payload({ expires_in: 120 }));
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 120_000);
+    expect(expiresAt).toBeLessThanOrEqual(Date.now() + 120_000);
   });
 
-  it("falls back when session-expiration is unparseable", () => {
-    const tokens = tokensFromSession(session({ "session-expiration": "not a date" }));
-    expect(tokens.expiresAt).toBeGreaterThan(Date.now());
+  it("falls back to 15 minutes when expires_in is missing", () => {
+    const before = Date.now();
+    const { expiresAt } = tokenFromPayload({ access_token: "acc-abc" });
+    expect(expiresAt).toBeGreaterThanOrEqual(before + 15 * 60 * 1000);
+    expect(expiresAt).toBeLessThanOrEqual(Date.now() + 15 * 60 * 1000);
   });
 
-  it("passes the session token through", () => {
-    expect(tokensFromSession(session()).sessionToken).toBe("sess-abc");
+  it("falls back when expires_in is not a usable number", () => {
+    for (const bad of ["900", 0, -1, null]) {
+      const { expiresAt } = tokenFromPayload(payload({ expires_in: bad }));
+      expect(expiresAt).toBeGreaterThan(Date.now() + 14 * 60 * 1000);
+    }
   });
 
-  it("throws when the response has no session token", () => {
-    expect(() => tokensFromSession({ "session-expiration": "2026-08-24T07:54:19.560Z" })).toThrow(
-      /missing session-token/,
-    );
+  it("throws when the response has no access token", () => {
+    expect(() => tokenFromPayload({ expires_in: 900 })).toThrow(/missing access_token/);
   });
 
   it("throws on an undefined payload", () => {
-    expect(() => tokensFromSession(undefined)).toThrow(/missing session-token/);
+    expect(() => tokenFromPayload(undefined)).toThrow(/missing access_token/);
   });
 });
