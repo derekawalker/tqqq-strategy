@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import {
   strikeForDelta,
   planProgram,
@@ -241,11 +241,17 @@ describe("isHedgeFill", () => {
 });
 
 describe("hedgeLots", () => {
+  // Pinned so the fixtures' expiries stay in the future — hedgeLots defaults
+  // `now` to the wall clock, and a lapsed contract is no longer open.
+  beforeAll(() => vi.useFakeTimers({ now: new Date("2026-05-01T12:00:00") }));
+  afterAll(() => vi.useRealTimers());
+
   const since = new Date("2026-01-01");
   const BTO = "BUY_TO_OPEN" as const;
   const STC = "SELL_TO_CLOSE" as const;
   const P56 = "TQQQ  260515P00056000";
   const P50 = "TQQQ  260619P00050000";
+  const V = "VIX   260916C00025000";
   const orders = [
     { symbol: P56, contracts: 2, underlyingSymbol: "TQQQ", instruction: BTO, total: -1300, fees: -1.3, time: "2026-02-01" },
     { symbol: P56, contracts: 1, underlyingSymbol: "TQQQ", instruction: BTO, total: -700, fees: -0.7, time: "2026-02-10" },
@@ -362,6 +368,98 @@ describe("hedgeLots", () => {
     });
   });
 
+  describe("expiry", () => {
+    const NOW = new Date("2026-06-01T12:00:00");
+    // Bought 2026-02-01 for a 2026-05-15 expiry, never sold: by NOW it is gone.
+    const lapsed = [
+      { symbol: P56, contracts: 2, underlyingSymbol: "TQQQ", instruction: BTO, total: -1300, fees: -1.3, time: "2026-02-01" },
+    ];
+
+    it("stops counting a contract that ran past its expiry as held", () => {
+      const [lot] = hedgeLots(lapsed, since, NOW);
+      expect(lot.openContracts).toBe(0);
+      expect(lot.expiredContracts).toBe(2);
+    });
+
+    it("still counts the premium — a lapsed put cost every dollar it cost", () => {
+      expect(hedgeSpend(hedgeLots(lapsed, since, NOW))).toBeCloseTo(1301.3, 6);
+    });
+
+    it("keeps it open through expiry day itself", () => {
+      const [lot] = hedgeLots(lapsed, since, new Date("2026-05-15T12:00:00"));
+      expect(lot.openContracts).toBe(2);
+      expect(lot.expiredContracts).toBe(0);
+    });
+
+    it("stops the clock at expiry rather than running it to today", () => {
+      const [lot] = hedgeLots(lapsed, since, NOW);
+      // Bought 2026-02-01, expired 2026-05-15 — 103 days, not 120.
+      expect(lot.daysHeld).toBe(103);
+      expect(lot.expiredAt).toBe("2026-05-15");
+    });
+
+    it("expires only what was left after the closes", () => {
+      const half = [
+        ...lapsed,
+        { symbol: P56, contracts: 1, underlyingSymbol: "TQQQ", instruction: STC, total: 400, fees: -0.5, time: "2026-03-01" },
+      ];
+      const [lot] = hedgeLots(half, since, NOW);
+      expect(lot.closedContracts).toBe(1);
+      expect(lot.expiredContracts).toBe(1);
+      expect(lot.openContracts).toBe(0);
+    });
+
+    it("takes the broker's expiration record over the calendar", () => {
+      // A VIX call the feed reports gone, dated before this reading of `now`
+      // would have caught it on the expiry date alone.
+      const vixCall = [
+        { symbol: V, contracts: 12, underlyingSymbol: "VIX", instruction: BTO, total: -1200, fees: -1, time: "2026-08-07" },
+      ];
+      const [lot] = hedgeLots(vixCall, since, new Date("2026-09-16T12:00:00"), [
+        { symbol: V.replace(/\s+/g, ""), contracts: 12, time: "2026-09-16T20:00:00" },
+      ]);
+      expect(lot.expiredContracts).toBe(12);
+      expect(lot.expiryRecorded).toBe(true);
+      expect(lot.expiredAt).toBe("2026-09-16T20:00:00");
+    });
+
+    it("flags a lapse the broker never posted — it may have been exercised", () => {
+      const [lot] = hedgeLots(lapsed, since, NOW);
+      expect(lot.expiredContracts).toBe(2);
+      expect(lot.expiryRecorded).toBe(false);
+    });
+
+    it("never expires more than the lot ever held", () => {
+      // The ladder's short puts share the expiration feed, so a record can
+      // carry more contracts than this lot ever bought.
+      const [lot] = hedgeLots(lapsed, since, NOW, [
+        { symbol: P56.replace(/\s+/g, ""), contracts: 9, time: "2026-05-15T20:00:00" },
+      ]);
+      expect(lot.expiredContracts).toBe(2);
+      expect(lot.openContracts).toBe(0);
+    });
+
+    it("leaves a lot that is still live alone", () => {
+      const [lot] = hedgeLots(lapsed, since, new Date("2026-03-01T12:00:00"));
+      expect(lot.openContracts).toBe(2);
+      expect(lot.expiredContracts).toBe(0);
+      expect(lot.expiredAt).toBeNull();
+      expect(lot.expiryRecorded).toBe(false);
+    });
+
+    it("drops a lapsed contract out of coverage", () => {
+      const mixed = [
+        ...lapsed,
+        { symbol: V, contracts: 12, underlyingSymbol: "VIX", instruction: BTO, total: -1200, fees: -1, time: "2026-05-20" },
+      ];
+      expect(openContractsBySleeve(hedgeLots(mixed, since, NOW))).toEqual({
+        tqqqPuts: 0,
+        qqqPuts: 0,
+        vix: 12,
+      });
+    });
+  });
+
   describe("short-dated trades", () => {
     // Bought 2026-02-02 for a 2026-02-06 expiry: a 4-day punt, not a hedge.
     const WEEKLY = "TQQQ  260206P00055000";
@@ -435,6 +533,11 @@ describe("qqqPutsInTqqqTerms", () => {
 });
 
 describe("openContractsBySleeve", () => {
+  // Pinned so the fixtures' expiries stay in the future — hedgeLots defaults
+  // `now` to the wall clock, and a lapsed contract is no longer open.
+  beforeAll(() => vi.useFakeTimers({ now: new Date("2026-05-01T12:00:00") }));
+  afterAll(() => vi.useRealTimers());
+
   const since = new Date("2026-01-01");
   const BTO = "BUY_TO_OPEN" as const;
   const STC = "SELL_TO_CLOSE" as const;
@@ -471,6 +574,11 @@ describe("openContractsBySleeve", () => {
 });
 
 describe("hedgeSpendBySleeve", () => {
+  // Pinned so the fixtures' expiries stay in the future — hedgeLots defaults
+  // `now` to the wall clock, and a lapsed contract is no longer open.
+  beforeAll(() => vi.useFakeTimers({ now: new Date("2026-05-01T12:00:00") }));
+  afterAll(() => vi.useRealTimers());
+
   const since = new Date("2026-01-01");
   const BTO = "BUY_TO_OPEN" as const;
   const STC = "SELL_TO_CLOSE" as const;

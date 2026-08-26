@@ -22,6 +22,7 @@ import {
   Checkbox,
   Progress,
   Skeleton,
+  Tooltip,
 } from "@mantine/core";
 import {
   IconAlertTriangle,
@@ -617,6 +618,7 @@ export default function HedgePage() {
     privacyMode,
     optionPositions,
     filledOptionOrders,
+    expiredOptionOrders,
     tqqqShares,
     updateAccountSettings,
   } = useApp();
@@ -757,24 +759,20 @@ export default function HedgePage() {
     for (const p of optionPositions) {
       if (p.longQty > 0) marks.set(p.symbol.replace(/\s+/g, ""), p.marketValue / p.longQty);
     }
-    const today = new Date().toISOString().slice(0, 10);
-    return hedgeLots(filledOptionOrders, yearStart).map((lot) => {
+    return hedgeLots(filledOptionOrders, yearStart, new Date(), expiredOptionOrders).map((lot) => {
       const perContract = marks.get(lot.symbol.replace(/\s+/g, "")) ?? null;
+      // Nothing open is worth nothing — a lot that expired is as finished as one
+      // sold, and the premium is gone either way. Only a live contract with no
+      // mark yet is genuinely unknown.
       const openValue =
-        lot.openContracts === 0
-          ? 0
-          : perContract != null
-            ? perContract * lot.openContracts
-            : lot.expiry != null && lot.expiry < today
-              ? 0
-              : null;
+        lot.openContracts === 0 ? 0 : perContract != null ? perContract * lot.openContracts : null;
       return {
         ...lot,
         openValue,
         net: openValue == null ? null : lot.proceeds + openValue - lot.cost,
       };
     });
-  }, [filledOptionOrders, optionPositions, yearStart]);
+  }, [filledOptionOrders, expiredOptionOrders, optionPositions, yearStart]);
 
   /** QQQ puts restated in TQQQ puts, so one ring can hold both. */
   /**
@@ -873,6 +871,28 @@ export default function HedgePage() {
   );
 
   /**
+   * Premium that lapsed at expiry — insurance that ran its term unclaimed.
+   *
+   * Costed per contract off the lot's average debit, so a lot half sold and
+   * half expired attributes only the half that lapsed. `unrecorded` counts the
+   * contracts the broker never posted an expiration for: those went past expiry
+   * some other way, most likely finishing in the money and being exercised,
+   * which would have returned cash the budget above cannot see.
+   */
+  const expired = useMemo(() => {
+    let contracts = 0;
+    let spend = 0;
+    let unrecorded = 0;
+    for (const lot of lots) {
+      if (excluded.has(lot.symbol) || lot.expiredContracts <= 0) continue;
+      contracts += lot.expiredContracts;
+      spend += (lot.openPrice ?? 0) * 100 * lot.expiredContracts;
+      if (!lot.expiryRecorded) unrecorded += lot.expiredContracts;
+    }
+    return { contracts, spend, unrecorded };
+  }, [lots, excluded]);
+
+  /**
    * The quarter is its own window rather than a slice of the year's lots: a
    * position opened in March and closed in April belongs to both, and only a
    * fresh pass gets each side's cost and credit into the right bucket.
@@ -882,8 +902,12 @@ export default function HedgePage() {
     return new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
   }, []);
   const quarterSpent = useMemo(
-    () => hedgeSpend(hedgeLots(filledOptionOrders, quarterStart), excluded),
-    [filledOptionOrders, quarterStart, excluded],
+    () =>
+      hedgeSpend(
+        hedgeLots(filledOptionOrders, quarterStart, new Date(), expiredOptionOrders),
+        excluded,
+      ),
+    [filledOptionOrders, expiredOptionOrders, quarterStart, excluded],
   );
 
   /** Each episode as it actually happened: real drawdown, real peak VIX. */
@@ -1224,6 +1248,20 @@ export default function HedgePage() {
                   Where it went — {lots.length - excludedHere} of {lots.length} contract
                   {lots.length === 1 ? "" : "s"} counted
                 </Text>
+                {expired.contracts > 0 && (
+                  <Text size="xs" c="dimmed">
+                    {mask(`$${fmt(expired.spend, 0)}`)} of it on {expired.contracts} contract
+                    {expired.contracts === 1 ? "" : "s"} that expired worthless — insurance that ran
+                    its term unclaimed.
+                    {expired.unrecorded > 0 && (
+                      <Text size="xs" c="yellow" component="span">
+                        {" "}
+                        {expired.unrecorded} of them without an expiration record, so check they
+                        weren&apos;t exercised in the money.
+                      </Text>
+                    )}
+                  </Text>
+                )}
               </Accordion.Control>
               <Accordion.Panel>
                 <Table.ScrollContainer minWidth={720}>
@@ -1298,16 +1336,31 @@ export default function HedgePage() {
                                 `$${fmt(lot.closePrice, 2)}`
                               ) : (
                                 <Text size="sm" c="dimmed" component="span">
-                                  open
+                                  {lot.expiredContracts > 0 ? "expired" : "open"}
                                 </Text>
                               )}
                             </Table.Td>
                             <Table.Td ta="right" c={lot.openContracts > 0 ? undefined : "dimmed"}>
-                              {lot.openValue == null
-                                ? "—"
-                                : lot.openContracts === 0
-                                  ? "closed"
-                                  : mask(`$${fmt(lot.openValue, 0)}`)}
+                              {lot.openValue == null ? (
+                                "—"
+                              ) : lot.openContracts > 0 ? (
+                                mask(`$${fmt(lot.openValue, 0)}`)
+                              ) : lot.expiredContracts === 0 ? (
+                                "closed"
+                              ) : lot.expiryRecorded ? (
+                                "worthless"
+                              ) : (
+                                <Tooltip
+                                  multiline
+                                  w={260}
+                                  withArrow
+                                  label="Past expiry with no expiration record from the broker. Assumed worthless — but if it finished in the money it was exercised, and that cash isn't credited back to the budget."
+                                >
+                                  <Text size="sm" c="yellow" component="span" style={{ cursor: "help" }}>
+                                    worthless?
+                                  </Text>
+                                </Tooltip>
+                              )}
                             </Table.Td>
                             <Table.Td
                               ta="right"
@@ -1332,7 +1385,9 @@ export default function HedgePage() {
                   out of the spend above; the choice sticks per account. DTE is the tenor it was
                   bought at and Held how long it ran — a long tenor closed in a day or two is a
                   trade wearing a hedge&apos;s clothes. Open and close are per share, fees
-                  included.
+                  included. A contract left to expire counts as spent in full and stops counting
+                  as coverage the day it lapses, so the plans above size against what is actually
+                  still on.
                 </Text>
               </Accordion.Panel>
             </Accordion.Item>

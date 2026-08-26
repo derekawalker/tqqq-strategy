@@ -319,10 +319,21 @@ export interface HedgeLot {
   contracts: number;
   /** Contracts sold to close inside the window. */
   closedContracts: number;
-  /** Still held out of this window's opens. */
+  /** Contracts that ran to expiry unclosed — the premium was spent in full. */
+  expiredContracts: number;
+  /** Still held: bought, not closed, not yet expired. */
   openContracts: number;
   openedAt: string | null;
   closedAt: string | null;
+  /** When the unclosed contracts lapsed — the broker's stamp, else the expiry date. */
+  expiredAt: string | null;
+  /**
+   * Whether the broker confirmed the lapse with an expiration record. False on
+   * an expired lot means it went past expiry with nothing recorded, so it may
+   * have finished in the money and been exercised rather than expiring
+   * worthless — see {@link hedgeLots}.
+   */
+  expiryRecorded: boolean;
   /** Weighted-average debit per share, fees included. Null when the window caught only closes. */
   openPrice: number | null;
   /** Weighted-average credit per share, fees included. Null while nothing has been closed. */
@@ -333,8 +344,22 @@ export interface HedgeLot {
   proceeds: number;
   /** Days from the buy to expiry — the tenor {@link MIN_HEDGE_DTE} judges. */
   openDte: number | null;
-  /** Days from the buy to the close, or to today while any of it is still held. */
+  /** Days from the buy to the close or expiry, or to today while any is still held. */
   daysHeld: number | null;
+}
+
+/**
+ * A contract the broker removed at expiry.
+ *
+ * Expiry is the one way a lot can end without a fill, so nothing in the order
+ * feed marks it — the position simply stops being reported. Both brokers post
+ * it as a receive-and-deliver record instead, which is what this is.
+ */
+export interface ExpirationRecord {
+  /** OCC symbol, matched against the lot's. */
+  symbol: string;
+  contracts: number;
+  time: string;
 }
 
 /**
@@ -372,13 +397,25 @@ export function isHedgeFill(leg: Pick<FilledContractLeg, "underlyingSymbol" | "s
  * lot. A close whose open happened before the window still gets a row — its
  * credit counts against this year's spend, and hiding it would make the rows
  * disagree with the total.
+ *
+ * Contracts that reached expiry unclosed are split out of `openContracts` into
+ * `expiredContracts`. Without that a lapsed put reads as protection the account
+ * still owns: coverage counts it, the sizing plans net it off what they want to
+ * buy, and the hedge quietly runs uncovered. Nothing in the order feed says a
+ * contract expired, so `expirations` carries the broker's records; a lot that
+ * is past its expiry with no record still counts as expired — an option cannot
+ * outlive its expiry — but is flagged `expiryRecorded: false`, because the
+ * other way out of expiry day is finishing in the money and being exercised,
+ * which returns cash this has no way to see.
  */
 export function hedgeLots(
   orders: FilledContractLeg[],
   since: Date,
   now = new Date(),
+  expirations: ExpirationRecord[] = [],
 ): HedgeLot[] {
   const lots = new Map<string, HedgeLot>();
+  const today = now.toISOString().slice(0, 10);
 
   const lotFor = (o: FilledContractLeg) => {
     const key = o.symbol.trim();
@@ -390,9 +427,12 @@ export function hedgeLots(
         ...occDetails(key),
         contracts: 0,
         closedContracts: 0,
+        expiredContracts: 0,
         openContracts: 0,
         openedAt: null,
         closedAt: null,
+        expiredAt: null,
+        expiryRecorded: false,
         openPrice: null,
         closePrice: null,
         cost: 0,
@@ -404,6 +444,20 @@ export function hedgeLots(
     }
     return lot;
   };
+
+  // Expiration records are keyed loosely: OCC symbols reach us with the padding
+  // in different places depending on the broker.
+  const expiredBySymbol = new Map<string, { contracts: number; time: string }>();
+  for (const e of expirations) {
+    const key = e.symbol.replace(/\s+/g, "");
+    const seen = expiredBySymbol.get(key);
+    if (seen) {
+      seen.contracts += e.contracts;
+      if (e.time > seen.time) seen.time = e.time;
+    } else {
+      expiredBySymbol.set(key, { contracts: e.contracts, time: e.time });
+    }
+  }
 
   for (const o of orders) {
     if (!isHedgeFill(o)) continue;
@@ -433,13 +487,26 @@ export function hedgeLots(
         dteAt(lot.openedAt, lot.expiry) >= MIN_HEDGE_DTE,
     )
     .map((lot) => {
-      const openContracts = Math.max(lot.contracts - lot.closedContracts, 0);
-      // A lot still partly held is measured to today; one fully closed stops at
-      // its last sell.
-      const until = openContracts > 0 || !lot.closedAt ? now.toISOString() : lot.closedAt;
+      const unclosed = Math.max(lot.contracts - lot.closedContracts, 0);
+      const record = expiredBySymbol.get(lot.symbol.replace(/\s+/g, ""));
+      // Expiry day itself still counts as held — the contract works until the
+      // close. Only once it is behind us has the position stopped existing.
+      const lapsed = lot.expiry != null && lot.expiry < today ? unclosed : 0;
+      // Either signal is enough; the record wins on count where they disagree,
+      // and neither can take more than the lot never closed.
+      const expiredContracts = Math.min(unclosed, Math.max(record?.contracts ?? 0, lapsed));
+      const openContracts = unclosed - expiredContracts;
+      // A lot still partly held is measured to today; one that ended stops when
+      // it ended — at expiry if it lapsed there, otherwise at its last sell.
+      const expiredAt = expiredContracts > 0 ? (record?.time ?? lot.expiry) : null;
+      const until =
+        openContracts > 0 ? now.toISOString() : (expiredAt ?? lot.closedAt ?? now.toISOString());
       return {
         ...lot,
+        expiredContracts,
         openContracts,
+        expiredAt,
+        expiryRecorded: expiredContracts > 0 && record != null,
         openPrice: lot.contracts > 0 ? lot.cost / (lot.contracts * 100) : null,
         closePrice: lot.closedContracts > 0 ? lot.proceeds / (lot.closedContracts * 100) : null,
         openDte: lot.openedAt && lot.expiry ? dteAt(lot.openedAt, lot.expiry) : null,
@@ -501,7 +568,8 @@ export interface OpenBySleeve {
  * Sourced from the budget list rather than the position feed so the charts
  * agree with the spend: a lot struck off by hand is gone from both, and a
  * short-dated put that never qualified as hedge spend never counts as coverage
- * either.
+ * either. Contracts that lapsed at expiry are not coverage — {@link hedgeLots}
+ * has already moved them out of `openContracts`.
  */
 export function openContractsBySleeve(
   lots: HedgeLot[],
