@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, ReactNode } from "react";
+import { useState, useEffect, useRef, ReactNode } from "react";
 import { AppShell, Box } from "@mantine/core";
 import { useMediaQuery } from "@mantine/hooks";
 import { usePathname } from "next/navigation";
@@ -153,6 +153,29 @@ function AppShellInner({ children }: { children: ReactNode }) {
   // data-bound pages (e.g. Working Orders) into their loading state on every return to the tab.
   // Data refreshes on first load, the market-hours quote poll above, and the explicit Refresh button.
 
+  // On mobile .app-main is the scroll container (see globals.css), so reset it on navigation —
+  // Next only resets the window, which no longer scrolls.
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    mainRef.current?.scrollTo(0, 0);
+  }, [pathname]);
+
+  // The document is locked on mobile, but iOS still shifts it to reveal a focused input and
+  // sometimes leaves it offset after the keyboard closes, floating the bottom nav mid-screen.
+  useEffect(() => {
+    if (!isMobile) return;
+    const reset = () => {
+      if (window.scrollY !== 0 || window.scrollX !== 0) window.scrollTo(0, 0);
+    };
+    const onFocusOut = () => setTimeout(reset, 100);
+    window.visualViewport?.addEventListener("resize", reset);
+    document.addEventListener("focusout", onFocusOut);
+    return () => {
+      window.visualViewport?.removeEventListener("resize", reset);
+      document.removeEventListener("focusout", onFocusOut);
+    };
+  }, [isMobile]);
+
   const mainBg = !isAccountsPage && activeAccount
     ? `linear-gradient(135deg, color-mix(in srgb, var(--mantine-color-${activeAccount.color}-7) 10%, var(--mantine-color-dark-9)) 0%, var(--mantine-color-dark-8) 100%)`
     : undefined;
@@ -174,7 +197,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
         <SideNav />
       </AppShell.Navbar>
 
-      <AppShell.Main className="app-main" style={{ background: mainBg, paddingBottom: isMobile ? "calc(70px + env(safe-area-inset-bottom))" : undefined }}>
+      <AppShell.Main ref={mainRef} className="app-main" style={{ background: mainBg }}>
         <Box maw={isAccountsPage ? "90%" : 1024} w="100%" mx="auto">
           <LadderBreakerBanner />
           <PageAlertBanner />

@@ -1,21 +1,44 @@
 
-/* Mobile bottom nav: pin to the visual viewport bottom and force its own
-   compositing layer so it doesn't lag/detach during Safari's toolbar
-   show/hide animation when scrolling. */
-.app-bottom-nav {
-  transform: translateZ(0);
-  will-change: transform;
+:root {
+  --bottom-nav-height: 58px;
 }
 
-/* Use the dynamic viewport height where supported so layout doesn't assume
-   the browser toolbar is hidden, which is what causes fixed-bottom elements
-   to detach from the bottom edge while scrolling. */
 .app-main {
   min-height: 100vh;
 }
 @supports (min-height: 100dvh) {
   .app-main {
     min-height: 100dvh;
+  }
+}
+
+/* Mobile: the document never scrolls — only .app-main does. iOS (especially
+   standalone PWAs) drifts position:fixed elements when the document itself
+   scrolls: rubber-band overscroll, toolbar resize, or a keyboard that leaves
+   the layout viewport offset. With a locked document the bottom nav has
+   nothing to move relative to. */
+@media (max-width: 768px) {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  .app-main {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-bottom-nav {
+    height: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
   }
 }
 

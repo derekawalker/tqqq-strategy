@@ -297,7 +297,7 @@ export default function LevelsPage() {
     <div
       style={{
         position: "sticky",
-        bottom: isMobile ? 56 : 0,
+        bottom: 0,
         zIndex: 10,
         borderTop: "1px solid var(--mantine-color-dark-4)",
         borderLeft: "1px solid var(--mantine-color-dark-4)",

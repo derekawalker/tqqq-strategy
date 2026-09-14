@@ -52,7 +52,7 @@ export function OrderQueue({
 
   return (
     <>
-      <div style={{ position: "sticky", bottom: isMobile ? 56 : 0, zIndex: 20, marginTop: "auto" }}>
+      <div style={{ position: "sticky", bottom: 0, zIndex: 20, marginTop: "auto" }}>
         <Stack
           gap="xs"
           p="sm"
