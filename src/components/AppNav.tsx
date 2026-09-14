@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore, useRef, useEffect } from "react";
 import { useApp } from "@/lib/context/AppContext";
 import type { Alerts } from "@/lib/context/AppContext";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
@@ -117,10 +117,26 @@ export function BottomNav() {
   const alerts = testMode ? TEST_ALERTS : realAlerts;
   const color = useAccountColor();
   const moreWarn = MORE_PAGES.some(({ href }) => PAGE_WARN[href]?.(alerts) ?? false);
+  const navRef = useRef<HTMLDivElement>(null);
+
+  // Publish the nav's real height so the scrolling content pane (globals.css) ends exactly at its
+  // top edge, whatever the safe-area inset or text metrics turn out to be on the device.
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+    const root = document.documentElement;
+    const ro = new ResizeObserver(() => root.style.setProperty("--bottom-nav-height", `${el.offsetHeight}px`));
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty("--bottom-nav-height");
+    };
+  }, []);
 
   return (
     <>
       <Box
+        ref={navRef}
         className="app-bottom-nav"
         style={{
           position: "fixed",

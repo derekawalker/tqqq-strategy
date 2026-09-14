@@ -1,8 +1,4 @@
 
-:root {
-  --bottom-nav-height: 58px;
-}
-
 .app-main {
   min-height: 100vh;
 }
@@ -20,25 +16,22 @@
 @media (max-width: 768px) {
   html,
   body {
-    height: 100%;
     overflow: hidden;
     overscroll-behavior: none;
   }
 
+  /* --bottom-nav-height is the nav's measured height (safe-area padding
+     included), written by BottomNav. */
   .app-main {
     position: fixed;
     top: 0;
     left: 0;
     right: 0;
-    bottom: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
+    bottom: var(--bottom-nav-height, 0px);
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
-  }
-
-  .app-bottom-nav {
-    height: calc(var(--bottom-nav-height) + env(safe-area-inset-bottom));
   }
 }
 
