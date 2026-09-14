@@ -47,7 +47,10 @@ export const metadata: Metadata = {
   description: "Schwab account holdings tracker",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "black-translucent",
+    // Not "black-translucent": iOS 26 standalone draws that from screen y=0 but still subtracts the
+    // status bar from the viewport height, stranding a status-bar-tall dead band under the bottom
+    // nav that no CSS can reach (WebKit bug 301108). An opaque bar keeps the viewport honest.
+    statusBarStyle: "black",
     title: "TQQQ",
   },
   formatDetection: {

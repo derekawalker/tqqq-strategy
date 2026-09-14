@@ -27,9 +27,7 @@
     top: 0;
     left: 0;
     right: 0;
-    /* The nav is pushed down past the layout viewport by the iOS shim, so its top edge sits
-       that much lower too. */
-    bottom: calc(var(--bottom-nav-height, 0px) - var(--ios-bottom-shim, 0px));
+    bottom: var(--bottom-nav-height, 0px);
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
