@@ -127,9 +127,29 @@ export function BottomNav() {
     const root = document.documentElement;
     const ro = new ResizeObserver(() => root.style.setProperty("--bottom-nav-height", `${el.offsetHeight}px`));
     ro.observe(el);
+
+    // iOS standalone PWAs can give the layout viewport (what position:fixed is measured against)
+    // a height shorter than the screen, leaving a dead band under anything pinned to bottom:0.
+    // Measure the band and push the nav down into it. Bounded so the keyboard never counts.
+    const measureShim = () => {
+      const standalone = window.matchMedia("(display-mode: standalone)").matches
+        || (navigator as Navigator & { standalone?: boolean }).standalone === true;
+      const diff = screen.height - window.innerHeight;
+      const shim = standalone && diff > 0 && diff <= 120 ? diff : 0;
+      root.style.setProperty("--ios-bottom-shim", `${shim}px`);
+    };
+    measureShim();
+    window.addEventListener("resize", measureShim);
+    window.addEventListener("orientationchange", measureShim);
+    document.addEventListener("visibilitychange", measureShim);
+
     return () => {
       ro.disconnect();
+      window.removeEventListener("resize", measureShim);
+      window.removeEventListener("orientationchange", measureShim);
+      document.removeEventListener("visibilitychange", measureShim);
       root.style.removeProperty("--bottom-nav-height");
+      root.style.removeProperty("--ios-bottom-shim");
     };
   }, []);
 
@@ -140,7 +160,7 @@ export function BottomNav() {
         className="app-bottom-nav"
         style={{
           position: "fixed",
-          bottom: 0,
+          bottom: "calc(-1 * var(--ios-bottom-shim, 0px))",
           left: 0,
           right: 0,
           zIndex: 100,
