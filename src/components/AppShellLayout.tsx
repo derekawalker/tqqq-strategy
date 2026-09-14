@@ -8,6 +8,7 @@ import AppHeader from "@/components/AppHeader";
 import { PageAlertBanner } from "@/components/PageAlertBanner";
 import { LadderBreakerBanner } from "@/components/LadderBreakerBanner";
 import SettingsModal from "@/components/SettingsModal";
+import ViewportDebug from "@/components/ViewportDebug";
 import { SideNav, BottomNav } from "@/components/AppNav";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
@@ -206,6 +207,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
       </AppShell.Main>
 
       {isMobile && <BottomNav />}
+      {isMobile && <ViewportDebug />}
 
       <SettingsModal opened={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </AppShell>

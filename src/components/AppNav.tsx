@@ -130,11 +130,12 @@ export function BottomNav() {
 
     // iOS standalone PWAs can give the layout viewport (what position:fixed is measured against)
     // a height shorter than the screen, leaving a dead band under anything pinned to bottom:0.
-    // Measure the band and push the nav down into it. Bounded so the keyboard never counts.
+    // Measure the band (visual viewport height minus layout viewport height) and push the nav down
+    // into it. Bounded so the keyboard never counts.
     const measureShim = () => {
       const standalone = window.matchMedia("(display-mode: standalone)").matches
         || (navigator as Navigator & { standalone?: boolean }).standalone === true;
-      const diff = screen.height - window.innerHeight;
+      const diff = window.innerHeight - document.documentElement.clientHeight;
       const shim = standalone && diff > 0 && diff <= 120 ? diff : 0;
       root.style.setProperty("--ios-bottom-shim", `${shim}px`);
     };
