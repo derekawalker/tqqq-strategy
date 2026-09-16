@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeLevels, matchLevel, computeCurrentLevel, countOrdersByLevel } from "./levels";
+import { computeLevels, matchLevel, computeCurrentLevel, countOrdersByLevel, levelForPrice } from "./levels";
 
 // ── computeLevels ─────────────────────────────────────────────────────────────
 
@@ -168,5 +168,31 @@ describe("countOrdersByLevel", () => {
       { side: "SELL", shares: levels[3].shares, limitPrice: levels[3].sellPrice },
     ]);
     expect(byLevel.get(3)).toEqual({ buys: 2, sells: 1 });
+  });
+});
+
+// ── levelForPrice ─────────────────────────────────────────────────────────────
+
+describe("levelForPrice", () => {
+  const levels = computeLevels(100000, 87.68, 1, 0.95);
+
+  it("returns the level whose buy/sell band contains the price", () => {
+    expect(levelForPrice(levels, 67.9)).toBe(23);
+  });
+
+  it("covers the gap between a level's sell and the next level's buy", () => {
+    // Level 23 sells at ~68.19 but level 22 only buys at ~68.39
+    expect(levels[23].sellPrice).toBeLessThan(levels[22].buyPrice);
+    const inGap = (levels[23].sellPrice + levels[22].buyPrice) / 2;
+    expect(levelForPrice(levels, inGap)).toBe(23);
+  });
+
+  it("assigns an exact buy price to that level", () => {
+    expect(levelForPrice(levels, levels[22].buyPrice)).toBe(22);
+  });
+
+  it("uses level 0 above the top of the ladder and -1 below the bottom", () => {
+    expect(levelForPrice(levels, 200)).toBe(0);
+    expect(levelForPrice(levels, 1)).toBe(-1);
   });
 });

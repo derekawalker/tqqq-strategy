@@ -19,6 +19,20 @@ export function matchLevel(levels: Level[], shares: number, price: number): numb
   return candidates.reduce((best, c) => (c.diff < best.diff ? c : best)).i;
 }
 
+/**
+ * The level the current price sits in: the one with the highest buy price at or
+ * below `price`. Buy prices step by 1% of the initial lot price but each sell is only
+ * sellPercentage above its own (lower) buy, so [buy, sell] bands leave gaps deeper in
+ * the ladder — using the next level's buy as the upper bound covers them. Returns -1
+ * when the price is below the whole ladder.
+ */
+export function levelForPrice(levels: Level[], price: number): number {
+  for (let i = 0; i < levels.length; i++) {
+    if (price >= levels[i].buyPrice) return i;
+  }
+  return -1;
+}
+
 export interface LevelOrderCounts {
   /** Counts keyed by level index for orders that matched a level. */
   byLevel: Map<number, { buys: number; sells: number }>;

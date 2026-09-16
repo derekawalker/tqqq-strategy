@@ -31,7 +31,7 @@ import {
 import { OrderQueue, type QueueItem } from "@/components/OrderQueue";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
-import { countOrdersByLevel, matchLevel } from "@/lib/levels";
+import { countOrdersByLevel, levelForPrice, matchLevel } from "@/lib/levels";
 import { useSentiment } from "@/lib/hooks/useSentiment";
 import { fmt, createMask } from "@/lib/format";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
@@ -354,6 +354,11 @@ export default function WorkingOrdersPage() {
 
   // Duplicate = more than one WORKING order on the same side of the same level
   // (or same share count when no level matches). Keys: "L<index>" / "S<shares>".
+  const priceLevel =
+    levelsSummary && !quote.loading
+      ? levelForPrice(levelsSummary.levels, quote.price)
+      : -1;
+
   const duplicateKeys = useMemo(() => {
     const workingOnly = workingOrders.filter((o) => o.status === "WORKING");
     const counts = new Map<string, number>();
@@ -816,13 +821,10 @@ export default function WorkingOrdersPage() {
                       const isCurrent =
                         row.levelIndex === currentLevel && currentLevel >= 0;
                       const priceInRange =
-                        !quote.loading &&
-                        row.buyPrice != null &&
-                        row.sellPrice != null &&
-                        quote.price >= row.buyPrice &&
-                        quote.price <= row.sellPrice;
+                        row.levelIndex >= 0 && row.levelIndex === priceLevel;
+                      // Past the sell price (the gap before the next level's buy) the bar stays full
                       const progress = priceInRange && row.buyPrice != null && row.sellPrice != null
-                        ? ((quote.price - row.buyPrice) / (row.sellPrice - row.buyPrice)) * 100
+                        ? Math.min(100, ((quote.price - row.buyPrice) / (row.sellPrice - row.buyPrice)) * 100)
                         : 0;
                       const isOwned =
                         row.levelIndex >= 0 &&
@@ -862,7 +864,11 @@ export default function WorkingOrdersPage() {
                           >
                             {priceInRange && (
                               <Tooltip
-                                label={`Current price $${fmt(quote.price)} is between buy and sell`}
+                                label={
+                                  row.sellPrice != null && quote.price > row.sellPrice
+                                    ? `Current price $${fmt(quote.price)} is above sell, below the next level's buy`
+                                    : `Current price $${fmt(quote.price)} is between buy and sell`
+                                }
                                 withArrow
                               >
                                 <IconPlayerPlayFilled

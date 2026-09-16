@@ -6,6 +6,7 @@ import { IconCheck, IconPlayerPlayFilled } from "@tabler/icons-react";
 import { useMediaQuery } from "@mantine/hooks";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
+import { levelForPrice } from "@/lib/levels";
 import { useBalances } from "@/lib/hooks/useBalances";
 import { fmt, createMask } from "@/lib/format";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
@@ -83,6 +84,7 @@ export default function LevelsPage() {
   }
 
   const { levels, currentLevel, ownedLevels } = summary;
+  const priceLevel = quote.loading ? -1 : levelForPrice(levels, quote.price);
 
   const settings = activeAccount?.settings;
   const R = settings?.reductionFactor ?? null;
@@ -210,12 +212,9 @@ export default function LevelsPage() {
         <Table.Tbody>
           {levels.map(({ n, buyPrice, sellPrice, shares, cost }) => {
             const owned = currentLevel >= 0 && n <= currentLevel;
-            const inRange =
-              !quote.loading &&
-              quote.price >= buyPrice &&
-              quote.price <= sellPrice;
+            const inRange = n === priceLevel;
             const progress = inRange
-              ? ((quote.price - buyPrice) / (sellPrice - buyPrice)) * 100
+              ? Math.min(100, ((quote.price - buyPrice) / (sellPrice - buyPrice)) * 100)
               : 0;
             const gainLoss = owned ? (quote.price - buyPrice) * shares : null;
             const gainLossColor =
