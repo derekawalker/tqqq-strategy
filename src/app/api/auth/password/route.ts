@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSessionToken } from "@/lib/session";
+import {
+  SESSION_COOKIE,
+  SESSION_TTL_SECONDS,
+  createSessionToken,
+  sessionCookieOptions,
+} from "@/lib/session";
 
-const COOKIE_NAME = "tqqq-auth";
-const ONE_WEEK = 60 * 60 * 24 * 7;
 const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const FAIL_DELAY_MS = 500;
@@ -56,14 +59,8 @@ export async function POST(request: NextRequest) {
   // Success — clear any recorded attempts for this IP
   attempts.delete(ip);
 
-  const token = await createSessionToken(process.env.APP_SESSION_SECRET, ONE_WEEK);
+  const token = await createSessionToken(process.env.APP_SESSION_SECRET, SESSION_TTL_SECONDS);
   const response = NextResponse.json({ ok: true });
-  response.cookies.set(COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: ONE_WEEK,
-  });
+  response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions);
   return response;
 }

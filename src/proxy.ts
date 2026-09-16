@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifySessionToken } from "@/lib/session";
+import {
+  SESSION_COOKIE,
+  SESSION_TTL_SECONDS,
+  createSessionToken,
+  readSessionToken,
+  sessionCookieOptions,
+  sessionNeedsRefresh,
+} from "@/lib/session";
 
-const COOKIE_NAME = "tqqq-auth";
 const PUBLIC_PATHS = ["/login", "/api/auth/password"];
 // Cron-only route — no browser session exists to gate on (Vercel/GitHub
 // Actions can't do the interactive login flow). It authenticates itself via
@@ -22,14 +28,22 @@ export async function proxy(request: NextRequest) {
   }
 
   const secret = process.env.APP_SESSION_SECRET;
-  const cookie = request.cookies.get(COOKIE_NAME);
+  const cookie = request.cookies.get(SESSION_COOKIE);
+  const session = secret ? await readSessionToken(cookie?.value, secret) : null;
 
-  if (!secret || !(await verifySessionToken(cookie?.value, secret))) {
+  if (!secret || !session) {
     const loginUrl = new URL("/login", request.url);
     return NextResponse.redirect(loginUrl);
   }
 
-  return NextResponse.next();
+  const response = NextResponse.next();
+  // Sliding expiry: renew once a day while the app is in use, so the password is
+  // only asked for after a full week away rather than a week after each login
+  if (sessionNeedsRefresh(session)) {
+    const token = await createSessionToken(secret, SESSION_TTL_SECONDS);
+    response.cookies.set(SESSION_COOKIE, token, sessionCookieOptions);
+  }
+  return response;
 }
 
 export const config = {

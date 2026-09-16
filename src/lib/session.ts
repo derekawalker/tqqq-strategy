@@ -14,7 +14,7 @@
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-interface SessionPayload {
+export interface SessionPayload {
   iat: number; // issued-at, unix seconds
   exp: number; // expiry, unix seconds
 }
@@ -57,15 +57,46 @@ export async function createSessionToken(
   return `${payloadPart}.${toBase64Url(new Uint8Array(sig))}`;
 }
 
+export const SESSION_COOKIE = "tqqq-auth";
+/** Sessions last this long since the last renewal. */
+export const SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
+/** A valid session older than this is reissued, so active use never hits the expiry. */
+export const SESSION_REFRESH_AFTER_SECONDS = 60 * 60 * 24;
+
+export const sessionCookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax" as const,
+  path: "/",
+  maxAge: SESSION_TTL_SECONDS,
+};
+
 /** True only when the token is well-formed, authentic for `secret`, and unexpired. */
 export async function verifySessionToken(
   token: string | undefined | null,
   secret: string,
   now: number = Date.now(),
 ): Promise<boolean> {
-  if (!token) return false;
+  return (await readSessionToken(token, secret, now)) !== null;
+}
+
+/** True when a verified session is old enough that it should be reissued. */
+export function sessionNeedsRefresh(
+  payload: SessionPayload,
+  now: number = Date.now(),
+): boolean {
+  return Math.floor(now / 1000) - payload.iat >= SESSION_REFRESH_AFTER_SECONDS;
+}
+
+/** The token's payload when it is well-formed, authentic for `secret`, and unexpired; else null. */
+export async function readSessionToken(
+  token: string | undefined | null,
+  secret: string,
+  now: number = Date.now(),
+): Promise<SessionPayload | null> {
+  if (!token) return null;
   const dot = token.indexOf(".");
-  if (dot <= 0 || dot === token.length - 1) return false;
+  if (dot <= 0 || dot === token.length - 1) return null;
   const payloadPart = token.slice(0, dot);
   const sigPart = token.slice(dot + 1);
 
@@ -73,7 +104,7 @@ export async function verifySessionToken(
   try {
     sigBytes = fromBase64Url(sigPart);
   } catch {
-    return false;
+    return null;
   }
 
   const key = await importKey(secret);
@@ -83,13 +114,13 @@ export async function verifySessionToken(
     sigBytes,
     enc.encode(payloadPart),
   );
-  if (!authentic) return false;
+  if (!authentic) return null;
 
   try {
     const payload = JSON.parse(dec.decode(fromBase64Url(payloadPart))) as SessionPayload;
-    if (typeof payload.exp !== "number") return false;
-    return Math.floor(now / 1000) < payload.exp;
+    if (typeof payload.exp !== "number" || typeof payload.iat !== "number") return null;
+    return Math.floor(now / 1000) < payload.exp ? payload : null;
   } catch {
-    return false;
+    return null;
   }
 }
