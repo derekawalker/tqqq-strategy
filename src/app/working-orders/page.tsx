@@ -364,7 +364,7 @@ export default function WorkingOrdersPage() {
     const counts = new Map<string, number>();
     for (const o of workingOnly) {
       const idx = levelsSummary
-        ? matchLevel(levelsSummary.levels, o.shares, o.limitPrice)
+        ? matchLevel(levelsSummary.levels, o.side, o.shares, o.limitPrice)
         : -1;
       const rowKey = idx >= 0 ? `L${idx}` : `S${o.shares}`;
       counts.set(`${o.side}-${rowKey}`, (counts.get(`${o.side}-${rowKey}`) ?? 0) + 1);

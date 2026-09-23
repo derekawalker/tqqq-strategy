@@ -17,7 +17,7 @@ export function usePendingBuyCost(): number | null {
     const pendingIndices = new Set<number>();
     for (const o of workingOrders) {
       if (o.side !== "BUY") continue;
-      const idx = matchLevel(levelsSummary.levels, o.shares, o.limitPrice);
+      const idx = matchLevel(levelsSummary.levels, "BUY", o.shares, o.limitPrice);
       if (idx >= 0 && !ownedLevelIndices.has(idx)) pendingIndices.add(idx);
     }
 

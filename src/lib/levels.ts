@@ -8,15 +8,24 @@ export interface Level {
 }
 
 /**
- * Match a fill to the closest level index by share count. Returns -1 if no level has that
- * share count. When multiple levels share the same count, price is used as a tiebreaker.
+ * Match an order or fill to a level by share count. Returns -1 if no level has that
+ * share count. When multiple levels share the same count, price is the tiebreaker —
+ * against the side's own price (buys vs buyPrice, sells vs sellPrice). With a small
+ * sell percentage a level's sell lands almost exactly on the next-higher level's buy,
+ * so comparing against both prices would hand one level's sells to its neighbour.
  */
-export function matchLevel(levels: Level[], shares: number, price: number): number {
-  const candidates = levels
-    .map((l, i) => ({ i, diff: Math.min(Math.abs(l.buyPrice - price), Math.abs(l.sellPrice - price)) }))
-    .filter((_, i) => levels[i].shares === shares);
-  if (candidates.length === 0) return -1;
-  return candidates.reduce((best, c) => (c.diff < best.diff ? c : best)).i;
+export function matchLevel(levels: Level[], side: "BUY" | "SELL", shares: number, price: number): number {
+  let best = -1;
+  let bestDiff = Infinity;
+  for (let i = 0; i < levels.length; i++) {
+    if (levels[i].shares !== shares) continue;
+    const diff = Math.abs((side === "BUY" ? levels[i].buyPrice : levels[i].sellPrice) - price);
+    if (diff < bestDiff) {
+      best = i;
+      bestDiff = diff;
+    }
+  }
+  return best;
 }
 
 /**
@@ -53,7 +62,7 @@ export function countOrdersByLevel(
   const byLevel = new Map<number, { buys: number; sells: number }>();
   const unmatched = new Map<number, { buys: number; sells: number }>();
   for (const o of orders) {
-    const idx = matchLevel(levels, o.shares, o.limitPrice);
+    const idx = matchLevel(levels, o.side, o.shares, o.limitPrice);
     const map = idx === -1 ? unmatched : byLevel;
     const key = idx === -1 ? o.shares : idx;
     const c = map.get(key) ?? { buys: 0, sells: 0 };
@@ -77,7 +86,7 @@ export interface FillOrder {
 export function computeCurrentLevel(levels: Level[], orders: FillOrder[]): number {
   const lastFillSide = new Map<number, "BUY" | "SELL">();
   for (const o of orders) {
-    const idx = matchLevel(levels, o.shares, o.fillPrice);
+    const idx = matchLevel(levels, o.side, o.shares, o.fillPrice);
     if (idx === -1) continue;
     if (!lastFillSide.has(idx)) lastFillSide.set(idx, o.side);
   }
@@ -90,7 +99,7 @@ export function computeCurrentLevel(levels: Level[], orders: FillOrder[]): numbe
 
   for (const o of orders) {
     if (o.side !== "SELL") continue;
-    const idx = matchLevel(levels, o.shares, o.fillPrice);
+    const idx = matchLevel(levels, o.side, o.shares, o.fillPrice);
     if (idx === -1) continue;
     if (lastFillSide.get(idx) !== "SELL") continue;
     if (currentLevel >= idx) currentLevel = idx - 1;

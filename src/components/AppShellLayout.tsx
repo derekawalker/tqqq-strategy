@@ -52,7 +52,7 @@ function AppShellInner({ children }: { children: ReactNode }) {
     const workingOnly = workingOrders.filter((o) => o.status === "WORKING");
     const workingCounts = new Map<string, number>();
     for (const o of workingOnly) {
-      const idx = levelsSummary ? matchLevel(levelsSummary.levels, o.shares, o.limitPrice) : -1;
+      const idx = levelsSummary ? matchLevel(levelsSummary.levels, o.side, o.shares, o.limitPrice) : -1;
       const key = idx >= 0 ? `${o.side}-L${idx}` : `${o.side}-S${o.shares}`;
       workingCounts.set(key, (workingCounts.get(key) ?? 0) + 1);
     }

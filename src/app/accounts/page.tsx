@@ -108,7 +108,7 @@ function buildPendingBuyCost(
   // Each level counts once even with duplicate orders on it.
   const pendingIndices = new Set<number>();
   for (const o of accountBuys) {
-    const idx = matchLevel(levels, o.shares, o.limitPrice);
+    const idx = matchLevel(levels, "BUY", o.shares, o.limitPrice);
     if (idx >= 0 && !ownedLevels.has(idx)) pendingIndices.add(idx);
   }
 
@@ -702,7 +702,7 @@ function AccountsPageInner() {
           : orders;
         const lastFillSide = new Map<number, "BUY" | "SELL">();
         for (const o of relevant) {
-          const idx = matchLevel(levels, o.shares, o.fillPrice);
+          const idx = matchLevel(levels, o.side, o.shares, o.fillPrice);
           if (idx === -1) continue;
           if (!lastFillSide.has(idx)) lastFillSide.set(idx, o.side);
         }

@@ -44,23 +44,23 @@ describe("matchLevel", () => {
   const levels = computeLevels(200000, 70, 5, 0.95);
 
   it("matches an exact buy price fill", () => {
-    const idx = matchLevel(levels, levels[0].shares, levels[0].buyPrice);
+    const idx = matchLevel(levels, "BUY", levels[0].shares, levels[0].buyPrice);
     expect(idx).toBe(0);
   });
 
   it("matches an exact sell price fill", () => {
-    const idx = matchLevel(levels, levels[0].shares, levels[0].sellPrice);
+    const idx = matchLevel(levels, "SELL", levels[0].shares, levels[0].sellPrice);
     expect(idx).toBe(0);
   });
 
   it("matches even when fill price is far from the level price", () => {
     // Price is no longer a hard filter — only shares must match. Price is a tiebreaker.
-    const idx = matchLevel(levels, levels[5].shares, levels[5].buyPrice + 5);
+    const idx = matchLevel(levels, "BUY", levels[5].shares, levels[5].buyPrice + 5);
     expect(idx).toBe(5);
   });
 
   it("returns -1 when share count matches no level", () => {
-    const idx = matchLevel(levels, 999999, levels[0].buyPrice);
+    const idx = matchLevel(levels, "BUY", 999999, levels[0].buyPrice);
     expect(idx).toBe(-1);
   });
 
@@ -70,9 +70,18 @@ describe("matchLevel", () => {
     if (dupes.length < 2) return; // no duplicates in this config — skip
     const [a, b] = dupes;
     // Fill exactly at a's buyPrice → should resolve to a
-    expect(matchLevel(levels, a.shares, a.buyPrice)).toBe(a.n);
+    expect(matchLevel(levels, "BUY", a.shares, a.buyPrice)).toBe(a.n);
     // Fill exactly at b's buyPrice → should resolve to b
-    expect(matchLevel(levels, b.shares, b.buyPrice)).toBe(b.n);
+    expect(matchLevel(levels, "BUY", b.shares, b.buyPrice)).toBe(b.n);
+  });
+
+  it("compares sells to sell prices, even when a sell sits on the next level's buy", () => {
+    // 1.05% sells: level 4 sells at $78.30, a hair above level 3's $78.2984 buy, and
+    // levels 0–4 all hold 2 shares. Level 4's sells must not land on level 3.
+    const tight = computeLevels(2255.68, 80.72, 1.05, 0.925);
+    expect(tight[3].shares).toBe(tight[4].shares);
+    expect(matchLevel(tight, "SELL", tight[4].shares, 78.3)).toBe(4);
+    expect(matchLevel(tight, "BUY", tight[3].shares, 78.3)).toBe(3);
   });
 });
 

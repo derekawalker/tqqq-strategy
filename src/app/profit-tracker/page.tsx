@@ -322,7 +322,7 @@ export default function ProfitPage() {
     // meaningless, so they're excluded from both the table and the totals.
     return sells
       .map((o): ProfitRow | null => {
-        const idx = matchLevel(levels, o.shares, o.fillPrice);
+        const idx = matchLevel(levels, "SELL", o.shares, o.fillPrice);
         if (idx === -1) return null;
         const level = levels[idx];
         const profit = (o.fillPrice - level.buyPrice) * o.shares + o.fees;
