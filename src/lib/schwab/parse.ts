@@ -6,6 +6,8 @@ export interface FilledOrder {
   side: "BUY" | "SELL";
   shares: number;
   fillPrice: number;
+  /** The order's limit price. Matches the level exactly, where a gap fill's price can land nearer a neighbour. */
+  limitPrice?: number;
   total: number;
   fees: number;  // negative — total regulatory/commission cost for this order
   time: string;
@@ -160,7 +162,11 @@ export function parseFilledOrder(order: RawSchwabOrder, accountNumber: string): 
   if (totalShares === 0) return null;
 
   const fillPrice = totalValue / totalShares;
-  return { orderId: order.orderId, accountNumber, side, shares: totalShares, fillPrice, total: fillPrice * totalShares, fees: 0, time: order.closeTime };
+  return {
+    orderId: order.orderId, accountNumber, side, shares: totalShares, fillPrice,
+    ...(typeof order.price === "number" ? { limitPrice: order.price } : {}),
+    total: fillPrice * totalShares, fees: 0, time: order.closeTime,
+  };
 }
 
 export function parseFilledOptionOrder(order: RawSchwabOrder, accountNumber: string): FilledOptionOrder[] {

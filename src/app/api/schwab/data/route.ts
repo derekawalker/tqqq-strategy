@@ -2,6 +2,7 @@ import { isTrackedOptionUnderlying } from "@/lib/trackedSymbols";
 import { DEMO_DATA } from "@/lib/demo-data";
 import { schwabFetch } from "@/lib/schwab/client";
 import { getAccountHashes } from "@/lib/schwab/accounts";
+import { fetchAllOrders } from "@/lib/schwab/orders";
 import { getCached, setCached } from "@/lib/ttlCache";
 import { singleFlight } from "@/lib/singleFlight";
 import {
@@ -68,66 +69,17 @@ function parseTransaction(t: any, accountNumber: string): Transaction | null {
   return { activityId: t.activityId, accountNumber, time: t.time, description, symbol: null, amount, category };
 }
 
-const PARTIAL_FILL_WINDOW_MS = 5 * 60 * 1000;
-// Levels are spaced ~1% apart; partial fills of the same limit order fill at nearly identical prices.
-const PARTIAL_FILL_PRICE_TOLERANCE = 0.005;
-
-function mergePartialFills(orders: FilledOrder[]): FilledOrder[] {
-  const sorted = [...orders].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-  const result: FilledOrder[] = [];
-  const used = new Set<number>();
-
-  for (let i = 0; i < sorted.length; i++) {
-    if (used.has(i)) continue;
-    const base = sorted[i];
-    const baseTime = new Date(base.time).getTime();
-    const group = [i];
-
-    for (let j = i + 1; j < sorted.length; j++) {
-      if (used.has(j)) continue;
-      const o = sorted[j];
-      if (o.side !== base.side) continue;
-      if (new Date(o.time).getTime() - baseTime > PARTIAL_FILL_WINDOW_MS) break;
-      // Two fills with the same share count are likely duplicate orders, not partial fills of one order.
-      if (o.shares === base.shares) continue;
-      // Fills from different levels have prices ~1% apart; partial fills of the same order fill at nearly the same price.
-      if (Math.abs(o.fillPrice - base.fillPrice) / base.fillPrice > PARTIAL_FILL_PRICE_TOLERANCE) continue;
-      group.push(j);
-    }
-
-    if (group.length === 1) {
-      result.push(base);
-      continue;
-    }
-
-    const totalShares = group.reduce((sum, idx) => sum + sorted[idx].shares, 0);
-    const totalValue = group.reduce((sum, idx) => sum + sorted[idx].fillPrice * sorted[idx].shares, 0);
-    const totalFees = group.reduce((sum, idx) => sum + sorted[idx].fees, 0);
-    const fillPrice = totalValue / totalShares;
-    result.push({
-      orderId: base.orderId,
-      accountNumber: base.accountNumber,
-      side: base.side,
-      shares: totalShares,
-      fillPrice,
-      total: fillPrice * totalShares,
-      fees: totalFees,
-      time: sorted[group[group.length - 1]].time,
-    });
-    group.forEach((idx) => used.add(idx));
-  }
-
-  return result;
-}
-
 async function fetchAccountData(
   accountNumber: string,
   hash: string,
   from365: string,
   to: string,
 ) {
-  const [filledRes, workingRes, pendingRes, positionsRes, rxDeliverRes, divIntRes, tradeRes] = await Promise.all([
-    schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from365}&toEnteredTime=${to}&status=FILLED`),
+  const [filledRaw, workingRes, pendingRes, positionsRes, rxDeliverRes, divIntRes, tradeRes] = await Promise.all([
+    fetchAllOrders(async (from, until) => {
+      const res = await schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from}&toEnteredTime=${until}&status=FILLED`);
+      return res.ok ? res.json() : [];
+    }, new Date(from365), new Date(to)),
     schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from365}&toEnteredTime=${to}&status=WORKING`),
     schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from365}&toEnteredTime=${to}&status=PENDING_ACTIVATION`),
     schwabFetch(`/trader/v1/accounts/${hash}?fields=positions`),
@@ -136,7 +88,6 @@ async function fetchAccountData(
     schwabFetch(`/trader/v1/accounts/${hash}/transactions?startDate=${from365}&endDate=${to}&types=TRADE`),
   ]);
 
-  const filledRaw = filledRes.ok ? await filledRes.json() : [];
   const workingRaw = [
     ...(workingRes.ok ? await workingRes.json() : []),
     ...(pendingRes.ok ? await pendingRes.json() : []),
@@ -175,11 +126,13 @@ async function fetchAccountData(
 
   // --- Orders ---
   const flatFilled = flattenOrders(Array.isArray(filledRaw) ? filledRaw : []);
-  const parsedFilled = flatFilled
+  // Each Schwab order is one level: a partial fill arrives as one order with several
+  // executions, which parseFilledOrder already sums. Separate orders are never merged —
+  // levels that fill together on a gap would otherwise collapse into one unmatched lot.
+  const filled = flatFilled
     .map((o) => parseFilledOrder(o, accountNumber))
     .filter((o): o is FilledOrder => o !== null)
     .map((o) => ({ ...o, fees: feeByOrderId.get(o.orderId) ?? 0 }));
-  const filled = mergePartialFills(parsedFilled);
 
   const filledOptionsRaw = flatFilled.flatMap((o) => parseFilledOptionOrder(o, accountNumber));
   // Look up fees per leg by orderId+symbol (exact match, no proration needed)

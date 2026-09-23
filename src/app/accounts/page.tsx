@@ -16,7 +16,7 @@ import { useApp } from "@/lib/context/AppContext";
 import type { Account } from "@/lib/context/AppContext";
 import type { FilledOrder, WorkingOrder } from "@/lib/schwab/parse";
 import type { AccountBalance } from "@/app/api/schwab/data/route";
-import { computeLevels, computeCurrentLevel, matchLevel } from "@/lib/levels";
+import { computeLevels, computeCurrentLevel, matchFill, matchLevel } from "@/lib/levels";
 import { computeAccountGain } from "@/lib/accountGain";
 import type { Level } from "@/lib/levels";
 import { fmt, createMask, toDateKey } from "@/lib/format";
@@ -702,7 +702,7 @@ function AccountsPageInner() {
           : orders;
         const lastFillSide = new Map<number, "BUY" | "SELL">();
         for (const o of relevant) {
-          const idx = matchLevel(levels, o.side, o.shares, o.fillPrice);
+          const idx = matchFill(levels, o);
           if (idx === -1) continue;
           if (!lastFillSide.has(idx)) lastFillSide.set(idx, o.side);
         }

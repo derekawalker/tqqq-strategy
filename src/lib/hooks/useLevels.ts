@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useApp } from "@/lib/context/AppContext";
-import { computeLevels, computeCurrentLevel, matchLevel, Level } from "@/lib/levels";
+import { computeLevels, computeCurrentLevel, matchFill, Level } from "@/lib/levels";
 
 export interface LevelsSummary {
   levels: Level[];
@@ -36,7 +36,7 @@ export function useLevels(): LevelsSummary | null {
     // ownedLevels: levels whose most recent fill was a BUY, capped at currentLevel
     const lastFillSide = new Map<number, "BUY" | "SELL">();
     for (const o of relevantOrders) {
-      const idx = matchLevel(levels, o.side, o.shares, o.fillPrice);
+      const idx = matchFill(levels, o);
       if (idx === -1) continue;
       if (!lastFillSide.has(idx)) lastFillSide.set(idx, o.side);
     }

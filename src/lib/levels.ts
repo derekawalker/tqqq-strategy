@@ -77,6 +77,16 @@ export interface FillOrder {
   side: "BUY" | "SELL";
   shares: number;
   fillPrice: number;
+  limitPrice?: number;
+}
+
+/**
+ * Match a fill to its level. Prefers the order's limit price, which is the level's own
+ * price: a limit that fills with price improvement (a gap through several levels at the
+ * open) can execute nearer a neighbouring level with the same share count.
+ */
+export function matchFill(levels: Level[], o: FillOrder): number {
+  return matchLevel(levels, o.side, o.shares, o.limitPrice ?? o.fillPrice);
 }
 
 /**
@@ -86,7 +96,7 @@ export interface FillOrder {
 export function computeCurrentLevel(levels: Level[], orders: FillOrder[]): number {
   const lastFillSide = new Map<number, "BUY" | "SELL">();
   for (const o of orders) {
-    const idx = matchLevel(levels, o.side, o.shares, o.fillPrice);
+    const idx = matchFill(levels, o);
     if (idx === -1) continue;
     if (!lastFillSide.has(idx)) lastFillSide.set(idx, o.side);
   }
@@ -99,7 +109,7 @@ export function computeCurrentLevel(levels: Level[], orders: FillOrder[]): numbe
 
   for (const o of orders) {
     if (o.side !== "SELL") continue;
-    const idx = matchLevel(levels, o.side, o.shares, o.fillPrice);
+    const idx = matchFill(levels, o);
     if (idx === -1) continue;
     if (lastFillSide.get(idx) !== "SELL") continue;
     if (currentLevel >= idx) currentLevel = idx - 1;

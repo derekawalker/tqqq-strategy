@@ -9,7 +9,7 @@ import { useApp } from "@/lib/context/AppContext";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { useCardBg } from "@/lib/hooks/useCardBg";
 import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
-import { computeLevels, matchLevel } from "@/lib/levels";
+import { computeLevels, matchFill } from "@/lib/levels";
 import { fmt, weekStart, createMask } from "@/lib/format";
 
 const fmtDate = (iso: string) =>
@@ -322,7 +322,7 @@ export default function ProfitPage() {
     // meaningless, so they're excluded from both the table and the totals.
     return sells
       .map((o): ProfitRow | null => {
-        const idx = matchLevel(levels, "SELL", o.shares, o.fillPrice);
+        const idx = matchFill(levels, o);
         if (idx === -1) return null;
         const level = levels[idx];
         const profit = (o.fillPrice - level.buyPrice) * o.shares + o.fees;

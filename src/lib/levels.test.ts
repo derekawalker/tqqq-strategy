@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeLevels, matchLevel, computeCurrentLevel, countOrdersByLevel, levelForPrice } from "./levels";
+import { computeLevels, matchLevel, matchFill, computeCurrentLevel, countOrdersByLevel, levelForPrice } from "./levels";
 
 // ── computeLevels ─────────────────────────────────────────────────────────────
 
@@ -82,6 +82,24 @@ describe("matchLevel", () => {
     expect(tight[3].shares).toBe(tight[4].shares);
     expect(matchLevel(tight, "SELL", tight[4].shares, 78.3)).toBe(4);
     expect(matchLevel(tight, "BUY", tight[3].shares, 78.3)).toBe(3);
+  });
+});
+
+// ── matchFill ─────────────────────────────────────────────────────────────────
+
+describe("matchFill", () => {
+  // Levels 20 and 21 both hold 23 shares
+  const levels = computeLevels(90691, 87.61, 1.05, 0.95);
+
+  it("matches on the limit price when a gap fill executes near a neighbouring level", () => {
+    // Level 20's $70.09 buy limit filled at $69.04 on a gap down — nearer level 21's $69.21
+    const fill = { side: "BUY" as const, shares: 23, fillPrice: 69.04, limitPrice: 70.09 };
+    expect(levels[20].shares).toBe(levels[21].shares);
+    expect(matchFill(levels, fill)).toBe(20);
+  });
+
+  it("falls back to the fill price without a limit price", () => {
+    expect(matchFill(levels, { side: "BUY", shares: 23, fillPrice: 69.04 })).toBe(21);
   });
 });
 
