@@ -149,8 +149,6 @@ export default function WorkingOrdersPage() {
     side: "BUY" | "SELL";
     shares: number;
     price: number;
-    /** Stop-limit instead of a plain limit: rests untriggered until the price reaches it. */
-    stop?: boolean;
   }
   interface QueuedCancelOrder {
     orderId: string;
@@ -249,7 +247,6 @@ export default function WorkingOrdersPage() {
             side: order.side,
             shares: order.shares,
             price: order.price,
-            stop: order.stop,
           }),
         });
         const json = await res.json();
@@ -289,7 +286,11 @@ export default function WorkingOrdersPage() {
       key: `p-${idx}-${o.side}-${o.price}-${o.shares}`,
       type: "place" as const,
       side: o.side, shares: o.shares, price: o.price,
-      note: o.stop ? "Stop limit · GTC, regular hours" : undefined,
+      // A limit buy above the market doesn't wait for its price — it fills right away
+      note:
+        o.side === "BUY" && !quote.loading && o.price > quote.price
+          ? "Above market — fills on submit"
+          : undefined,
       onRemove: () => setQueuedPlaceOrders((prev) => prev.filter((_, i) => i !== idx)),
     })),
   ];
@@ -387,16 +388,6 @@ export default function WorkingOrdersPage() {
           settings.reductionFactor,
         )
       : null;
-
-  // tastytrade: a buy stop-limit resting just above the level-0 sell. It can't trigger
-  // until the price has traded through that sell, so the working sell is left alone.
-  const queueGridReset = () => {
-    if (!nextGridLevel0) return;
-    setQueuedPlaceOrders((prev) => [
-      ...prev,
-      { side: "BUY", shares: nextGridLevel0.shares, price: nextGridLevel0.buyPrice, stop: true },
-    ]);
-  };
 
   // Duplicate = more than one WORKING order on the same side of the same level
   // (or same share count when no level matches). Keys: "L<index>" / "S<shares>".
@@ -1303,7 +1294,11 @@ export default function WorkingOrdersPage() {
                                   onClick={() => {
                                     if (isQueued) return;
                                     isTastytrade
-                                      ? queueGridReset()
+                                      ? directQueueOrder(
+                                          "BUY",
+                                          nextGridLevel0.shares,
+                                          nextGridLevel0.buyPrice,
+                                        )
                                       : setTosModal({
                                           text: buildResetTosText(
                                             level0.shares,

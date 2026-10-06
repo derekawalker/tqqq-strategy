@@ -1,34 +1,8 @@
 import { tastyFetch } from "@/lib/tastytrade/client";
 
-type Side = "BUY" | "SELL";
-
-/**
- * A limit order, or — with `stop` — a stop-limit that rests untriggered until the
- * price reaches the limit. Stops only trigger in the regular session, so they can't
- * carry the extended-hours time-in-force the plain limits use.
- */
-function buildOrder(side: Side, shares: unknown, price: unknown, stop: boolean) {
-  const limit = Number(price).toFixed(2);
-  return {
-    "time-in-force": stop ? "GTC" : "GTC Ext Overnight",
-    "order-type": stop ? "Stop Limit" : "Limit",
-    "price": limit,
-    ...(stop ? { "stop-trigger": limit } : {}),
-    "price-effect": side === "BUY" ? "Debit" : "Credit",
-    legs: [
-      {
-        "instrument-type": "Equity",
-        symbol: "TQQQ",
-        quantity: Number(shares),
-        action: side === "BUY" ? "Buy to Open" : "Sell to Close",
-      },
-    ],
-  };
-}
-
 export async function POST(req: Request) {
   try {
-    const { accountNumber, side, shares, price, stop } = await req.json();
+    const { accountNumber, side, shares, price } = await req.json();
 
     if (!accountNumber || !side || !shares || price == null) {
       return Response.json({ error: "Missing required fields" }, { status: 400 });
@@ -37,10 +11,25 @@ export async function POST(req: Request) {
       return Response.json({ error: "side must be BUY or SELL" }, { status: 400 });
     }
 
+    const body = {
+      "time-in-force": "GTC Ext Overnight",
+      "order-type": "Limit",
+      "price": Number(price).toFixed(2),
+      "price-effect": side === "BUY" ? "Debit" : "Credit",
+      legs: [
+        {
+          "instrument-type": "Equity",
+          symbol: "TQQQ",
+          quantity: Number(shares),
+          action: side === "BUY" ? "Buy to Open" : "Sell to Close",
+        },
+      ],
+    };
+
     const res = await tastyFetch(`/accounts/${accountNumber}/orders`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildOrder(side, shares, price, stop === true)),
+      body: JSON.stringify(body),
     });
 
     const json = await res.json();
