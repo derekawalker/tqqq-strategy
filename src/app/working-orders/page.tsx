@@ -31,7 +31,8 @@ import {
 import { OrderQueue, type QueueItem } from "@/components/OrderQueue";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
-import { countOrdersByLevel, levelForPrice, matchLevel } from "@/lib/levels";
+import { computeNextGridLevel0, countOrdersByLevel, levelForPrice, matchLevel } from "@/lib/levels";
+import { useBalances } from "@/lib/hooks/useBalances";
 import { useSentiment } from "@/lib/hooks/useSentiment";
 import { fmt, createMask } from "@/lib/format";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
@@ -100,6 +101,19 @@ function buildTosText(
   return lines.join("\n");
 }
 
+/** Sell the current level 0, and on that fill buy level 0 of the next grid. */
+function buildResetTosText(
+  sellShares: number,
+  sellPrice: number,
+  buyShares: number,
+  buyPrice: number,
+): string {
+  return [
+    `SELL -${sellShares} TQQQ @${sellPrice.toFixed(2)} LMT GTC+EXTENDED OVERNIGHT`,
+    `BUY +${buyShares} TQQQ @${buyPrice.toFixed(2)} LMT GTC+EXTENDED OVERNIGHT TRG BY`,
+  ].join("\n");
+}
+
 interface PlaceOrderModal {
   side: "BUY" | "SELL";
   shares: number;
@@ -117,6 +131,7 @@ export default function WorkingOrdersPage() {
     tickRefresh,
   } = useApp();
   const levelsSummary = useLevels();
+  const { balance } = useBalances();
   const sentiment = useSentiment();
   const accountColor = useAccountColor();
   const isMobile = useMediaQuery("(max-width: 768px)");
@@ -134,6 +149,10 @@ export default function WorkingOrdersPage() {
     side: "BUY" | "SELL";
     shares: number;
     price: number;
+    /** One-triggers-other: this order is only sent once the trigger order fills. */
+    trigger?: { side: "BUY" | "SELL"; shares: number; price: number };
+    /** Working order the trigger replaces — its cancellation is queued alongside. */
+    replacesOrderId?: string;
   }
   interface QueuedCancelOrder {
     orderId: string;
@@ -199,6 +218,7 @@ export default function WorkingOrdersPage() {
     const errors: string[] = [];
     const cancelOks: boolean[] = [];
     const placeOks: boolean[] = [];
+    const failedCancelIds = new Set<string>();
 
     // Submit all cancellations first
     for (const order of queuedCancelOrders) {
@@ -218,11 +238,18 @@ export default function WorkingOrdersPage() {
         errors.push(`Cancel ${order.side}: Network error`);
       }
       cancelOks.push(ok);
+      if (!ok) failedCancelIds.add(order.orderId);
     }
 
     // Then submit all new orders
     for (const order of queuedPlaceOrders) {
       let ok = false;
+      // The trigger duplicates the order it replaces, so don't send it while that one still works
+      if (order.replacesOrderId && failedCancelIds.has(order.replacesOrderId)) {
+        errors.push(`${order.side} ${order.shares}: skipped — the order it replaces wasn't cancelled`);
+        placeOks.push(false);
+        continue;
+      }
       try {
         const res = await fetch("/api/tastytrade/orders", {
           method: "POST",
@@ -232,6 +259,7 @@ export default function WorkingOrdersPage() {
             side: order.side,
             shares: order.shares,
             price: order.price,
+            trigger: order.trigger,
           }),
         });
         const json = await res.json();
@@ -271,7 +299,15 @@ export default function WorkingOrdersPage() {
       key: `p-${idx}-${o.side}-${o.price}-${o.shares}`,
       type: "place" as const,
       side: o.side, shares: o.shares, price: o.price,
-      onRemove: () => setQueuedPlaceOrders((prev) => prev.filter((_, i) => i !== idx)),
+      note: o.trigger
+        ? `after ${o.trigger.side} ${fmt(o.trigger.shares, 0)} @ $${fmt(o.trigger.price)} fills`
+        : undefined,
+      onRemove: () => {
+        setQueuedPlaceOrders((prev) => prev.filter((_, i) => i !== idx));
+        // Without its replacement, the queued cancel would just pull the level-0 sell
+        if (o.replacesOrderId)
+          setQueuedCancelOrders((prev) => prev.filter((x) => x.orderId !== o.replacesOrderId));
+      },
     })),
   ];
 
@@ -351,6 +387,49 @@ export default function WorkingOrdersPage() {
   }, [workingOrders, levelsSummary, bufferSize]);
 
   const mask = createMask(privacyMode);
+
+  // Level 0 of the grid that takes over once the current level 0 sells and the ladder
+  // goes flat: anchored at that sell price, sized from the account's current value.
+  const settings = activeAccount?.settings;
+  const nextGridLevel0 =
+    levelsSummary &&
+    levelsSummary.currentLevel >= 0 &&
+    balance?.totalValue &&
+    settings?.sellPercentage &&
+    settings?.reductionFactor
+      ? computeNextGridLevel0(
+          levelsSummary.levels,
+          balance.totalValue,
+          settings.sellPercentage,
+          settings.reductionFactor,
+        )
+      : null;
+
+  const queueGridReset = () => {
+    if (!levelsSummary || !nextGridLevel0) return;
+    const level0 = levelsSummary.levels[0];
+    const sellPrice = Math.round(level0.sellPrice * 100) / 100;
+    // tastytrade can't attach a trigger to an order that's already working, so the
+    // existing level-0 sell is cancelled and re-sent as the trigger leg.
+    const existing = workingOrders.find(
+      (o) =>
+        o.side === "SELL" &&
+        matchLevel(levelsSummary.levels, o.side, o.shares, o.limitPrice) === 0,
+    );
+    if (existing && !isCancelOrderQueued(String(existing.orderId))) {
+      directQueueCancel(String(existing.orderId), existing.accountNumber, existing.side, existing.shares, existing.limitPrice);
+    }
+    setQueuedPlaceOrders((prev) => [
+      ...prev,
+      {
+        side: "BUY",
+        shares: nextGridLevel0.shares,
+        price: nextGridLevel0.buyPrice,
+        trigger: { side: "SELL", shares: level0.shares, price: sellPrice },
+        replacesOrderId: existing ? String(existing.orderId) : undefined,
+      },
+    ]);
+  };
 
   // Duplicate = more than one WORKING order on the same side of the same level
   // (or same share count when no level matches). Keys: "L<index>" / "S<shares>".
@@ -1200,6 +1279,97 @@ export default function WorkingOrdersPage() {
                         </Fragment>
                       );
                     })}
+                    {nextGridLevel0 &&
+                      levelsSummary &&
+                      (() => {
+                        const level0 = levelsSummary.levels[0];
+                        const isQueued = isPlaceOrderQueued(
+                          "BUY",
+                          nextGridLevel0.shares,
+                          nextGridLevel0.buyPrice,
+                        );
+                        return (
+                          <Table.Tr
+                            key="next-grid"
+                            style={{
+                              borderTop: "2px solid rgba(255,255,255,0.08)",
+                            }}
+                          >
+                            <Table.Td ta="center">
+                              <Tooltip
+                                label={`Next grid's level 0 — sized from the $${fmt(balance?.totalValue ?? 0, 0)} account value, anchored at level 0's sell price`}
+                                withArrow
+                                multiline
+                                w={220}
+                              >
+                                <Text size="sm" fw={500} c="dimmed" style={{ whiteSpace: "nowrap" }}>
+                                  New 0
+                                </Text>
+                              </Tooltip>
+                            </Table.Td>
+                            <Table.Td ta="center">
+                              <Text size="sm" c="dimmed">
+                                {mask(fmt(nextGridLevel0.shares, 0))}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td ta="center">
+                              <Tooltip
+                                label={
+                                  isQueued
+                                    ? "Queued for placement"
+                                    : "Buy this when level 0 sells"
+                                }
+                              >
+                                <Badge
+                                  variant="filled"
+                                  size="md"
+                                  fw={700}
+                                  style={{
+                                    background: isQueued
+                                      ? "rgba(251,146,60,0.9)"
+                                      : "var(--mantine-color-teal-7)",
+                                    color: "#fff",
+                                    cursor: "pointer",
+                                    ...(isMobile ? { paddingInline: 8 } : {}),
+                                  }}
+                                  leftSection={isQueued ? <IconClock size={12} /> : undefined}
+                                  onClick={() => {
+                                    if (isQueued) return;
+                                    isTastytrade
+                                      ? queueGridReset()
+                                      : setTosModal({
+                                          text: buildResetTosText(
+                                            level0.shares,
+                                            level0.sellPrice,
+                                            nextGridLevel0.shares,
+                                            nextGridLevel0.buyPrice,
+                                          ),
+                                        });
+                                  }}
+                                >
+                                  {isQueued ? "" : "+"}
+                                </Badge>
+                              </Tooltip>
+                            </Table.Td>
+                            <Table.Td ta="center" />
+                            <Table.Td ta="center">
+                              <Text size="sm" c="dimmed">
+                                {mask(`$${fmt(nextGridLevel0.buyPrice)}`)}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td ta="center">
+                              <Text size="sm" c="dimmed">
+                                {mask(`$${fmt(nextGridLevel0.sellPrice)}`)}
+                              </Text>
+                            </Table.Td>
+                            <Table.Td ta="center" className="hide-mobile">
+                              <Text size="sm" c="dimmed">
+                                {mask(`$${fmt(nextGridLevel0.cost)}`)}
+                              </Text>
+                            </Table.Td>
+                          </Table.Tr>
+                        );
+                      })()}
                   </>
                 );
               })()}

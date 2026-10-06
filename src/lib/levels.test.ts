@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeLevels, matchLevel, matchFill, computeCurrentLevel, countOrdersByLevel, levelForPrice } from "./levels";
+import { computeLevels, computeNextGridLevel0, matchLevel, matchFill, computeCurrentLevel, countOrdersByLevel, levelForPrice } from "./levels";
 
 // ── computeLevels ─────────────────────────────────────────────────────────────
 
@@ -221,5 +221,33 @@ describe("levelForPrice", () => {
   it("uses level 0 above the top of the ladder and -1 below the bottom", () => {
     expect(levelForPrice(levels, 200)).toBe(0);
     expect(levelForPrice(levels, 1)).toBe(-1);
+  });
+});
+
+// ── computeNextGridLevel0 ─────────────────────────────────────────────────────
+
+describe("computeNextGridLevel0", () => {
+  // Level 0 buys at $50 and sells 1.64% higher, at $50.82
+  const levels = computeLevels(200000, 50, 1.64, 0.95);
+
+  it("anchors the new grid at the old level 0's sell price", () => {
+    const next = computeNextGridLevel0(levels, 200000, 1.64, 0.95)!;
+    expect(next.n).toBe(0);
+    expect(next.buyPrice).toBe(50.82);
+    expect(next.sellPrice).toBeCloseTo(50.82 * 1.0164, 5);
+  });
+
+  it("sizes the lot from the new starting cash, not the old grid's", () => {
+    const same = computeNextGridLevel0(levels, 200000, 1.64, 0.95)!;
+    const bigger = computeNextGridLevel0(levels, 250000, 1.64, 0.95)!;
+    // Same cash at a higher anchor buys fewer shares than the old level 0
+    expect(same.shares).toBeLessThan(levels[0].shares);
+    expect(bigger.shares).toBe(computeLevels(250000, 50.82, 1.64, 0.95)[0].shares);
+    expect(bigger.shares).toBeGreaterThan(same.shares);
+  });
+
+  it("returns null without cash or levels", () => {
+    expect(computeNextGridLevel0(levels, 0, 1.64, 0.95)).toBeNull();
+    expect(computeNextGridLevel0([], 200000, 1.64, 0.95)).toBeNull();
   });
 });

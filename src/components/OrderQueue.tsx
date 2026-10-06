@@ -13,6 +13,8 @@ export interface QueueItem {
   side: "BUY" | "SELL";
   shares: number;
   price: number;
+  /** Extra context shown under the row, e.g. the order this one waits on. */
+  note?: string;
   onRemove: () => void;
 }
 
@@ -92,6 +94,7 @@ export function OrderQueue({
                     </Table.Td>
                     <Table.Td>
                       <Text size="xs" fw={600} c={it.side === "BUY" ? "teal" : "red"}>{it.side}</Text>
+                      {it.note && <Text size="xs" c="dimmed">{mask(it.note)}</Text>}
                     </Table.Td>
                     <Table.Td ta="right">{mask(fmt(it.shares, 0))}</Table.Td>
                     <Table.Td ta="right">{mask(`$${fmt(it.price)}`)}</Table.Td>
