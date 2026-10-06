@@ -374,10 +374,12 @@ export default function WorkingOrdersPage() {
 
   // Level 0 of the grid that takes over once the current level 0 sells and the ladder
   // goes flat: anchored just above that sell price, sized from the account's current value.
+  // Schwab's order leads with the level-0 sell, so it needs level 0 owned; tastytrade's
+  // is a lone buy placed after that sell has filled, when nothing is owned any more.
   const settings = activeAccount?.settings;
   const nextGridLevel0 =
     levelsSummary &&
-    levelsSummary.currentLevel >= 0 &&
+    (isTastytrade || levelsSummary.currentLevel >= 0) &&
     balance?.totalValue &&
     settings?.sellPercentage &&
     settings?.reductionFactor
@@ -1246,6 +1248,11 @@ export default function WorkingOrdersPage() {
                           nextGridLevel0.shares,
                           nextGridLevel0.buyPrice,
                         );
+                        // tastytrade's is a plain limit buy, which fills at once while the
+                        // market is below it — so no button until the price has cleared it
+                        const canPlace =
+                          !isTastytrade ||
+                          (!quote.loading && quote.price >= nextGridLevel0.buyPrice);
                         return (
                           <Table.Tr
                             key="next-grid"
@@ -1271,6 +1278,7 @@ export default function WorkingOrdersPage() {
                               </Text>
                             </Table.Td>
                             <Table.Td ta="center">
+                              {canPlace && (
                               <Tooltip
                                 label={
                                   isQueued
@@ -1312,6 +1320,7 @@ export default function WorkingOrdersPage() {
                                   {isQueued ? "" : "+"}
                                 </Badge>
                               </Tooltip>
+                              )}
                             </Table.Td>
                             <Table.Td ta="center" />
                             <Table.Td ta="center">
