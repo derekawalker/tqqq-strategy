@@ -389,7 +389,7 @@ export default function WorkingOrdersPage() {
   const mask = createMask(privacyMode);
 
   // Level 0 of the grid that takes over once the current level 0 sells and the ladder
-  // goes flat: anchored at that sell price, sized from the account's current value.
+  // goes flat: anchored just above that sell price, sized from the account's current value.
   const settings = activeAccount?.settings;
   const nextGridLevel0 =
     levelsSummary &&
@@ -1297,7 +1297,7 @@ export default function WorkingOrdersPage() {
                           >
                             <Table.Td ta="center">
                               <Tooltip
-                                label={`Next grid's level 0 — sized from the $${fmt(balance?.totalValue ?? 0, 0)} account value, anchored at level 0's sell price`}
+                                label={`Next grid's level 0 — sized from the $${fmt(balance?.totalValue ?? 0, 0)} account value, anchored $0.10 above level 0's sell price`}
                                 withArrow
                                 multiline
                                 w={220}

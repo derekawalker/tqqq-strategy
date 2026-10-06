@@ -230,11 +230,11 @@ describe("computeNextGridLevel0", () => {
   // Level 0 buys at $50 and sells 1.64% higher, at $50.82
   const levels = computeLevels(200000, 50, 1.64, 0.95);
 
-  it("anchors the new grid at the old level 0's sell price", () => {
+  it("anchors the new grid 10 cents above the old level 0's sell price", () => {
     const next = computeNextGridLevel0(levels, 200000, 1.64, 0.95)!;
     expect(next.n).toBe(0);
-    expect(next.buyPrice).toBe(50.82);
-    expect(next.sellPrice).toBeCloseTo(50.82 * 1.0164, 5);
+    expect(next.buyPrice).toBe(50.92);
+    expect(next.sellPrice).toBeCloseTo(50.92 * 1.0164, 5);
   });
 
   it("sizes the lot from the new starting cash, not the old grid's", () => {
@@ -242,7 +242,7 @@ describe("computeNextGridLevel0", () => {
     const bigger = computeNextGridLevel0(levels, 250000, 1.64, 0.95)!;
     // Same cash at a higher anchor buys fewer shares than the old level 0
     expect(same.shares).toBeLessThan(levels[0].shares);
-    expect(bigger.shares).toBe(computeLevels(250000, 50.82, 1.64, 0.95)[0].shares);
+    expect(bigger.shares).toBe(computeLevels(250000, 50.92, 1.64, 0.95)[0].shares);
     expect(bigger.shares).toBeGreaterThan(same.shares);
   });
 

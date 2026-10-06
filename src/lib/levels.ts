@@ -138,11 +138,14 @@ export function computeLevels(
   });
 }
 
+/** Dollars the next grid's level-0 buy sits above the old level-0 sell. */
+export const NEXT_GRID_OFFSET = 0.1;
+
 /**
  * Level 0 of the grid that replaces this one. When level 0's sell fills the ladder is
- * flat and resets: the new grid anchors at that sell price (rounded to the cent, since
- * it becomes an order's limit) and is sized from `startingCash`. Returns null when
- * there's nothing to size.
+ * flat and resets: the new grid anchors NEXT_GRID_OFFSET above that sell price (to the
+ * cent, since it becomes an order's limit), keeping the new buy clear of the sell it
+ * waits on, and is sized from `startingCash`. Returns null when there's nothing to size.
  */
 export function computeNextGridLevel0(
   levels: Level[],
@@ -151,7 +154,7 @@ export function computeNextGridLevel0(
   reductionFactor: number
 ): Level | null {
   if (levels.length === 0 || !(startingCash > 0)) return null;
-  const anchor = Math.round(levels[0].sellPrice * 100) / 100;
+  const anchor = Math.round((levels[0].sellPrice + NEXT_GRID_OFFSET) * 100) / 100;
   const next = computeLevels(startingCash, anchor, sellPercentage, reductionFactor)[0];
   return next.shares > 0 ? next : null;
 }
