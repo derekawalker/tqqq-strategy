@@ -149,10 +149,8 @@ export default function WorkingOrdersPage() {
     side: "BUY" | "SELL";
     shares: number;
     price: number;
-    /** One-triggers-other: this order is only sent once the trigger order fills. */
-    trigger?: { side: "BUY" | "SELL"; shares: number; price: number };
-    /** Working order the trigger replaces — its cancellation is queued alongside. */
-    replacesOrderId?: string;
+    /** Stop-limit instead of a plain limit: rests untriggered until the price reaches it. */
+    stop?: boolean;
   }
   interface QueuedCancelOrder {
     orderId: string;
@@ -218,7 +216,6 @@ export default function WorkingOrdersPage() {
     const errors: string[] = [];
     const cancelOks: boolean[] = [];
     const placeOks: boolean[] = [];
-    const failedCancelIds = new Set<string>();
 
     // Submit all cancellations first
     for (const order of queuedCancelOrders) {
@@ -238,18 +235,11 @@ export default function WorkingOrdersPage() {
         errors.push(`Cancel ${order.side}: Network error`);
       }
       cancelOks.push(ok);
-      if (!ok) failedCancelIds.add(order.orderId);
     }
 
     // Then submit all new orders
     for (const order of queuedPlaceOrders) {
       let ok = false;
-      // The trigger duplicates the order it replaces, so don't send it while that one still works
-      if (order.replacesOrderId && failedCancelIds.has(order.replacesOrderId)) {
-        errors.push(`${order.side} ${order.shares}: skipped — the order it replaces wasn't cancelled`);
-        placeOks.push(false);
-        continue;
-      }
       try {
         const res = await fetch("/api/tastytrade/orders", {
           method: "POST",
@@ -259,7 +249,7 @@ export default function WorkingOrdersPage() {
             side: order.side,
             shares: order.shares,
             price: order.price,
-            trigger: order.trigger,
+            stop: order.stop,
           }),
         });
         const json = await res.json();
@@ -299,15 +289,8 @@ export default function WorkingOrdersPage() {
       key: `p-${idx}-${o.side}-${o.price}-${o.shares}`,
       type: "place" as const,
       side: o.side, shares: o.shares, price: o.price,
-      note: o.trigger
-        ? `after ${o.trigger.side} ${fmt(o.trigger.shares, 0)} @ $${fmt(o.trigger.price)} fills`
-        : undefined,
-      onRemove: () => {
-        setQueuedPlaceOrders((prev) => prev.filter((_, i) => i !== idx));
-        // Without its replacement, the queued cancel would just pull the level-0 sell
-        if (o.replacesOrderId)
-          setQueuedCancelOrders((prev) => prev.filter((x) => x.orderId !== o.replacesOrderId));
-      },
+      note: o.stop ? "Stop limit · GTC, regular hours" : undefined,
+      onRemove: () => setQueuedPlaceOrders((prev) => prev.filter((_, i) => i !== idx)),
     })),
   ];
 
@@ -405,29 +388,13 @@ export default function WorkingOrdersPage() {
         )
       : null;
 
+  // tastytrade: a buy stop-limit resting just above the level-0 sell. It can't trigger
+  // until the price has traded through that sell, so the working sell is left alone.
   const queueGridReset = () => {
-    if (!levelsSummary || !nextGridLevel0) return;
-    const level0 = levelsSummary.levels[0];
-    const sellPrice = Math.round(level0.sellPrice * 100) / 100;
-    // tastytrade can't attach a trigger to an order that's already working, so the
-    // existing level-0 sell is cancelled and re-sent as the trigger leg.
-    const existing = workingOrders.find(
-      (o) =>
-        o.side === "SELL" &&
-        matchLevel(levelsSummary.levels, o.side, o.shares, o.limitPrice) === 0,
-    );
-    if (existing && !isCancelOrderQueued(String(existing.orderId))) {
-      directQueueCancel(String(existing.orderId), existing.accountNumber, existing.side, existing.shares, existing.limitPrice);
-    }
+    if (!nextGridLevel0) return;
     setQueuedPlaceOrders((prev) => [
       ...prev,
-      {
-        side: "BUY",
-        shares: nextGridLevel0.shares,
-        price: nextGridLevel0.buyPrice,
-        trigger: { side: "SELL", shares: level0.shares, price: sellPrice },
-        replacesOrderId: existing ? String(existing.orderId) : undefined,
-      },
+      { side: "BUY", shares: nextGridLevel0.shares, price: nextGridLevel0.buyPrice, stop: true },
     ]);
   };
 

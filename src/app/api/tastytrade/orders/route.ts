@@ -2,11 +2,18 @@ import { tastyFetch } from "@/lib/tastytrade/client";
 
 type Side = "BUY" | "SELL";
 
-function limitOrder(side: Side, shares: unknown, price: unknown) {
+/**
+ * A limit order, or — with `stop` — a stop-limit that rests untriggered until the
+ * price reaches the limit. Stops only trigger in the regular session, so they can't
+ * carry the extended-hours time-in-force the plain limits use.
+ */
+function buildOrder(side: Side, shares: unknown, price: unknown, stop: boolean) {
+  const limit = Number(price).toFixed(2);
   return {
-    "time-in-force": "GTC Ext Overnight",
-    "order-type": "Limit",
-    "price": Number(price).toFixed(2),
+    "time-in-force": stop ? "GTC" : "GTC Ext Overnight",
+    "order-type": stop ? "Stop Limit" : "Limit",
+    "price": limit,
+    ...(stop ? { "stop-trigger": limit } : {}),
     "price-effect": side === "BUY" ? "Debit" : "Credit",
     legs: [
       {
@@ -19,40 +26,22 @@ function limitOrder(side: Side, shares: unknown, price: unknown) {
   };
 }
 
-const isSide = (s: unknown): s is Side => s === "BUY" || s === "SELL";
-
 export async function POST(req: Request) {
   try {
-    // `trigger` (optional) makes this a one-triggers-other order: the trigger order
-    // works first, and the main order is only sent once the trigger fills.
-    const { accountNumber, side, shares, price, trigger } = await req.json();
+    const { accountNumber, side, shares, price, stop } = await req.json();
 
     if (!accountNumber || !side || !shares || price == null) {
       return Response.json({ error: "Missing required fields" }, { status: 400 });
     }
-    if (!isSide(side)) {
+    if (side !== "BUY" && side !== "SELL") {
       return Response.json({ error: "side must be BUY or SELL" }, { status: 400 });
     }
-    if (trigger && (!isSide(trigger.side) || !trigger.shares || trigger.price == null)) {
-      return Response.json({ error: "trigger needs side, shares and price" }, { status: 400 });
-    }
 
-    const order = limitOrder(side, shares, price);
-    const res = trigger
-      ? await tastyFetch(`/accounts/${accountNumber}/complex-orders`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "OTO",
-            "trigger-order": limitOrder(trigger.side, trigger.shares, trigger.price),
-            orders: [order],
-          }),
-        })
-      : await tastyFetch(`/accounts/${accountNumber}/orders`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(order),
-        });
+    const res = await tastyFetch(`/accounts/${accountNumber}/orders`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildOrder(side, shares, price, stop === true)),
+    });
 
     const json = await res.json();
     if (!res.ok) {
