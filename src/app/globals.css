@@ -14,8 +14,13 @@
    the layout viewport offset. With a locked document the bottom nav has
    nothing to move relative to. */
 @media (max-width: 768px) {
+  /* height: 100% matters: every child of body is position:fixed, so body would
+     otherwise collapse to 0 tall. An open Modal's scroll lock makes body
+     position:relative, at which point its overflow:hidden clips portaled
+     dropdowns (date pickers, selects) to that 0-tall box — invisible. */
   html,
   body {
+    height: 100%;
     overflow: hidden;
     overscroll-behavior: none;
   }
