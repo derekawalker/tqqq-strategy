@@ -656,7 +656,7 @@ function AccountsPageInner() {
     allTqqqShares,
     allTransactions,
     privacyMode,
-    snapshotLoading,
+    allSnapshotLoading: snapshotLoading,
   } = useApp();
   const mask = createMask(privacyMode);
   const today = toDateKey(new Date());

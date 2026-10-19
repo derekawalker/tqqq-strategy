@@ -17,6 +17,7 @@ import {
 import type { AccountBalance, Transaction, SchwabData } from "@/app/api/schwab/data/route";
 import { getCached, setCached } from "@/lib/ttlCache";
 import { singleFlight } from "@/lib/singleFlight";
+import { loadAccountHistory, optionOpenDates, type AccountHistory } from "@/lib/accountHistory";
 
 const CACHE_KEY = "tastytrade-data";
 const CACHE_TTL_MS = 30_000;
@@ -151,42 +152,15 @@ async function fetchAllPages(baseUrl: string, perPage?: number): Promise<any[]> 
   return all;
 }
 
-async function fetchAccountData(accountNumber: string, from365: string, to: string) {
-  // Filled orders are paginated — fetch all pages; other endpoints fit in one page
-  const [filledRaw, workingRes, positionsRes, rxDeliverRes, moneyMovementRaw, balanceRes] =
-    await Promise.all([
-      fetchAllPages(`/accounts/${accountNumber}/orders?status[]=Filled&status[]=Partially+Filled&start-date=${from365}&end-date=${to}`, ORDERS_PER_PAGE),
-      tastyFetch(`/accounts/${accountNumber}/orders?status[]=Live&status[]=Pending&status[]=Received`),
-      tastyFetch(`/accounts/${accountNumber}/positions`),
-      tastyFetch(`/accounts/${accountNumber}/transactions?types[]=Receive+Deliver&start-date=${from365}&end-date=${to}`),
-      fetchAllPages(`/accounts/${accountNumber}/transactions?types[]=Money+Movement&start-date=${from365}&end-date=${to}`),
-      tastyFetch(`/accounts/${accountNumber}/balances`),
-    ]);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const workingRaw: any[] = workingRes.ok ? (await workingRes.json()).data?.items ?? [] : [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const positionsRaw: any[] = positionsRes.ok ? (await positionsRes.json()).data?.items ?? [] : [];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rxDeliverRaw: any[] = rxDeliverRes.ok ? (await rxDeliverRes.json()).data?.items ?? [] : [];
-  const balanceData = balanceRes.ok ? (await balanceRes.json()).data : null;
-
-  // Build openedAt map from filled option orders (earliest open per symbol).
-  // Both directions count: the hedge collar's long put and long call fence are
-  // bought to open, and their open date is what groups them into a collar.
-  const openedAtMap = new Map<string, string>();
-  for (const order of filledRaw) {
-    if (order.status !== "Filled") continue;
-    for (const leg of order.legs ?? []) {
-      if (leg["instrument-type"] !== "Equity Option") continue;
-      if (leg.action !== "Sell to Open" && leg.action !== "Buy to Open") continue;
-      const sym: string = (leg.symbol as string ?? "").trim();
-      const time: string = order["terminal-at"] ?? order["received-at"] ?? "";
-      if (!openedAtMap.has(sym) || time < openedAtMap.get(sym)!) {
-        openedAtMap.set(sym, time);
-      }
-    }
-  }
+/** Fills, option fills, expirations and money movements in [from, to] — the part stored by accountHistory. */
+async function fetchHistory(accountNumber: string, fromDate: Date, toDate: Date): Promise<AccountHistory> {
+  const from = fromDate.toISOString().slice(0, 10);
+  const to = toDate.toISOString().slice(0, 10);
+  const [filledRaw, rxDeliverRaw, moneyMovementRaw] = await Promise.all([
+    fetchAllPages(`/accounts/${accountNumber}/orders?status[]=Filled&status[]=Partially+Filled&start-date=${from}&end-date=${to}`, ORDERS_PER_PAGE),
+    fetchAllPages(`/accounts/${accountNumber}/transactions?types[]=Receive+Deliver&start-date=${from}&end-date=${to}`),
+    fetchAllPages(`/accounts/${accountNumber}/transactions?types[]=Money+Movement&start-date=${from}&end-date=${to}`),
+  ]);
 
   const mergedRaw = mergePartialFills(filledRaw);
 
@@ -198,13 +172,39 @@ async function fetchAccountData(accountNumber: string, from365: string, to: stri
     parseFilledOptionOrder(o, accountNumber),
   );
 
-  const working: WorkingOrder[] = workingRaw
-    .map((o) => parseWorkingOrder(o, accountNumber))
-    .filter((o): o is WorkingOrder => o !== null);
-
   const expiredOptions: ExpiredOptionOrder[] = rxDeliverRaw
     .map((tx) => parseExpiredOptionOrder(tx, accountNumber))
     .filter((o): o is ExpiredOptionOrder => o !== null);
+
+  const transactions: Transaction[] = moneyMovementRaw
+    .map((tx) => parseTransaction(tx, accountNumber))
+    .filter((t): t is Transaction => t !== null);
+
+  return { filled, filledOptions, expiredOptions, transactions };
+}
+
+async function fetchAccountData(accountNumber: string) {
+  const [history, workingRes, positionsRes, balanceRes] = await Promise.all([
+    loadAccountHistory("tastytrade", accountNumber, (f, t) => fetchHistory(accountNumber, f, t)),
+    tastyFetch(`/accounts/${accountNumber}/orders?status[]=Live&status[]=Pending&status[]=Received`),
+    tastyFetch(`/accounts/${accountNumber}/positions`),
+    tastyFetch(`/accounts/${accountNumber}/balances`),
+  ]);
+  const { filled, filledOptions, expiredOptions, transactions } = history;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const workingRaw: any[] = workingRes.ok ? (await workingRes.json()).data?.items ?? [] : [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const positionsRaw: any[] = positionsRes.ok ? (await positionsRes.json()).data?.items ?? [] : [];
+  const balanceData = balanceRes.ok ? (await balanceRes.json()).data : null;
+
+  // Earliest open per symbol, in both directions: the hedge collar's long put and
+  // long call fence are bought to open, and their open date is what groups them into a collar.
+  const openedAtMap = optionOpenDates(filledOptions);
+
+  const working: WorkingOrder[] = workingRaw
+    .map((o) => parseWorkingOrder(o, accountNumber))
+    .filter((o): o is WorkingOrder => o !== null);
 
   const optionsRaw: OptionPosition[] = positionsRaw
     .map((p) => parseOptionPosition(p, accountNumber, openedAtMap))
@@ -248,10 +248,6 @@ async function fetchAccountData(accountNumber: string, from365: string, to: stri
       }
     : null;
 
-  const transactions: Transaction[] = moneyMovementRaw
-    .map((tx) => parseTransaction(tx, accountNumber))
-    .filter((t): t is Transaction => t !== null);
-
   return { filled, filledOptions, expiredOptions, working, tqqqShares, tqqqAvgPrice, options: optionsRaw, balance, transactions };
 }
 
@@ -283,15 +279,7 @@ async function getAccountNumbers(): Promise<string[]> {
 async function buildData(): Promise<SchwabData> {
   const accounts = await getAccountNumbers();
 
-  const now = new Date();
-  const to = now.toISOString().slice(0, 10);
-  const from365 = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
-
-  const results = await Promise.all(
-    accounts.map((accountNumber) => fetchAccountData(accountNumber, from365, to)),
-  );
+  const results = await Promise.all(accounts.map((accountNumber) => fetchAccountData(accountNumber)));
 
   const filledOrders: FilledOrder[] = results
     .flatMap((r) => r.filled)

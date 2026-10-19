@@ -141,7 +141,10 @@ interface AppContextValue {
   allWorkingOrders: WorkingOrder[];
   allOptionPositions: OptionPosition[];
   allTransactions: Transaction[];
+  /** The active account's broker is still loading — enough for any single-account page. */
   snapshotLoading: boolean;
+  /** Either broker is still loading — for views that span every account. */
+  allSnapshotLoading: boolean;
   balances: AccountBalance[];
   balancesLoading: boolean;
   balanceHistory: BalanceSnapshot[];
@@ -355,6 +358,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [checkTastytradeAuth, syncAccountsFromSchwab]);
 
+  const [balanceHistory, setBalanceHistory] = useState<BalanceSnapshot[]>([]);
+  // Set to true in the same React batch as setBalanceHistory so the snapshot effect
+  // never sees persistReadyRef=true + balanceHistory=[] at the same time.
+  const [balanceHistoryLoaded, setBalanceHistoryLoaded] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
     async function init() {
@@ -494,25 +502,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [allTqqqAvgPrice, setAllTqqqAvgPrice] = useState<
     Record<string, number>
   >({});
-  const [snapshotLoading, setSnapshotLoading] = useState(false);
+  // Each broker loads independently, so a page showing one account only waits on its own broker.
+  const [schwabLoading, setSchwabLoading] = useState(false);
+  const [tastyLoading, setTastyLoading] = useState(false);
   const [allBalances, setAllBalances] = useState<AccountBalance[]>([]);
-  const [balanceHistory, setBalanceHistory] = useState<BalanceSnapshot[]>([]);
-  // Set to true in the same React batch as setBalanceHistory so the snapshot effect
-  // never sees persistReadyRef=true + balanceHistory=[] at the same time.
-  const [balanceHistoryLoaded, setBalanceHistoryLoaded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    let requestsComplete = 0;
 
-    const markComplete = () => {
-      requestsComplete++;
-      if (requestsComplete === 2 && !cancelled) {
-        setSnapshotLoading(false);
-      }
-    };
-
-    setSnapshotLoading(true);
+    // Loading flags mark the start of this fetch cycle, so they belong with the fetches.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSchwabLoading(true);
+    setTastyLoading(true);
 
     function mergeByTime<T>(a: T[] = [], b: T[] = [], key: keyof T): T[] {
       return [...a, ...b].sort(
@@ -594,7 +595,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .catch(() => {
         /* ignore */
       })
-      .finally(() => markComplete());
+      .finally(() => {
+        if (!cancelled) setSchwabLoading(false);
+      });
 
     fetch(`/api/tastytrade/data${freshParam}`)
       .then((r) => (r.ok ? r.json() : null))
@@ -609,19 +612,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
       .catch(() => {
         /* ignore */
       })
-      .finally(() => markComplete());
+      .finally(() => {
+        if (!cancelled) setTastyLoading(false);
+      });
 
     return () => {
       cancelled = true;
     };
   }, [refreshTick]);
 
+  const allSnapshotLoading = schwabLoading || tastyLoading;
+  // Before the active account is known, either broker could own it.
+  const snapshotLoading = !activeAccount
+    ? allSnapshotLoading
+    : activeAccount.broker === "tastytrade"
+      ? tastyLoading
+      : schwabLoading;
+
   // Record one balance snapshot per day, the first time balances finish loading that day. This
   // piggybacks on the existing refresh flow — no cron/infra needed — so the portfolio-history
   // chart fills in naturally as the app is used.
   useEffect(() => {
     if (
-      snapshotLoading ||
+      allSnapshotLoading ||
       allBalances.length === 0 ||
       !persistReadyRef.current ||
       !balanceHistoryLoaded
@@ -637,13 +650,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       allBalances.map((b) => [b.accountNumber, b.totalValue]),
     );
     const next = recordSnapshot(balanceHistory, today, values);
+    // Runs at most once a day per account set, guarded by needsSnapshotUpdate above.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setBalanceHistory(next);
     fetch("/api/settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key: "balanceHistory", value: next }),
     }).catch(() => {});
-  }, [allBalances, snapshotLoading, balanceHistory, balanceHistoryLoaded]);
+  }, [allBalances, allSnapshotLoading, balanceHistory, balanceHistoryLoaded]);
 
   const accountNumber = activeAccount?.accountNumber ?? null;
   const filledOrders = useMemo(
@@ -797,6 +812,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       allOptionPositions,
       allTransactions,
       snapshotLoading,
+      allSnapshotLoading,
       balances: allBalances,
       balancesLoading: snapshotLoading,
       balanceHistory,
@@ -834,6 +850,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       allOptionPositions,
       allTransactions,
       snapshotLoading,
+      allSnapshotLoading,
       allBalances,
       balanceHistory,
     ],

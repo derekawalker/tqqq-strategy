@@ -4,6 +4,7 @@ import { schwabFetch } from "@/lib/schwab/client";
 import { getAccountHashes } from "@/lib/schwab/accounts";
 import { fetchAllOrders } from "@/lib/schwab/orders";
 import { getCached, setCached } from "@/lib/ttlCache";
+import { loadAccountHistory, optionOpenDates, type AccountHistory } from "@/lib/accountHistory";
 import { singleFlight } from "@/lib/singleFlight";
 import {
   flattenOrders,
@@ -54,6 +55,8 @@ export interface SchwabData {
 
 const MONEY_MARKET_SYMBOLS = ["SWVXX", "SGOV"];
 
+const toSchwabTime = (d: Date) => d.toISOString().split(".")[0] + "Z";
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parseTransaction(t: any, accountNumber: string): Transaction | null {
   if (t.type !== "DIVIDEND_OR_INTEREST") return null;
@@ -69,33 +72,27 @@ function parseTransaction(t: any, accountNumber: string): Transaction | null {
   return { activityId: t.activityId, accountNumber, time: t.time, description, symbol: null, amount, category };
 }
 
-async function fetchAccountData(
-  accountNumber: string,
-  hash: string,
-  from365: string,
-  to: string,
-) {
-  const [filledRaw, workingRes, pendingRes, positionsRes, rxDeliverRes, divIntRes, tradeRes] = await Promise.all([
-    fetchAllOrders(async (from, until) => {
-      const res = await schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from}&toEnteredTime=${until}&status=FILLED`);
-      return res.ok ? res.json() : [];
-    }, new Date(from365), new Date(to)),
-    schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from365}&toEnteredTime=${to}&status=WORKING`),
-    schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from365}&toEnteredTime=${to}&status=PENDING_ACTIVATION`),
-    schwabFetch(`/trader/v1/accounts/${hash}?fields=positions`),
-    schwabFetch(`/trader/v1/accounts/${hash}/transactions?startDate=${from365}&endDate=${to}&types=RECEIVE_AND_DELIVER`),
-    schwabFetch(`/trader/v1/accounts/${hash}/transactions?startDate=${from365}&endDate=${to}&types=DIVIDEND_OR_INTEREST`),
-    schwabFetch(`/trader/v1/accounts/${hash}/transactions?startDate=${from365}&endDate=${to}&types=TRADE`),
+/** Fills, option fills, expirations and dividends/interest in [from, to] — the part stored by accountHistory. */
+async function fetchHistory(accountNumber: string, hash: string, fromDate: Date, toDate: Date): Promise<AccountHistory> {
+  const from = toSchwabTime(fromDate);
+  const to = toSchwabTime(toDate);
+  const [filledRaw, rxDeliverRes, divIntRes, tradeRes] = await Promise.all([
+    fetchAllOrders(async (f, until) => {
+      const res = await schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${f}&toEnteredTime=${until}&status=FILLED`);
+      if (!res.ok) throw new Error(`Schwab filled orders request failed: ${res.status}`);
+      return res.json();
+    }, fromDate, toDate),
+    schwabFetch(`/trader/v1/accounts/${hash}/transactions?startDate=${from}&endDate=${to}&types=RECEIVE_AND_DELIVER`),
+    schwabFetch(`/trader/v1/accounts/${hash}/transactions?startDate=${from}&endDate=${to}&types=DIVIDEND_OR_INTEREST`),
+    schwabFetch(`/trader/v1/accounts/${hash}/transactions?startDate=${from}&endDate=${to}&types=TRADE`),
   ]);
-
-  const workingRaw = [
-    ...(workingRes.ok ? await workingRes.json() : []),
-    ...(pendingRes.ok ? await pendingRes.json() : []),
-  ];
-  const positionsData = positionsRes.ok ? await positionsRes.json() : null;
-  const rxDeliverRaw = rxDeliverRes.ok ? await rxDeliverRes.json() : [];
-  const divIntRaw = divIntRes.ok ? await divIntRes.json() : [];
-  const tradeRaw = tradeRes.ok ? await tradeRes.json() : [];
+  // A failed request must fail the load: an empty list here would be stored as "no history".
+  for (const res of [rxDeliverRes, divIntRes, tradeRes]) {
+    if (!res.ok) throw new Error(`Schwab transactions request failed: ${res.status}`);
+  }
+  const rxDeliverRaw = await rxDeliverRes.json();
+  const divIntRaw = await divIntRes.json();
+  const tradeRaw = await tradeRes.json();
 
   // Build fee maps from TRADE transactions.
   // Fees are transferItems entries with a feeType field (COMMISSION, OPT_REG_FEE, SEC_FEE, TAF_FEE, etc.)
@@ -124,8 +121,7 @@ async function fetchAccountData(
     }
   }
 
-  // --- Orders ---
-  const flatFilled = flattenOrders(Array.isArray(filledRaw) ? filledRaw : []);
+  const flatFilled = flattenOrders(filledRaw);
   // Each Schwab order is one level: a partial fill arrives as one order with several
   // executions, which parseFilledOrder already sums. Separate orders are never merged —
   // levels that fill together on a gap would otherwise collapse into one unmatched lot.
@@ -134,15 +130,10 @@ async function fetchAccountData(
     .filter((o): o is FilledOrder => o !== null)
     .map((o) => ({ ...o, fees: feeByOrderId.get(o.orderId) ?? 0 }));
 
-  const filledOptionsRaw = flatFilled.flatMap((o) => parseFilledOptionOrder(o, accountNumber));
   // Look up fees per leg by orderId+symbol (exact match, no proration needed)
-  const filledOptions = filledOptionsRaw.map((o) => ({
-    ...o,
-    fees: feeByOrderIdSymbol.get(`${o.orderId}_${o.symbol.trim()}`) ?? 0,
-  }));
-  const working = flattenOrders(Array.isArray(workingRaw) ? workingRaw : [])
-    .map((o) => parseWorkingOrder(o, accountNumber))
-    .filter((o): o is WorkingOrder => o !== null);
+  const filledOptions = flatFilled
+    .flatMap((o) => parseFilledOptionOrder(o, accountNumber))
+    .map((o) => ({ ...o, fees: feeByOrderIdSymbol.get(`${o.orderId}_${o.symbol.trim()}`) ?? 0 }));
 
   // --- Expired options from RECEIVE_AND_DELIVER ---
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -150,6 +141,34 @@ async function fetchAccountData(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     .map((tx: any) => parseExpiredOptionOrder(tx, accountNumber))
     .filter((o): o is ExpiredOptionOrder => o !== null);
+
+  // Transactions: dividends + interest
+  const transactions: Transaction[] = (Array.isArray(divIntRaw) ? divIntRaw : [])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((t: any) => parseTransaction(t, accountNumber))
+    .filter((t): t is Transaction => t !== null);
+
+  return { filled, filledOptions, expiredOptions, transactions };
+}
+
+async function fetchAccountData(accountNumber: string, hash: string, from365: string, to: string) {
+  const [history, workingRes, pendingRes, positionsRes] = await Promise.all([
+    loadAccountHistory("schwab", accountNumber, (f, t) => fetchHistory(accountNumber, hash, f, t)),
+    schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from365}&toEnteredTime=${to}&status=WORKING`),
+    schwabFetch(`/trader/v1/accounts/${hash}/orders?fromEnteredTime=${from365}&toEnteredTime=${to}&status=PENDING_ACTIVATION`),
+    schwabFetch(`/trader/v1/accounts/${hash}?fields=positions`),
+  ]);
+  const { filled, filledOptions, expiredOptions, transactions } = history;
+
+  const workingRaw = [
+    ...(workingRes.ok ? await workingRes.json() : []),
+    ...(pendingRes.ok ? await pendingRes.json() : []),
+  ];
+  const positionsData = positionsRes.ok ? await positionsRes.json() : null;
+
+  const working = flattenOrders(Array.isArray(workingRaw) ? workingRaw : [])
+    .map((o) => parseWorkingOrder(o, accountNumber))
+    .filter((o): o is WorkingOrder => o !== null);
 
   // --- Positions (shared for snapshot + balances) ---
   const account = positionsData?.securitiesAccount;
@@ -165,18 +184,7 @@ async function fetchAccountData(
   // Earliest open per symbol, in both directions: the hedge collar's long put
   // and long call fence are bought to open, and their open date is what groups
   // them into a collar.
-  const optionOpenDates = new Map<string, string>();
-  for (const order of flatFilled) {
-    if (order.status !== "FILLED") continue;
-    const leg = order.orderLegCollection?.[0];
-    if (!leg || leg.orderLegType !== "OPTION") continue;
-    if (leg.instruction !== "SELL_TO_OPEN" && leg.instruction !== "BUY_TO_OPEN") continue;
-    const sym = leg.instrument?.symbol;
-    if (!sym) continue;
-    if (!optionOpenDates.has(sym) || order.closeTime < optionOpenDates.get(sym)!) {
-      optionOpenDates.set(sym, order.closeTime);
-    }
-  }
+  const optionOpenDatesBySymbol = optionOpenDates(filledOptions);
 
   const options: OptionPosition[] = positions
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -205,7 +213,7 @@ async function fetchAccountData(
         putCall, strike, expiry,
         shortQty: p.shortQuantity ?? 0, longQty: p.longQuantity ?? 0,
         marketValue: p.marketValue ?? 0, averagePrice: p.averagePrice ?? 0,
-        openedAt: optionOpenDates.get(sym) ?? null,
+        openedAt: optionOpenDatesBySymbol.get(sym) ?? null,
       };
     })
     .filter((p): p is OptionPosition => p !== null);
@@ -233,12 +241,6 @@ async function fetchAccountData(
     cashAvailableForTrading: account.currentBalances?.buyingPowerNonMarginableTrade ?? 0,
   } : null;
 
-  // Transactions: dividends + interest
-  const transactions: Transaction[] = (Array.isArray(divIntRaw) ? divIntRaw : [])
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .map((t: any) => parseTransaction(t, accountNumber))
-    .filter((t): t is Transaction => t !== null);
-
   return { filled, filledOptions, expiredOptions, working, tqqqShares, tqqqAvgPrice, options, balance, transactions };
 }
 
@@ -250,8 +252,8 @@ async function buildData(): Promise<SchwabData> {
   const accounts = Object.entries(hashes);
 
   const now = new Date();
-  const to = now.toISOString().split(".")[0] + "Z";
-  const from365 = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000).toISOString().split(".")[0] + "Z";
+  const to = toSchwabTime(now);
+  const from365 = toSchwabTime(new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000));
 
   const results = await Promise.all(
     accounts.map(([accountNumber, hash]) => fetchAccountData(accountNumber, hash, from365, to))
