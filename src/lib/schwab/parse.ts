@@ -133,14 +133,23 @@ export function parseExpiredOptionOrder(tx: RawSchwabTransaction, accountNumber:
   };
 }
 
+/**
+ * Flatten trigger/OCO chains into one list, de-duplicated by orderId. Schwab returns a child
+ * order nested under its parent in one query and top-level in another (e.g. adjacent date
+ * windows, or WORKING vs PENDING_ACTIVATION), so the same order can arrive more than once.
+ */
 export function flattenOrders(orders: RawSchwabOrder[]): RawSchwabOrder[] {
+  const seen = new Set<number>();
   const result: RawSchwabOrder[] = [];
-  for (const order of orders) {
-    result.push(order);
-    if (order.childOrderStrategies?.length) {
-      result.push(...flattenOrders(order.childOrderStrategies));
+  const walk = (list: RawSchwabOrder[]) => {
+    for (const order of list) {
+      if (seen.has(order.orderId)) continue;
+      seen.add(order.orderId);
+      result.push(order);
+      if (order.childOrderStrategies?.length) walk(order.childOrderStrategies);
     }
-  }
+  };
+  walk(orders);
   return result;
 }
 

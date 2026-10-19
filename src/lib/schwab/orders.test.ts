@@ -25,22 +25,48 @@ function schwab(cap: number) {
 
 describe("fetchAllOrders", () => {
   it("pages back past Schwab's per-request cap to get every order", async () => {
-    const page = schwab(100);
+    // ~30 orders per 30-day window, so a cap of 10 forces paging inside each window
+    const page = schwab(10);
     const orders = await fetchAllOrders(page, from, to);
     expect(orders).toHaveLength(360);
     expect(new Set(orders.map((o) => o.orderId)).size).toBe(360);
-    expect(page.mock.calls.length).toBeLessThanOrEqual(6);
   });
 
-  it("stops after one extra call when the first page wasn't truncated", async () => {
+  it("gets every order when no request is truncated", async () => {
     const page = schwab(1000);
-    expect(await fetchAllOrders(page, from, to)).toHaveLength(360);
-    expect(page).toHaveBeenCalledTimes(2);
+    const orders = await fetchAllOrders(page, from, to);
+    expect(orders).toHaveLength(360);
+    expect(new Set(orders.map((o) => o.orderId)).size).toBe(360);
   });
 
-  it("returns nothing for an empty window in one call", async () => {
+  it("fetches the windows in parallel instead of one after another", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const inner = schwab(1000);
+    const page = async (f: string, t: string) => {
+      maxInFlight = Math.max(maxInFlight, ++inFlight);
+      await new Promise((r) => setTimeout(r, 1));
+      inFlight--;
+      return inner(f, t);
+    };
+    await fetchAllOrders(page, from, to);
+    expect(maxInFlight).toBeGreaterThanOrEqual(12);
+  });
+
+  it("covers the whole range with windows that touch end to end", async () => {
+    const page = vi.fn<(f: string, t: string) => Promise<RawSchwabOrder[]>>(async () => []);
+    await fetchAllOrders(page, from, to);
+    const ranges = page.mock.calls
+      .map(([f, t]) => [new Date(f).getTime(), new Date(t).getTime()])
+      .sort((a, b) => a[0] - b[0]);
+    expect(ranges[0][0]).toBe(from.getTime());
+    expect(ranges.at(-1)![1]).toBe(to.getTime());
+    for (let i = 1; i < ranges.length; i++) expect(ranges[i][0]).toBe(ranges[i - 1][1]);
+  });
+
+  it("makes one call per window when every window is empty", async () => {
     const page = vi.fn(async () => []);
     expect(await fetchAllOrders(page, from, to)).toEqual([]);
-    expect(page).toHaveBeenCalledTimes(1);
+    expect(page).toHaveBeenCalledTimes(13);
   });
 });
