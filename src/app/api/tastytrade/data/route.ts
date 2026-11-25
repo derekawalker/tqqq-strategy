@@ -1,4 +1,5 @@
 import { tastyFetch } from "@/lib/tastytrade/client";
+import { getAccountNumbers } from "@/lib/tastytrade/positions";
 import { hasTastytradeCredentials } from "@/lib/tastytrade/config";
 import { getOptionMarks } from "@/lib/tastytrade/quotes";
 import {
@@ -249,31 +250,6 @@ async function fetchAccountData(accountNumber: string) {
     : null;
 
   return { filled, filledOptions, expiredOptions, working, tqqqShares, tqqqAvgPrice, options: optionsRaw, balance, transactions };
-}
-
-// The account list is fixed for the life of the login, so it doesn't need
-// re-fetching on every refresh.
-const ACCOUNTS_TTL_MS = 60 * 60 * 1000;
-let cachedAccounts: string[] | null = null;
-let cachedAccountsAt = 0;
-
-async function getAccountNumbers(): Promise<string[]> {
-  if (cachedAccounts && Date.now() - cachedAccountsAt < ACCOUNTS_TTL_MS) return cachedAccounts;
-
-  const res = await tastyFetch("/customers/me/accounts");
-  if (!res.ok) throw new Error(`accounts fetch failed: ${res.status}`);
-  const json = await res.json();
-  const allowList = process.env.TASTYTRADE_ACCOUNTS
-    ? new Set(process.env.TASTYTRADE_ACCOUNTS.split(",").map((s) => s.trim()))
-    : null;
-  const accounts: string[] = (json.data?.items ?? [])
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .filter((item: any) => !allowList || allowList.has(item.account["account-number"]))
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .map((item: any) => item.account["account-number"] as string);
-  cachedAccounts = accounts;
-  cachedAccountsAt = Date.now();
-  return accounts;
 }
 
 async function buildData(): Promise<SchwabData> {

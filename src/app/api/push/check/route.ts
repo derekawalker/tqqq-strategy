@@ -13,7 +13,9 @@
  */
 
 import { fetchYahooDaily } from "@/lib/yahoo";
+import { getLiveQuote } from "@/lib/liveQuote";
 import { getAllAccountPositions } from "@/lib/schwab/positions";
+import { getAllOptionPositions as getTastytradeOptions } from "@/lib/tastytrade/positions";
 import { getPushSubscriptions, pruneDeadSubscriptions } from "@/lib/pushSubscriptions";
 import { broadcastPush, type PushPayload } from "@/lib/webpush";
 import { readSetting, writeSetting } from "@/lib/settings";
@@ -36,9 +38,52 @@ const VXN_HIGH_THRESHOLD = 35;
 const VXN_PANIC_THRESHOLD = 50;
 
 /** Calendar days until an option's expiry, floored at 0. */
-function daysUntil(expiry: string): number {
-  const ms = new Date(expiry + "T23:59:59").getTime() - Date.now();
+function daysUntil(expiry: string, now: number): number {
+  const ms = new Date(expiry + "T23:59:59").getTime() - now;
   return Math.max(0, Math.ceil(ms / 86_400_000));
+}
+
+/**
+ * Exported for testing — short TQQQ options within ITM_NEAR_EXPIRY_DTE that
+ * are in the money at `spot`. Returns every flagged symbol (the new dedupe
+ * state) plus a payload for each one not already in `alreadyFlagged`.
+ */
+export function itmNearExpiry(
+  options: OptionPosition[],
+  spot: number,
+  alreadyFlagged: string[],
+  now = Date.now(),
+): { flagged: string[]; payloads: PushPayload[] } {
+  const flagged: string[] = [];
+  const payloads: PushPayload[] = [];
+  for (const pos of options) {
+    if (pos.underlyingSymbol !== "TQQQ" || pos.shortQty <= 0) continue;
+    const dte = daysUntil(pos.expiry, now);
+    if (dte > ITM_NEAR_EXPIRY_DTE) continue;
+    const itm = pos.putCall === "CALL" ? spot > pos.strike : spot < pos.strike;
+    if (!itm || flagged.includes(pos.symbol)) continue;
+    flagged.push(pos.symbol);
+    if (!alreadyFlagged.includes(pos.symbol)) {
+      payloads.push({
+        title: "Options: ITM near expiry",
+        body: `${pos.symbol} — ${dte}d left and in the money. Assignment risk — close or roll.`,
+        url: "/options",
+        tag: `itm-${pos.symbol}`,
+      });
+    }
+  }
+  return { flagged, payloads };
+}
+
+/** Live price, falling back to the latest daily close if the quote fails. */
+async function livePrice(symbol: string): Promise<number | null> {
+  try {
+    return (await getLiveQuote(symbol)).price;
+  } catch (err) {
+    console.error(`Live quote failed for ${symbol}:`, err);
+    const bars = await fetchYahooDaily(symbol, 1).catch(() => []);
+    return bars.at(-1)?.close ?? null;
+  }
 }
 
 /**
@@ -105,30 +150,39 @@ export async function GET(req: Request) {
   }
 
   // Each source is caught on its own: an expired Schwab token must not take the
-  // ^VXN alert down with it, and a throw here would surface only as an opaque
-  // red X on the cron that fires it.
-  const [vxn, accountsResult, state] = await Promise.all([
+  // ^VXN alert (or the tastytrade book) down with it, and a throw here would
+  // surface only as an opaque red X on the cron that fires it.
+  const [vxn, accountsResult, tastyResult, state] = await Promise.all([
+    // Hourly-cached bar is deliberate here: a live 15-min read would flap the
+    // band alert whenever ^VXN hovers at a threshold.
     fetchYahooDaily("^VXN", 1).catch(() => []),
     getAllAccountPositions().then(
-      (accounts) => ({ ok: true as const, accounts }),
+      (accounts) => ({ ok: true as const, options: accounts.flatMap((a) => a.options) }),
       (err: unknown) => {
         console.error("Schwab positions failed:", err);
-        return { ok: false as const };
+        return { ok: false as const, options: [] as OptionPosition[] };
+      },
+    ),
+    getTastytradeOptions().then(
+      (options) => ({ ok: true as const, options }),
+      (err: unknown) => {
+        console.error("tastytrade positions failed:", err);
+        return { ok: false as const, options: [] as OptionPosition[] };
       },
     ),
     readSetting<PushNotifiedState>(STATE_KEY),
   ]);
 
   const vxnPct = vxn.at(-1)?.close ?? null;
-  const allOptions: OptionPosition[] = accountsResult.ok
-    ? accountsResult.accounts.flatMap((a) => a.options)
-    : [];
+  const allOptions = [...accountsResult.options, ...tastyResult.options];
+  const allFeedsOk = accountsResult.ok && tastyResult.ok;
 
   const prev: PushNotifiedState = state ?? { itmNearExpiry: [], vxnBand: null };
   const next: PushNotifiedState = {
-    // With no position feed, carry the flagged contracts forward untouched —
-    // clearing them would re-fire every one of them as "new" on reconnect.
-    itmNearExpiry: accountsResult.ok ? [] : prev.itmNearExpiry,
+    // With a position feed down, carry the flagged contracts forward — clearing
+    // them would re-fire every one of them as "new" on reconnect. The dedupe
+    // state is plain symbols, so it can't tell which broker an entry came from.
+    itmNearExpiry: allFeedsOk ? [] : [...prev.itmNearExpiry],
     vxnBand: prev.vxnBand,
     schwabDown: !accountsResult.ok,
   };
@@ -138,27 +192,17 @@ export async function GET(req: Request) {
   if (brokerPayload) payloads.push(brokerPayload);
 
   // --- ITM short options near expiry (assignment risk on the TQQQ income book) ---
-  const shortOptions = allOptions.filter((p) => p.underlyingSymbol === "TQQQ" && p.shortQty > 0);
-  if (accountsResult.ok && shortOptions.length > 0) {
-    const tqqq = await fetchYahooDaily("TQQQ", 1);
-    const tqqqSpot = tqqq.at(-1)?.close ?? null;
-    if (tqqqSpot !== null) {
-      for (const pos of shortOptions) {
-        const dte = daysUntil(pos.expiry);
-        if (dte > ITM_NEAR_EXPIRY_DTE) continue;
-        const itm = pos.putCall === "CALL" ? tqqqSpot > pos.strike : tqqqSpot < pos.strike;
-        if (!itm) continue;
-        next.itmNearExpiry.push(pos.symbol);
-        if (!prev.itmNearExpiry.includes(pos.symbol)) {
-          payloads.push({
-            title: "Options: ITM near expiry",
-            body: `${pos.symbol} — ${dte}d left and in the money. Assignment risk — close or roll.`,
-            url: "/options",
-            tag: `itm-${pos.symbol}`,
-          });
-        }
-      }
-    }
+  // Live spot, not the hourly-cached daily bar: this runs every 15 minutes
+  // through the extended session, where the daily close is hours old.
+  const hasShortTqqq = allOptions.some((p) => p.underlyingSymbol === "TQQQ" && p.shortQty > 0);
+  const tqqqSpot = hasShortTqqq ? await livePrice("TQQQ") : null;
+  if (tqqqSpot !== null) {
+    const itm = itmNearExpiry(allOptions, tqqqSpot, prev.itmNearExpiry);
+    next.itmNearExpiry = [...new Set([...next.itmNearExpiry, ...itm.flagged])];
+    payloads.push(...itm.payloads);
+  } else if (hasShortTqqq) {
+    // No price this tick — keep the dedupe state rather than re-alert next tick.
+    next.itmNearExpiry = prev.itmNearExpiry;
   }
 
   // --- ^VXN threshold-band crossings ---
@@ -191,6 +235,7 @@ export async function GET(req: Request) {
     sent,
     notifications: payloads.length,
     schwab: accountsResult.ok ? "ok" : "auth-failed",
+    tastytrade: tastyResult.ok ? "ok" : "failed",
     vxn: vxnPct,
   });
 }

@@ -1,8 +1,5 @@
-import YahooFinance from "yahoo-finance2";
-import { getEquityMark } from "@/lib/tastytrade/quotes";
+import { getLiveQuote } from "@/lib/liveQuote";
 import { getCached, setCached } from "@/lib/ttlCache";
-
-const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
 
 interface QuotePayload {
   price: number;
@@ -23,38 +20,7 @@ export async function GET(req: Request) {
   if (cached) return Response.json(cached);
 
   try {
-    const quote = await yf.quote(symbol);
-
-    const {
-      marketState,
-      regularMarketPrice,
-      regularMarketPreviousClose,
-      postMarketPrice,
-      preMarketPrice,
-    } = quote;
-
-    const previousClose = regularMarketPreviousClose;
-    let price = regularMarketPrice;
-
-    if (marketState === "POST" || marketState === "POSTPOST") {
-      price = postMarketPrice ?? regularMarketPrice;
-    } else if (marketState === "PRE" || marketState === "PREPRE") {
-      price = preMarketPrice ?? regularMarketPrice;
-    }
-
-    if (price == null || previousClose == null) {
-      return Response.json({ error: "Missing price data" }, { status: 502 });
-    }
-
-    // Outside regular market hours Yahoo's price goes stale, so fall back to a
-    // live tastytrade mark.
-    if (marketState !== "REGULAR") {
-      const tastyPrice = await getEquityMark(symbol);
-      if (tastyPrice != null && tastyPrice > 0) {
-        price = tastyPrice;
-      }
-    }
-
+    const { price, previousClose, marketState } = await getLiveQuote(symbol);
     const changePercent = ((price - previousClose) / previousClose) * 100;
 
     const payload: QuotePayload = { price, changePercent, marketState };
