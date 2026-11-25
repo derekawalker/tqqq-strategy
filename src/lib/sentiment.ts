@@ -185,29 +185,14 @@ export function classifyRegime(score: number, prev?: Regime): Regime {
 }
 
 export function regimeAction(regime: Regime): string {
-  if (regime === "Risk-On") return "Full TQQQ exposure OK. Add on dips (RSI < 40).";
+  // The regime forecasts volatility, not direction — a 2013–2026 ladder backtest
+  // found using it to pause or shrink dip buys cost 35–68pp of return for a
+  // modest drawdown cut. Buy timing belongs to the fragility throttle
+  // (lib/throttle.ts); this is context for hedging and option selling.
+  if (regime === "Risk-On") return "Calmer conditions expected. Run the ladder normally.";
   if (regime === "Neutral")
-    return "Reduce size 25–50%. Trade QQQ instead of TQQQ. No aggressive leverage adds.";
-  return "Exit TQQQ. Cash / SGOV / hedged exposure. No dip-buying.";
-}
-
-export interface RegimeThrottle {
-  /** Same convention as strategySignals.ts: 1.0 = full buys, 0.0 = pause all buys. */
-  multiplier: number;
-  label: string;
-}
-
-/**
- * Maps the current regime to a ladder buy-throttle recommendation, so the
- * standing dip-buying ladder and the regime model give one consistent stance
- * instead of the ladder buying dips the regime model says to avoid. Advisory
- * only — the app doesn't place or cancel orders on its own.
- */
-export function regimeThrottle(regime: Regime): RegimeThrottle {
-  if (regime === "Risk-On") return { multiplier: 1, label: "Full size — buy every touched level." };
-  if (regime === "Neutral")
-    return { multiplier: 0.5, label: "Half size — consider buying half the normal share count per level." };
-  return { multiplier: 0, label: "Paused — consider holding off new buys until the regime improves." };
+    return "Volatility likely to pick up. Keep the ladder running; check that hedges are current.";
+  return "High volatility expected — expect wide swings. Keep the ladder running unless the fragility banner says pause, and make sure hedges are in place.";
 }
 
 /**

@@ -26,17 +26,14 @@ import {
   IconCopy,
   IconPlayerPlayFilled,
   IconClock,
-  IconRadar,
 } from "@tabler/icons-react";
 import { OrderQueue, type QueueItem } from "@/components/OrderQueue";
 import { useApp } from "@/lib/context/AppContext";
 import { useLevels } from "@/lib/hooks/useLevels";
 import { computeNextGridLevel0, countOrdersByLevel, levelForPrice, matchLevel } from "@/lib/levels";
 import { useBalances } from "@/lib/hooks/useBalances";
-import { useSentiment } from "@/lib/hooks/useSentiment";
 import { fmt, createMask } from "@/lib/format";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
-import { regimeThrottle } from "@/lib/sentiment";
 
 
 function ProgressRow({ progress, color, paddingTop, paddingBottom }: {
@@ -132,7 +129,6 @@ export default function WorkingOrdersPage() {
   } = useApp();
   const levelsSummary = useLevels();
   const { balance } = useBalances();
-  const sentiment = useSentiment();
   const accountColor = useAccountColor();
   const isMobile = useMediaQuery("(max-width: 768px)");
   const [tosModal, setTosModal] = useState<{ text: string } | null>(null);
@@ -647,21 +643,6 @@ export default function WorkingOrdersPage() {
           </Group>
         </Group>
 
-        {sentiment && sentiment.regime !== "Risk-On" && (
-          <Alert
-            color={sentiment.regime === "Risk-Off" ? "red" : "orange"}
-            variant="light"
-            icon={<IconRadar size={16} />}
-          >
-            <Text size="sm" fw={600}>
-              Regime: {sentiment.regime}
-              {sentiment.daysInRegime <= 1 ? " (just changed)" : ` — ${sentiment.daysInRegime}d`}
-            </Text>
-            <Text size="xs" c="dimmed">
-              Ladder buys: {regimeThrottle(sentiment.regime).label}
-            </Text>
-          </Alert>
-        )}
 
 
         <ScrollArea>

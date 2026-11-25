@@ -117,11 +117,14 @@ describe("regimeQueueActions", () => {
     expect(action.title).toContain("just changed");
   });
 
-  it("includes the ladder buy-throttle guidance in the detail text", () => {
-    const [neutral] = regimeQueueActions("Neutral", 5);
-    expect(neutral.detail).toContain("Half size");
-    const [riskOff] = regimeQueueActions("Risk-Off", 5);
-    expect(riskOff.detail).toContain("Paused");
+  // Backtest (2013–2026): gating ladder buys on the regime cost far more return
+  // than it saved in drawdown, so buy timing is left to the fragility throttle.
+  it("never tells you to pause or shrink ladder buys", () => {
+    for (const regime of ["Neutral", "Risk-Off"] as const) {
+      const [a] = regimeQueueActions(regime, 5);
+      expect(a.detail).not.toMatch(/half size|paused|no dip-buying|exit tqqq/i);
+      expect(a.detail).toMatch(/ladder running/i);
+    }
   });
 });
 

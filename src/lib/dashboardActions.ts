@@ -10,7 +10,7 @@ import type { Level } from "./levels";
 import type { OptionPosition } from "./schwab/parse";
 import type { WorkingOrder } from "./schwab/parse";
 import type { Regime } from "./sentiment";
-import { regimeAction, regimeThrottle } from "./sentiment";
+import { regimeAction } from "./sentiment";
 
 export type QueueSource = "options" | "ladder" | "regime";
 
@@ -134,7 +134,7 @@ export function ladderQueueActions(
   return actions;
 }
 
-/** Advisory reminder when the regime isn't Risk-On — no action needed when everything's fine. */
+/** Volatility heads-up when the regime isn't Risk-On — context, not a ladder-buy instruction. */
 export function regimeQueueActions(regime: Regime, daysInRegime: number): QueueAction[] {
   if (regime === "Risk-On") return [];
   return [
@@ -144,7 +144,7 @@ export function regimeQueueActions(regime: Regime, daysInRegime: number): QueueA
       priority: regime === "Risk-Off" ? 0 : 5,
       daysAway: 0,
       title: `Regime: ${regime}${daysInRegime <= 1 ? " (just changed)" : ` — ${daysInRegime}d`}`,
-      detail: `${regimeAction(regime)} Ladder buys: ${regimeThrottle(regime).label}`,
+      detail: regimeAction(regime),
       color: regime === "Risk-Off" ? "red" : "orange",
       href: "/sentiment",
     },

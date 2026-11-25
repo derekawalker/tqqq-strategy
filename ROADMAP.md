@@ -136,17 +136,19 @@ expiry, remaining theta is pennies while gamma risk explodes.
 
 Feed these into the action queue (item 4).
 
-## 6. Regime model → live ladder guidance
+## 6. Regime model → live ladder guidance — resolved (2026-11-25)
 
-**Problem.** `regimeAction()` in sentiment.ts says "Exit TQQQ. No dip-buying"
-in Risk-Off while the ladder holds standing buy orders — a contradiction the
-user must notice themselves. The sim already supports buy throttles
-(`simulateLadder`'s `throttle` param, `src/lib/strategySignals.ts`).
+**Problem.** `regimeAction()` said "Exit TQQQ. No dip-buying" in Risk-Off while
+the ladder held standing buy orders, and a regime buy throttle (full / half /
+pause) was later shown alongside the fragility banner — two buy instructions
+that disagreed exactly at bottoms (147 of 172 fragility "redeploy" days fell in
+a non-Risk-On regime).
 
-**Build.** Surface the current regime on the dashboard and Working Orders page
-as a throttle recommendation: Risk-On = full buys; Neutral = consider half
-lots; Risk-Off = consider pausing buys below level N. Advisory only (the app
-doesn't place orders) — the point is one stance, everywhere.
+**Outcome.** Backtested 2013–2026 (daily TQQQ, previous-day signals): gating
+ladder buys on the regime cost 35–68pp of total return for a modest drawdown
+cut; the fragility throttle cost ~4–18pp. The regime no longer gives ladder-buy
+instructions — `regimeAction()` is a volatility outlook (hedge/option context),
+and the app-wide fragility banner is the single buy-timing signal.
 
 ## 7. Hedge net-carry display
 

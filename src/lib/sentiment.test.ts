@@ -8,7 +8,6 @@ import {
   computeSeries,
   backtestRegimes,
   daysInRegime,
-  regimeThrottle,
   regimeSellTargetPct,
   type SeriesInput,
 } from "./sentiment";
@@ -110,22 +109,6 @@ describe("daysInRegime", () => {
     const held = daysInRegime(series);
     expect(held).toBeGreaterThan(0);
     expect(held).toBeLessThanOrEqual(30); // crash lasted 30 days
-  });
-});
-
-describe("regimeThrottle", () => {
-  it("is full-size in Risk-On, half in Neutral, paused in Risk-Off", () => {
-    expect(regimeThrottle("Risk-On").multiplier).toBe(1);
-    expect(regimeThrottle("Neutral").multiplier).toBe(0.5);
-    expect(regimeThrottle("Risk-Off").multiplier).toBe(0);
-  });
-
-  it("multipliers strictly decrease from Risk-On to Risk-Off", () => {
-    const on = regimeThrottle("Risk-On").multiplier;
-    const neutral = regimeThrottle("Neutral").multiplier;
-    const off = regimeThrottle("Risk-Off").multiplier;
-    expect(on).toBeGreaterThan(neutral);
-    expect(neutral).toBeGreaterThan(off);
   });
 });
 
