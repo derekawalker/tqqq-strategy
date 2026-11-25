@@ -11,14 +11,17 @@ import type { OptionPosition } from "./schwab/parse";
 import type { WorkingOrder } from "./schwab/parse";
 import type { Regime } from "./sentiment";
 import { regimeAction } from "./sentiment";
+import type { HedgeTodo } from "./hedgeReview";
 
-export type QueueSource = "options" | "ladder" | "regime";
+export type QueueSource = "options" | "ladder" | "regime" | "hedge";
 
 export type QueueActionKind =
   | "option-close-profit"
   | "ladder-buy-due"
   | "ladder-sell-due"
-  | "regime-caution";
+  | "regime-caution"
+  | "hedge-harvest"
+  | "hedge-roll";
 
 export interface QueueAction {
   kind: QueueActionKind;
@@ -149,6 +152,42 @@ export function regimeQueueActions(regime: Regime, daysInRegime: number): QueueA
       href: "/sentiment",
     },
   ];
+}
+
+/**
+ * The time-sensitive half of the Hedge page's review: harvests (a hedge that
+ * has paid off) and rolls (inside the decay window). Opening or trimming toward
+ * the budget target isn't urgent and depends on the page's sizing inputs, so it
+ * stays on /hedge.
+ */
+export function hedgeQueueActions(todos: HedgeTodo[]): QueueAction[] {
+  const actions: QueueAction[] = [];
+  for (const t of todos) {
+    if (t.kind === "harvest") {
+      actions.push({
+        kind: "hedge-harvest",
+        source: "hedge",
+        priority: 0,
+        daysAway: 0,
+        title: t.title,
+        detail: t.detail,
+        color: "teal",
+        href: "/hedge",
+      });
+    } else if (t.kind === "roll") {
+      actions.push({
+        kind: "hedge-roll",
+        source: "hedge",
+        priority: 2,
+        daysAway: 0,
+        title: t.title,
+        detail: t.detail,
+        color: "orange",
+        href: "/hedge",
+      });
+    }
+  }
+  return actions;
 }
 
 /** Merge and sort all sources into one chronological, urgency-tiebroken queue. */

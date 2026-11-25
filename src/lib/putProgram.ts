@@ -25,6 +25,7 @@
 import { bsPutGreeks } from "./blackScholes";
 import { isVixUnderlying } from "./trackedSymbols";
 import { ivFor, IV_SCALE, DIV_YIELD } from "./volModel";
+import type { OptionPosition } from "./schwab/parse";
 
 const RISK_FREE = 0.04;
 
@@ -514,6 +515,38 @@ export function hedgeLots(
       };
     })
     .sort((a, b) => (b.openedAt ?? b.closedAt ?? "").localeCompare(a.openedAt ?? a.closedAt ?? ""));
+}
+
+/**
+ * The open option positions that are the hedge, as opposed to everything long.
+ *
+ * Applies the same two cuts as the budget list: a put first bought inside
+ * {@link MIN_HEDGE_DTE} is a short-dated trade, not insurance (the account
+ * day-trades these, and while one is open it would otherwise read as a hedge
+ * due a roll), and anything struck off by hand on the Hedge page stays out.
+ * A put with no buy in the fill history is old enough to have been bought
+ * before it — day trades always have a recent fill — so it counts.
+ */
+export function hedgePositions(
+  positions: OptionPosition[],
+  fills: Pick<FilledContractLeg, "symbol" | "instruction" | "time">[],
+  excluded: Iterable<string> = [],
+): OptionPosition[] {
+  const norm = (s: string) => s.replace(/\s+/g, "");
+  const struck = new Set([...excluded].map(norm));
+  const firstBuy = new Map<string, string>();
+  for (const f of fills) {
+    if (f.instruction !== "BUY_TO_OPEN") continue;
+    const key = norm(f.symbol);
+    const prev = firstBuy.get(key);
+    if (!prev || f.time < prev) firstBuy.set(key, f.time);
+  }
+  return positions.filter((p) => {
+    if (p.longQty <= 0 || struck.has(norm(p.symbol))) return false;
+    if (isVixUnderlying(p.underlyingSymbol) || p.putCall !== "PUT") return true;
+    const opened = firstBuy.get(norm(p.symbol)) ?? p.openedAt;
+    return opened == null || !p.expiry || dteAt(opened, p.expiry) >= MIN_HEDGE_DTE;
+  });
 }
 
 /**

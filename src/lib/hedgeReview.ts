@@ -277,7 +277,7 @@ export function hedgeTodos(input: HedgeReviewInput): HedgeTodo[] {
         kind: "roll",
         title: `Roll ${ct(pos.longQty)} — ${label}`,
         detail: `${dte}d left, inside the ${ROLL_DTE}d window where decay is steepest. Close and reopen at ${
-          isPut && putPlan ? `$${putPlan.strike.toFixed(0)} / ${putDte}d` : `${vixDte}d`
+          !isPut ? `${vixDte}d` : putPlan ? `$${putPlan.strike.toFixed(0)} / ${putDte}d` : `${putDte}d`
         }.`,
       });
       continue;

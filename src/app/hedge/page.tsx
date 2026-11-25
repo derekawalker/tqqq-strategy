@@ -66,6 +66,7 @@ import {
   qqqPutsInTqqqTerms,
   openContractsBySleeve,
   MIN_HEDGE_DTE,
+  hedgePositions,
   budgetStatus,
   tqqqIvFromVxn,
   type RebalanceAction,
@@ -845,7 +846,7 @@ export default function HedgePage() {
   const todos = useMemo(
     () =>
       hedgeTodos({
-        positions: optionPositions,
+        positions: hedgePositions(optionPositions, filledOptionOrders, excluded),
         putPlan,
         vixPlan,
         tqqqSpot,
@@ -855,7 +856,7 @@ export default function HedgePage() {
         vix,
         monetizeVix,
       }),
-    [optionPositions, putPlan, vixPlan, tqqqSpot, baseIv, dteNum, vixDteNum, vix, monetizeVix],
+    [optionPositions, filledOptionOrders, excluded, putPlan, vixPlan, tqqqSpot, baseIv, dteNum, vixDteNum, vix, monetizeVix],
   );
 
   /**

@@ -7,6 +7,7 @@ import {
   IconList,
   IconRadar,
   IconChecklist,
+  IconShield,
 } from "@tabler/icons-react";
 import { CARD_RADIUS, CARD_LABEL_STYLE } from "@/lib/cardStyles";
 import { useCardBg } from "@/lib/hooks/useCardBg";
@@ -17,6 +18,7 @@ const SOURCE_ICONS: Record<QueueSource, React.ReactNode> = {
   options: <IconChartCandle size={14} />,
   ladder: <IconList size={14} />,
   regime: <IconRadar size={14} />,
+  hedge: <IconShield size={14} />,
 };
 
 function awayLabel(daysAway: number): string {

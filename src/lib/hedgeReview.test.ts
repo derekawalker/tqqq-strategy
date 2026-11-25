@@ -7,7 +7,8 @@ import {
   positionLabel,
   type HedgeReviewInput,
 } from "./hedgeReview";
-import { planProgram, tqqqIvFromVxn } from "./putProgram";
+import { planProgram, tqqqIvFromVxn, hedgePositions } from "./putProgram";
+import { hedgeQueueActions } from "./dashboardActions";
 import type { OptionPosition } from "./schwab/parse";
 
 const NOW = new Date("2026-08-06T12:00:00");
@@ -199,5 +200,56 @@ describe("hedgeTodos", () => {
     const todos = hedgeTodos({ ...base, positions: [vixCall], vix: 44 });
     expect(todos[0].kind).toBe("harvest");
     expect(todos[0].detail).toContain("44.0");
+  });
+});
+
+describe("roll text without a put plan (dashboard)", () => {
+  it("reopens a put at the put tenor, not the VIX one", () => {
+    const todos = hedgeTodos({ ...base, putPlan: null, positions: [put({ expiry: expiryIn(10) })] });
+    expect(todos[0].kind).toBe("roll");
+    expect(todos[0].detail).toContain("reopen at 60d");
+  });
+});
+
+describe("hedgePositions", () => {
+  const fill = (symbol: string, time: string, instruction = "BUY_TO_OPEN") => ({ symbol, time, instruction });
+  const dayTrade = put({ symbol: "TQQQ  260808P00070000", expiry: "2026-08-08", longQty: 5 });
+  const hedge = put({ symbol: "TQQQ  261016P00060000", expiry: "2026-10-16" });
+
+  it("keeps a put bought at 21+ DTE and drops one bought inside it", () => {
+    const fills = [fill("TQQQ  260808P00070000", "2026-08-06T14:00:00Z"), fill("TQQQ  261016P00060000", "2026-07-01T14:00:00Z")];
+    const kept = hedgePositions([dayTrade, hedge], fills as never);
+    expect(kept.map((p) => p.symbol)).toEqual([hedge.symbol]);
+  });
+
+  it("keeps a put with no buy in the history (bought before the window)", () => {
+    expect(hedgePositions([hedge], [])).toHaveLength(1);
+  });
+
+  it("drops hand-excluded symbols, whatever their padding", () => {
+    expect(hedgePositions([hedge], [], ["TQQQ261016P00060000"])).toHaveLength(0);
+  });
+
+  it("keeps VIX calls regardless of tenor and drops short positions", () => {
+    const vixCall = put({ symbol: "VIX   260819C00025000", underlyingSymbol: "VIX", putCall: "CALL", expiry: "2026-08-19" });
+    const shortPut = put({ shortQty: 1, longQty: 0 });
+    const fills = [fill("VIX   260819C00025000", "2026-08-05T14:00:00Z")];
+    expect(hedgePositions([vixCall, shortPut], fills as never).map((p) => p.symbol)).toEqual([vixCall.symbol]);
+  });
+});
+
+describe("hedgeQueueActions", () => {
+  it("surfaces harvests and rolls only, linked to /hedge", () => {
+    const todos = hedgeTodos({
+      ...base,
+      putPlan: null,
+      positions: [
+        put({ expiry: expiryIn(10) }), // roll
+        put({ symbol: "TQQQ  261120P00050000", strike: 50, expiry: expiryIn(90) }), // hold
+      ],
+    });
+    const actions = hedgeQueueActions(todos);
+    expect(actions.map((a) => a.kind)).toEqual(["hedge-roll"]);
+    expect(actions[0].href).toBe("/hedge");
   });
 });
