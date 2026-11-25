@@ -253,3 +253,42 @@ export function parseWorkingOrder(order: RawSchwabOrder, accountNumber: string):
     status: order.status ?? "",
   };
 }
+
+/**
+ * Tracked-underlying option positions from a Schwab account's `positions`
+ * array. `openedAt` comes from the caller's fill history when it has one.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function parseOptionPositions(positions: any[], accountNumber: string, openedAt?: Map<string, string>): OptionPosition[] {
+  const out: OptionPosition[] = [];
+  for (const p of positions) {
+    if (p.instrument?.assetType !== "OPTION") continue;
+    if (!isTrackedOptionUnderlying(p.instrument?.underlyingSymbol)) continue;
+    if (!((p.shortQuantity ?? 0) > 0 || (p.longQuantity ?? 0) > 0)) continue;
+    const sym: string = p.instrument?.symbol ?? "";
+    const occMatch = sym.match(/^.{6}(\d{2})(\d{2})(\d{2})([CP])(\d{8})$/);
+    let strike: number = p.instrument?.strikePrice ?? 0;
+    let expiry: string = (p.instrument?.expirationDate as string)?.slice(0, 10) ?? "";
+    if (occMatch) {
+      const [, yy, mm, dd, , strikeRaw] = occMatch;
+      if (!strike) strike = parseInt(strikeRaw, 10) / 1000;
+      if (!expiry) expiry = `20${yy}-${mm}-${dd}`;
+    }
+    if (!strike) continue;
+    const putCallRaw: string = p.instrument?.putCall ?? (occMatch?.[4] === "C" ? "CALL" : "PUT");
+    out.push({
+      accountNumber,
+      symbol: sym,
+      underlyingSymbol: p.instrument?.underlyingSymbol ?? "TQQQ",
+      putCall: putCallRaw === "CALL" ? "CALL" : "PUT",
+      strike,
+      expiry,
+      shortQty: p.shortQuantity ?? 0,
+      longQty: p.longQuantity ?? 0,
+      marketValue: p.marketValue ?? 0,
+      averagePrice: p.averagePrice ?? 0,
+      openedAt: openedAt?.get(sym) ?? null,
+    });
+  }
+  return out;
+}
