@@ -53,6 +53,8 @@ import { Outfit } from "next/font/google";
 import { AnimatedNumber } from "@/components/AnimatedNumber";
 import { useApp } from "@/lib/context/AppContext";
 import { useBalances } from "@/lib/hooks/useBalances";
+import { useLevels } from "@/lib/hooks/useLevels";
+import { shortOptionsPl, ladderBuysAtTrough, putAssignmentCash } from "@/lib/crashStress";
 import { useAccountColor } from "@/lib/hooks/useAccountColor";
 import { useCardBg } from "@/lib/hooks/useCardBg";
 import { useChartCandles } from "@/lib/hooks/useChartCandles";
@@ -624,6 +626,7 @@ export default function HedgePage() {
     updateAccountSettings,
   } = useApp();
   const { balance } = useBalances();
+  const levelsSummary = useLevels();
   const color = useAccountColor();
   const cardBg = useCardBg(color);
   const putBg = useCardBg(PUT_COLOR, LAYER_MIX);
@@ -911,33 +914,56 @@ export default function HedgePage() {
     [filledOptionOrders, expiredOptionOrders, quarterStart, excluded],
   );
 
-  /** Each episode as it actually happened: real drawdown, real peak VIX. */
+  /**
+   * Each episode as it actually happened: real drawdown, real peak VIX. The
+   * loss side is the whole book, not just the shares held — open short options
+   * and the ladder rungs that fill on the way down lose in the same episode the
+   * hedge is meant to offset, so leaving them out flatters the offset.
+   */
   const episodes = useMemo(() => {
     if (!putPlan || !baseIv || !tqqqSpot) return [];
+    const ownedLevelIndices = new Set(levelsSummary?.ownedLevels.map((l) => l.n) ?? []);
+    const cash = balance?.cashAvailableForTrading ?? null;
     return EPISODES.map((e) => {
+      const iv = tqqqIvFromVxn(e.vixPeak);
       // Mark the puts with the episode's vol and whatever time was left.
       const daysLeft = Math.max(dteNum - e.days, 0);
-      const row = scenarioTable(putPlan, tqqqShares, tqqqSpot, [e.tqqqMove], {
-        iv: tqqqIvFromVxn(e.vixPeak),
-        daysLeft,
-      })[0];
+      const row = scenarioTable(putPlan, tqqqShares, tqqqSpot, [e.tqqqMove], { iv, daysLeft })[0];
       const vixPl =
         vixPlan && vixPlan.targetContracts > 0
           ? vixPayoff(vixPlan, vixPlan.targetContracts, e.vixPeak)
           : 0;
+      const shortPl = shortOptionsPl(optionPositions, tqqqSpot, { tqqqMove: e.tqqqMove, days: e.days, iv });
+      const ladder = levelsSummary
+        ? ladderBuysAtTrough(levelsSummary.levels, ownedLevelIndices, tqqqSpot, e.tqqqMove)
+        : { cost: 0, pl: 0 };
+      const cashNeeded = ladder.cost + putAssignmentCash(optionPositions, tqqqSpot * (1 + e.tqqqMove));
       const total = row.putPl + vixPl;
+      const bookLoss = -(row.sharesPl + shortPl + ladder.pl);
       return {
         label: e.label,
         tqqqMove: e.tqqqMove,
         vixPeak: e.vixPeak,
         sharesPl: row.sharesPl,
+        shortPl,
+        ladderPl: ladder.pl,
         putPl: row.putPl,
         vixPl,
         total,
-        offsetPct: row.sharesPl < 0 ? (Math.min(total, -row.sharesPl) / -row.sharesPl) * 100 : 0,
+        offsetPct: bookLoss > 0 ? (Math.min(total, bookLoss) / bookLoss) * 100 : 0,
+        cashShortfall: cash != null ? cashNeeded - cash : null,
       };
     });
-  }, [putPlan, vixPlan, baseIv, tqqqSpot, tqqqShares, dteNum]);
+  }, [putPlan, vixPlan, baseIv, tqqqSpot, tqqqShares, dteNum, optionPositions, levelsSummary, balance]);
+
+  /** Worst cash shortfall across the episodes, if any would run out. */
+  const episodeCashCrunch = useMemo(() => {
+    const worst = episodes.reduce<(typeof episodes)[number] | null>(
+      (w, e) => (e.cashShortfall != null && e.cashShortfall > 0 && (!w || e.cashShortfall > (w.cashShortfall ?? 0)) ? e : w),
+      null,
+    );
+    return worst;
+  }, [episodes]);
 
   const curve = useMemo(() => {
     if (!putPlan || !tqqqSpot) return [];
@@ -1701,10 +1727,13 @@ export default function HedgePage() {
         </Text>
         <Text size="xs" c="dimmed" mb="md">
           Real drawdowns and real peak VIX from each episode. Puts are marked with that episode&apos;s
-          vol and whatever time was left, which is why they pay far more than intrinsic. Note the
-          deepest drawdown printed the <b>weakest</b> VIX — the slow grind is what neither layer
+          vol and whatever time was left, which is why they pay far more than intrinsic. The loss
+          side is the whole book: shares held, your open short options marked at the trough, and
+          ladder rungs that would fill on the way down. Offset is the hedge against all of it. Note
+          the deepest drawdown printed the <b>weakest</b> VIX — the slow grind is what neither layer
           covers.
         </Text>
+        <Table.ScrollContainer minWidth={640}>
         <Table verticalSpacing="xs" fz="sm">
           <Table.Thead>
             <Table.Tr>
@@ -1712,6 +1741,8 @@ export default function HedgePage() {
               <Table.Th ta="right">TQQQ</Table.Th>
               <Table.Th ta="right">VIX</Table.Th>
               <Table.Th ta="right">Shares</Table.Th>
+              <Table.Th ta="right">Short opts</Table.Th>
+              <Table.Th ta="right">Ladder buys</Table.Th>
               <Table.Th ta="right" style={{ color: PUT_MARK }}>
                 Puts
               </Table.Th>
@@ -1734,6 +1765,12 @@ export default function HedgePage() {
                 <Table.Td ta="right" c="red">
                   {mask(`−$${fmt(Math.abs(e.sharesPl), 0)}`)}
                 </Table.Td>
+                <Table.Td ta="right" c={e.shortPl < -0.5 ? "red" : e.shortPl > 0.5 ? "teal" : "dimmed"}>
+                  {Math.abs(e.shortPl) < 0.5 ? "—" : mask(`${e.shortPl >= 0 ? "+" : "−"}$${fmt(Math.abs(e.shortPl), 0)}`)}
+                </Table.Td>
+                <Table.Td ta="right" c={e.ladderPl < -0.5 ? "red" : "dimmed"}>
+                  {Math.abs(e.ladderPl) < 0.5 ? "—" : mask(`−$${fmt(Math.abs(e.ladderPl), 0)}`)}
+                </Table.Td>
                 <Table.Td ta="right" c={e.putPl >= 0 ? "teal" : undefined}>
                   {mask(`${e.putPl >= 0 ? "+" : "−"}$${fmt(Math.abs(e.putPl), 0)}`)}
                 </Table.Td>
@@ -1747,6 +1784,15 @@ export default function HedgePage() {
             ))}
           </Table.Tbody>
         </Table>
+        </Table.ScrollContainer>
+
+        {episodeCashCrunch && episodeCashCrunch.cashShortfall != null && (
+          <Text size="xs" c="orange" mt="sm">
+            Cash runs short: in a repeat of {episodeCashCrunch.label}, ladder buys plus short-put
+            assignments would need {mask(`$${fmt(episodeCashCrunch.cashShortfall, 0)}`)} more than
+            the cash available today.
+          </Text>
+        )}
 
         <Divider my="md" />
 
