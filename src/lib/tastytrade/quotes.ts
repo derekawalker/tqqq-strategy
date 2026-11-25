@@ -136,8 +136,14 @@ async function dxlinkMarks(symbols: string[]): Promise<Map<string, number>> {
 
 // Module-level cache — avoids opening multiple WebSocket connections in rapid succession
 const CACHE_TTL_MS = 30_000;
-const marksCache: Map<string, number> = new Map();
-let marksCacheTime = 0;
+// Timestamped per symbol: a single shared timestamp let a fresh equity quote
+// make stale option marks in the same map look fresh for another TTL window.
+const marksCache: Map<string, { mark: number; at: number }> = new Map();
+
+function freshMark(symbol: string, now: number): number | undefined {
+  const entry = marksCache.get(symbol);
+  return entry && now - entry.at < CACHE_TTL_MS ? entry.mark : undefined;
+}
 
 /**
  * Real-time marks for OCC option symbols via DXLink.
@@ -156,15 +162,12 @@ export async function getOptionMarks(occSymbols: string[]): Promise<Map<string, 
   }
   // Return from cache if fresh enough — avoids a new WebSocket per rapid refresh
   const now = Date.now();
-  const allCached = occSymbols.every((s) => marksCache.has(s.trim()));
-  if (allCached && now - marksCacheTime < CACHE_TTL_MS) {
-    const cached = new Map<string, number>();
-    for (const occ of occSymbols) {
-      const mark = marksCache.get(occ.trim());
-      if (mark !== undefined) cached.set(occ.trim(), mark);
-    }
-    return cached;
+  const cached = new Map<string, number>();
+  for (const occ of occSymbols) {
+    const mark = freshMark(occ.trim(), now);
+    if (mark !== undefined) cached.set(occ.trim(), mark);
   }
+  if (cached.size === new Set(occSymbols.map((s) => s.trim())).size) return cached;
 
   const raw = await dxlinkMarks(streamerSymbols);
   const result = new Map<string, number>();
@@ -174,8 +177,7 @@ export async function getOptionMarks(occSymbols: string[]): Promise<Map<string, 
   }
 
   // Update cache with fresh marks
-  for (const [sym, mark] of result) marksCache.set(sym, mark);
-  marksCacheTime = now;
+  for (const [sym, mark] of result) marksCache.set(sym, { mark, at: now });
 
   return result;
 }
@@ -188,14 +190,12 @@ export async function getEquityMark(symbol: string): Promise<number | null> {
   if (!hasTastytradeCredentials()) return null;
   // Use cache if fresh
   const now = Date.now();
-  if (marksCache.has(symbol) && now - marksCacheTime < CACHE_TTL_MS) {
-    return marksCache.get(symbol) ?? null;
-  }
+  const cachedMark = freshMark(symbol, now);
+  if (cachedMark !== undefined) return cachedMark;
   const marks = await dxlinkMarks([symbol]);
   const mark = marks.get(symbol) ?? null;
   if (mark !== null) {
-    marksCache.set(symbol, mark);
-    marksCacheTime = now;
+    marksCache.set(symbol, { mark, at: now });
   }
   return mark;
 }

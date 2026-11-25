@@ -1,26 +1,22 @@
 import { tastyFetch } from "@/lib/tastytrade/client";
+import { validateCancelOrder, validatePlaceOrder } from "@/lib/tastytrade/orderInput";
 
 export async function POST(req: Request) {
   try {
-    const { accountNumber, side, shares, price } = await req.json();
-
-    if (!accountNumber || !side || !shares || price == null) {
-      return Response.json({ error: "Missing required fields" }, { status: 400 });
-    }
-    if (side !== "BUY" && side !== "SELL") {
-      return Response.json({ error: "side must be BUY or SELL" }, { status: 400 });
-    }
+    const input = validatePlaceOrder(await req.json().catch(() => null));
+    if (!input.ok) return Response.json({ error: input.error }, { status: 400 });
+    const { accountNumber, side, shares, price } = input.value;
 
     const body = {
       "time-in-force": "GTC Ext Overnight",
       "order-type": "Limit",
-      "price": Number(price).toFixed(2),
+      "price": price.toFixed(2),
       "price-effect": side === "BUY" ? "Debit" : "Credit",
       legs: [
         {
           "instrument-type": "Equity",
           symbol: "TQQQ",
-          quantity: Number(shares),
+          quantity: shares,
           action: side === "BUY" ? "Buy to Open" : "Sell to Close",
         },
       ],
@@ -45,10 +41,9 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    const { accountNumber, orderId } = await req.json();
-    if (!accountNumber || !orderId) {
-      return Response.json({ error: "Missing required fields" }, { status: 400 });
-    }
+    const input = validateCancelOrder(await req.json().catch(() => null));
+    if (!input.ok) return Response.json({ error: input.error }, { status: 400 });
+    const { accountNumber, orderId } = input.value;
     const res = await tastyFetch(`/accounts/${accountNumber}/orders/${orderId}`, {
       method: "DELETE",
     });

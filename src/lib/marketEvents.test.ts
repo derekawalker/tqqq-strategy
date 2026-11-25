@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { nextEvent, eventGuidance, MARKET_EVENTS, type MarketEvent } from "./marketEvents";
+import { nextEvent, eventGuidance, calendarNeedsRefresh, MARKET_EVENTS, type MarketEvent } from "./marketEvents";
 
 const events: MarketEvent[] = [
   { date: "2026-07-10", kind: "cpi", label: "CPI release" },
@@ -69,5 +69,27 @@ describe("MARKET_EVENTS", () => {
     for (const e of MARKET_EVENTS) {
       expect(e.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     }
+  });
+});
+
+describe("calendarNeedsRefresh", () => {
+  const cal: MarketEvent[] = [
+    { date: "2026-12-09", kind: "fomc", label: "FOMC decision" },
+    { date: "2027-03-17", kind: "fomc", label: "FOMC decision" },
+    { date: "2026-07-14", kind: "cpi", label: "CPI release" },
+    { date: "2027-03-10", kind: "cpi", label: "CPI release" },
+  ];
+
+  it("is false when every kind has dates past the horizon", () => {
+    expect(calendarNeedsRefresh(cal, new Date("2026-11-25T12:00:00"), 45)).toBe(false);
+  });
+
+  it("is true when one kind runs out even if the other hasn't", () => {
+    const cpiStale = cal.filter((e) => e.date !== "2027-03-10");
+    expect(calendarNeedsRefresh(cpiStale, new Date("2026-08-01T12:00:00"), 45)).toBe(true);
+  });
+
+  it("is true once the last date falls inside the horizon", () => {
+    expect(calendarNeedsRefresh(cal, new Date("2027-02-15T12:00:00"), 45)).toBe(true);
   });
 });

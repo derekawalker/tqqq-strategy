@@ -32,6 +32,11 @@ export async function proxy(request: NextRequest) {
   const session = secret ? await readSessionToken(cookie?.value, secret) : null;
 
   if (!secret || !session) {
+    // API callers parse JSON — a redirect to the HTML login page just surfaces
+    // as a confusing parse error in tabs left open past session expiry.
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
     const loginUrl = new URL("/login", request.url);
     return NextResponse.redirect(loginUrl);
   }

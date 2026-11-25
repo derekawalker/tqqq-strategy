@@ -117,7 +117,17 @@ function AppShellInner({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      const quotePromise = fetch("/api/quote").then((r) => r.json()).catch(() => null);
+      const quotePromise = fetch("/api/quote")
+        .then((r) => {
+          // Session expired while the tab/PWA sat open — the quote poll is the
+          // heartbeat, so send the user to log in rather than show stale data.
+          if (r.status === 401) {
+            window.location.assign("/login");
+            return null;
+          }
+          return r.json();
+        })
+        .catch(() => null);
       const trendPromise = fetch("/api/trend").then((r) => r.json()).catch(() => null);
 
       // Set price immediately when quote resolves — don't wait for trend.

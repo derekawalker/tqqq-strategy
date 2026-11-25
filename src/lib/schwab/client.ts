@@ -109,9 +109,7 @@ export async function getAccessToken(): Promise<string> {
   return tokens.accessToken;
 }
 
-/** Make an authenticated request to the Schwab API. */
-export async function schwabFetch(path: string, init?: RequestInit): Promise<Response> {
-  const token = await getAccessToken();
+function authedFetch(path: string, init: RequestInit | undefined, token: string): Promise<Response> {
   return fetch(`${BASE_URL}${path}`, {
     ...init,
     headers: {
@@ -120,4 +118,30 @@ export async function schwabFetch(path: string, init?: RequestInit): Promise<Res
       ...(init?.headers ?? {}),
     },
   });
+}
+
+/**
+ * A token that 401s before its stated expiry: prefer whatever is stored now
+ * (another instance may have refreshed, or a re-login replaced it), and only
+ * spend a refresh when the stored token is the one that just failed.
+ */
+async function replacementToken(failed: string): Promise<string> {
+  invalidateTokenCache();
+  const stored = await readTokens();
+  if (!stored) throw new Error("Not authenticated");
+  const tokens =
+    stored.accessToken !== failed && !isExpired(stored) ? stored : await refreshOnce(stored.refreshToken);
+  cacheToken(tokens);
+  return tokens.accessToken;
+}
+
+/** Make an authenticated request to the Schwab API, re-authenticating once on a 401. */
+export async function schwabFetch(path: string, init?: RequestInit): Promise<Response> {
+  const token = await getAccessToken();
+  const res = await authedFetch(path, init, token);
+  if (res.status !== 401) return res;
+  // Only retry when the body can safely be re-sent.
+  const body = init?.body;
+  if (body != null && typeof body !== "string") return res;
+  return authedFetch(path, init, await replacementToken(token));
 }

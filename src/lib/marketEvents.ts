@@ -18,9 +18,13 @@ export interface MarketEvent {
   label: string;
 }
 
-// Source: federalreserve.gov/monetarypolicy/fomccalendars.htm (verified 2026-07-02).
-// All 8 meetings/year are 2-day sessions; the date below is the decision day.
-export const FOMC_2026: MarketEvent[] = [
+// Source: federalreserve.gov/monetarypolicy/fomccalendars.htm (2026 verified
+// 2026-07-02; 2027 read 2026-11-25). All meetings are 2-day sessions; the date
+// below is the decision day. The revised 2027 calendar replaces December with
+// November and makes October a "Monetary Policy Strategy Meeting" — kept in
+// the list since a surprise there can still move IV. Re-check against the Fed
+// page: each date is tentative until confirmed at the preceding meeting.
+export const FOMC: MarketEvent[] = [
   { date: "2026-01-28", kind: "fomc", label: "FOMC decision" },
   { date: "2026-03-18", kind: "fomc", label: "FOMC decision" },
   { date: "2026-04-29", kind: "fomc", label: "FOMC decision" },
@@ -29,13 +33,20 @@ export const FOMC_2026: MarketEvent[] = [
   { date: "2026-09-16", kind: "fomc", label: "FOMC decision" },
   { date: "2026-10-28", kind: "fomc", label: "FOMC decision" },
   { date: "2026-12-09", kind: "fomc", label: "FOMC decision" },
+  { date: "2027-01-27", kind: "fomc", label: "FOMC decision" },
+  { date: "2027-03-17", kind: "fomc", label: "FOMC decision" },
+  { date: "2027-04-28", kind: "fomc", label: "FOMC decision" },
+  { date: "2027-06-09", kind: "fomc", label: "FOMC decision" },
+  { date: "2027-07-28", kind: "fomc", label: "FOMC decision" },
+  { date: "2027-09-15", kind: "fomc", label: "FOMC decision" },
+  { date: "2027-10-27", kind: "fomc", label: "FOMC strategy meeting" },
+  { date: "2027-11-17", kind: "fomc", label: "FOMC decision" },
 ];
 
-// Source: investing.com CPI economic calendar (verified 2026-07-02) — bls.gov
-// blocks automated fetches. Only Jan–Jul 2026 could be confirmed; add
-// Aug–Dec once published at bls.gov/schedule/news_release/cpi.htm (BLS
-// typically posts the full-year schedule well in advance).
-export const CPI_2026: MarketEvent[] = [
+// Source: bls.gov/schedule/news_release/cpi.htm (read 2026-11-25; Jan–Jul 2026
+// from investing.com, verified 2026-07-02). BLS only lists upcoming releases,
+// so Aug–Oct 2026 are omitted — they're past. 8:30 AM ET release.
+export const CPI: MarketEvent[] = [
   { date: "2026-01-13", kind: "cpi", label: "CPI release" },
   { date: "2026-02-13", kind: "cpi", label: "CPI release" },
   { date: "2026-03-11", kind: "cpi", label: "CPI release" },
@@ -43,11 +54,49 @@ export const CPI_2026: MarketEvent[] = [
   { date: "2026-05-12", kind: "cpi", label: "CPI release" },
   { date: "2026-06-10", kind: "cpi", label: "CPI release" },
   { date: "2026-07-14", kind: "cpi", label: "CPI release" },
+  { date: "2026-11-10", kind: "cpi", label: "CPI release" },
+  { date: "2026-12-10", kind: "cpi", label: "CPI release" },
+  { date: "2027-01-13", kind: "cpi", label: "CPI release" },
+  { date: "2027-02-11", kind: "cpi", label: "CPI release" },
+  { date: "2027-03-10", kind: "cpi", label: "CPI release" },
+  { date: "2027-04-13", kind: "cpi", label: "CPI release" },
+  { date: "2027-05-12", kind: "cpi", label: "CPI release" },
+  { date: "2027-06-10", kind: "cpi", label: "CPI release" },
+  { date: "2027-07-14", kind: "cpi", label: "CPI release" },
+  { date: "2027-08-11", kind: "cpi", label: "CPI release" },
+  { date: "2027-09-14", kind: "cpi", label: "CPI release" },
+  { date: "2027-10-14", kind: "cpi", label: "CPI release" },
+  { date: "2027-11-10", kind: "cpi", label: "CPI release" },
+  { date: "2027-12-10", kind: "cpi", label: "CPI release" },
 ];
 
-export const MARKET_EVENTS: MarketEvent[] = [...FOMC_2026, ...CPI_2026].sort((a, b) =>
+export const MARKET_EVENTS: MarketEvent[] = [...FOMC, ...CPI].sort((a, b) =>
   a.date.localeCompare(b.date),
 );
+
+/**
+ * True when any event kind has no dates left within `horizonDays` of `today`
+ * — i.e. the static list needs refreshing. Checked per kind, since one list
+ * running dry (CPI went silent for months in 2026) is the failure to catch.
+ */
+export function calendarNeedsRefresh(
+  events: MarketEvent[],
+  today: Date,
+  horizonDays = 45,
+): boolean {
+  const kinds: MarketEvent["kind"][] = ["fomc", "cpi"];
+  const horizonStr = toDateStr(new Date(today.getTime() + horizonDays * 86_400_000));
+  return kinds.some((kind) => {
+    const last = events.filter((e) => e.kind === kind).reduce((m, e) => (e.date > m ? e.date : m), "");
+    return last < horizonStr;
+  });
+}
+
+function toDateStr(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
 
 export interface UpcomingEvent extends MarketEvent {
   /** Calendar days from `today` to the event (0 = today). */

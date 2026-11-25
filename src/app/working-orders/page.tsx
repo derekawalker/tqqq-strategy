@@ -227,7 +227,7 @@ export default function WorkingOrdersPage() {
         if (res.ok) ok = true;
         else {
           const json = await res.json();
-          errors.push(`Cancel ${order.side}: ${json?.error?.message ?? "failed"}`);
+          errors.push(`Cancel ${order.side}: ${json?.error?.message ?? (typeof json?.error === "string" ? json.error : "failed")}`);
         }
       } catch {
         errors.push(`Cancel ${order.side}: Network error`);

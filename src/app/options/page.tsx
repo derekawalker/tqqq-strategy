@@ -46,7 +46,7 @@ import type { Level } from "@/lib/levels";
 import { estimateCallSale, estimatePutSale, type SaleEconomics } from "@/lib/optionYield";
 import { ivFor, IV_SCALE, DIV_YIELD } from "@/lib/volModel";
 import { ivRankGuidance, IV_RANK_GUIDANCE_LABEL } from "@/lib/ivRank";
-import { nextEvent, eventGuidance, MARKET_EVENTS } from "@/lib/marketEvents";
+import { nextEvent, eventGuidance, calendarNeedsRefresh, MARKET_EVENTS } from "@/lib/marketEvents";
 import { snapToListedStrike } from "@/lib/schwab/chains";
 
 // ── day change + sparkline banner ──────────────────────────────────────────
@@ -744,7 +744,17 @@ function IvRankBanner({ ivRank, loading }: { ivRank: number | null; loading: boo
 /** FOMC/CPI heads-up: TQQQ has no earnings, but its IV lives on these prints. */
 function EventCalendarBanner() {
   const upcoming = useMemo(() => nextEvent(MARKET_EVENTS, new Date()), []);
-  if (!upcoming) return null;
+  const stale = useMemo(() => calendarNeedsRefresh(MARKET_EVENTS, new Date()), []);
+  if (!upcoming) {
+    if (!stale) return null;
+    return (
+      <Alert color="gray" variant="light" icon={<IconAlertTriangle size={16} />}>
+        <Text size="xs" c="dimmed">
+          FOMC/CPI calendar is running out — add upcoming dates to src/lib/marketEvents.ts.
+        </Text>
+      </Alert>
+    );
+  }
   const when = upcoming.daysAway === 0 ? "today" : upcoming.daysAway === 1 ? "tomorrow" : `in ${upcoming.daysAway} days`;
   return (
     <Alert color="orange" variant="light" icon={<IconAlertTriangle size={16} />}>

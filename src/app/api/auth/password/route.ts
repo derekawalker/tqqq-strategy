@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash, timingSafeEqual } from "node:crypto";
 import {
   SESSION_COOKIE,
   SESSION_TTL_SECONDS,
@@ -9,6 +10,13 @@ import {
 const MAX_ATTEMPTS = 5;
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const FAIL_DELAY_MS = 500;
+
+/** Constant-time compare; hashing first makes the lengths equal. */
+function passwordMatches(given: unknown, expected: string | undefined): boolean {
+  if (typeof given !== "string" || !expected) return false;
+  const digest = (v: string) => createHash("sha256").update(v).digest();
+  return timingSafeEqual(digest(given), digest(expected));
+}
 
 // Module-level rate limiter — persists within a warm function instance
 const attempts = new Map<string, { count: number; resetAt: number }>();
@@ -44,9 +52,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { password } = await request.json();
+  const body = await request.json().catch(() => null);
+  const password: unknown = body?.password;
 
-  if (password !== process.env.APP_PASSWORD) {
+  if (!passwordMatches(password, process.env.APP_PASSWORD)) {
     // Record failed attempt
     const entry = attempts.get(ip) ?? { count: 0, resetAt: now + WINDOW_MS };
     entry.count += 1;
